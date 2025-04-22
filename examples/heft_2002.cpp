@@ -57,6 +57,27 @@ int main()
     scheduler.set_connect(7, 9, 11.f);
     scheduler.set_connect(8, 9, 13.f);
 
+    scheduler.communication_speed_matrix = {
+        {0, 1, 1},
+        {1, 0, 1},
+        {1, 1, 0}
+    };
+    scheduler.communication_cost_matrix_uma = {};
+    scheduler.communication_startup = {0, 0, 0};
+
+    //
+    // Compute sum of costs for each device
+    //
+    scheduler.summary_of_costs_each_device = {0, 0, 0};
+    for (uint proc = 0; proc < num_procs; proc++)
+    {
+        const float comm = scheduler.fn_get_inner_communication_cost(proc); // should be 0
+        for (uint tid = 0; tid < num_tasks; tid++)
+        {
+            scheduler.summary_of_costs_each_device[proc] += scheduler.computation_matrix[tid][proc] + comm;
+        }
+    }
+
     //
     // Schedule
     //
@@ -66,9 +87,13 @@ int main()
 
         scheduler.standardizing_dag();
 
-        scheduler.scheduler_dag(3);
+        scheduler.scheduler_dag();
         
-        // scheduler.make_wait_events(3); 
+        scheduler.print_proc_schedules();
+        
+        scheduler.print_speedups_to_each_device();
+        
+        // scheduler.make_wait_events(); 
 
         // scheduler.print_schedule_to_graph_xpbd();
     }

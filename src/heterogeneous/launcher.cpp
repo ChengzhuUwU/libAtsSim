@@ -229,7 +229,7 @@ void Scheduler::print_sort_by_typology(){
     if (!list_order.empty()) {
         std::cout << " \n ----------------------- \n  Topological order:\n";
         for (int tid : list_order) {
-            list_task[tid].print_with_cluster();
+            list_task[tid].print_with_cluster(tid);
             // std::cout << "    " << Launcher::taskNames.at(list_task[tid].func_id) << "\n";
         }
         std::cout << std::endl;
@@ -730,7 +730,7 @@ void Scheduler::launch(LaunchMode mode, const std::function<LaunchParam(const Ta
                         std::vector<double> prev_costs_from_cmd_buffer = get_command_list().wait_all_cmd_buffers_and_get_costs(get_kernel_time);
                     }
                     {
-                        imp.launch_task(task_to_param(task)); // task.print_with_cluster();
+                        imp.launch_task(task_to_param(task)); // task.print_with_cluster(tid);
                     }
                     prev_is_gpu = false; 
                 }  
@@ -859,7 +859,7 @@ void Scheduler::launch(LaunchMode mode, const std::function<LaunchParam(const Ta
                 auto& imp = task.get_implementation(Launcher::DeviceTypeGpu, find);
                 if (find) 
                 {
-                    imp.launch_task(task_to_param(task)); // task.print_with_cluster();
+                    imp.launch_task(task_to_param(task)); // task.print_with_cluster(tid);
                 }   
                 else
                 {
@@ -1116,7 +1116,7 @@ void Scheduler::launch(LaunchMode mode, const std::function<LaunchParam(const Ta
                     auto& imp = task.get_implementation(Launcher::DeviceTypeGpu, find);
                     if (find) 
                     {
-                        imp.launch_task(task_to_param(task)); // task.print_with_cluster();
+                        imp.launch_task(task_to_param(task)); // task.print_with_cluster(tid);
                     }   
                     else
                     {
@@ -1232,7 +1232,7 @@ void Scheduler::launch(LaunchMode mode, const std::function<LaunchParam(const Ta
                     auto& imp = task.get_implementation(Launcher::DeviceTypeGpu, find);
                     if (find){
                         // imp.launch_task({task.func_id, 0, task.num_threads, 256, 0, 0, true, false, true});
-                        imp.launch_task(task_to_param(task)); // task.print_with_cluster();
+                        imp.launch_task(task_to_param(task)); // task.print_with_cluster(tid);
                     }   
                     else{
                         fast_print_err("Does NOT Have GPU Implementation, Wrong Dispatch Logic");
@@ -1301,7 +1301,7 @@ void Scheduler::launch(LaunchMode mode, const std::function<LaunchParam(const Ta
                     bool find;
                     auto& imp = task.get_implementation(Launcher::DeviceTypeGpu, find);
                     if (find) {
-                        imp.launch_task(task_to_param(task)); // task.print_with_cluster();
+                        imp.launch_task(task_to_param(task)); // task.print_with_cluster(tid);
                     }   
                     else {
                         get_command_list().send_and_wait();
@@ -1331,7 +1331,7 @@ void Scheduler::launch(LaunchMode mode, const std::function<LaunchParam(const Ta
                     bool find;
                     auto& imp = task.get_implementation(Launcher::DeviceTypeCpu, find);
                     if (find) {
-                        imp.launch_task(task_to_param(task)); // task.print_with_cluster();
+                        imp.launch_task(task_to_param(task)); // task.print_with_cluster(tid);
                     }   
                     else {
                         fast_format_err("Empty CPU Implementation");
@@ -1378,9 +1378,9 @@ void Scheduler::launch(LaunchMode mode, const std::function<LaunchParam(const Ta
                     auto& task = list_task[tid];
                     bool find;
                     auto& imp = task.get_implementation(Launcher::DeviceTypeGpu, find);
-                    if(find){
+                    if (find){
                         // imp.launch_task({task.func_id, 0, task.num_threads, 256, 0, 0, true, false, true});
-                        if (print_task) task.print_with_cluster();
+                        if (print_task) task.print_with_cluster(tid);
                         imp.launch_task(task_to_param(task)); 
                     }   
                     else{
@@ -1489,7 +1489,7 @@ void Scheduler::launch(LaunchMode mode, const std::function<LaunchParam(const Ta
                 if(find) {
                     // Launcher::LaunchParam(task.func_id, 0, task.num_threads, 256, 0, 0, true, false).print();
                     // imp.launch_task({task.func_id, 0, task.num_threads, 256, 0, 0, true, false, true});
-                    if (print_task) task.print_with_cluster();
+                    if (print_task) task.print_with_cluster(tid);
                     imp.launch_task(task_to_param(task)); 
                 }   
                 else {
@@ -1944,7 +1944,8 @@ void Scheduler::standardizing_dag(const std::vector< std::function<void(const La
 
 #define USE_MERGED_TASK false
 
-void Scheduler::compute_ranku(uint num_procs){
+void Scheduler::compute_ranku(uint num_procs)
+{
 
     const uint num_tasks = list_task.size();
     if (num_tasks == 0) 
@@ -1964,21 +1965,23 @@ void Scheduler::compute_ranku(uint num_procs){
     /// Should be communication speed ? Cause the larger the speed, the less time use
     /// avgCommunicationCost = 1.0 in python_heft
     ///
-    const float avg_comm_startup = 0.f; // \hat{ L } is average latency time of all preocessors // 延迟
+    float avg_comm_startup = 0.f; // \hat{ L } is average latency time of all preocessors // 延迟
     float sum_communication_cost = 0.0; float sum_bandwidth = 0.0;
     for (uint proc1 = 0; proc1 < num_procs; proc1++) 
     {
+        avg_comm_startup += communication_startup[proc1];
         for (uint proc2 = 0; proc2 < num_procs; proc2++) 
         {
             if (proc1 != proc2) 
             {
-                sum_communication_cost += communication_cost_matrix_uma[proc1][proc2];
-                sum_bandwidth += communication_speed_matrix[proc1][proc2];
+                if (!communication_cost_matrix_uma.empty()) sum_communication_cost += communication_cost_matrix_uma[proc1][proc2];
+                if (!communication_speed_matrix.empty()) sum_bandwidth += communication_speed_matrix[proc1][proc2];
             }
         }
     }
-    // const float avgCommunicationCost = 1.0 + avg_comm_startup; // speed
-    const float avgCommunicationCost = sum_communication_cost / float(num_procs * (num_procs - 1));
+
+    const float avgCommunicationCost = 1.0 + avg_comm_startup; // speed
+    // const float avgCommunicationCost = sum_communication_cost / float(num_procs * (num_procs - 1));
     const float avgCommunicationBandWidth = sum_bandwidth / float(num_procs * (num_procs - 1));
     std::vector< std::vector<float> > list_avg_weight(num_tasks);
     for (uint tid = 0; tid < num_tasks; tid++) 
@@ -2089,7 +2092,6 @@ void Scheduler::compute_ranku(uint num_procs){
     {
         auto current_type = list_task[list_order_dfs[0]].constraint_idx;
         double current_time_sum = 0.0; std::vector<uint> curr_cluster; 
-        bool prev_is_brother = !list_task[list_order_dfs[0]].brothers.empty();
         bool prev_has_only_one_implementation = false;
 
         auto fn_insert_merged_task = [&]() {
@@ -2107,12 +2109,10 @@ void Scheduler::compute_ranku(uint num_procs){
         {
             const auto& task = list_task[tid];
             const auto curr_cost = list_avg_cost[tid];
-            const bool curr_is_brother = !task.brothers.empty();
             const bool curr_has_only_one_implementation = (task.list_implementation.size() < 2);
             const bool need_to_segment = (task.constraint_idx != current_type) 
                                       || (current_time_sum + curr_cost + average_communication_matrix_inner_device >= threshold_time) 
                                       || curr_has_only_one_implementation || prev_has_only_one_implementation
-                                      || (prev_is_brother != curr_is_brother)
                                       ; 
             if (need_to_segment)
             { 
@@ -2126,7 +2126,6 @@ void Scheduler::compute_ranku(uint num_procs){
                 curr_cluster.push_back(tid);
                 current_time_sum += curr_cost + average_communication_matrix_inner_device;
             }
-            prev_is_brother = curr_is_brother;
             prev_has_only_one_implementation = curr_has_only_one_implementation;
         } if (!curr_cluster.empty()) { fn_insert_merged_task(); }
     }
@@ -2138,20 +2137,12 @@ void Scheduler::compute_ranku(uint num_procs){
     
     // Fill-in Connections
     {
-        list_brothers_merged.resize(list_brothers.size());
-        list_brother_idx_belongs_merged.resize(num_tasks_merged, -1u);
-        list_brothers_interface_node_merged.resize(num_tasks_merged, std::make_pair(-1u, -1u));
-
         for (uint merged_tid = 0; merged_tid < list_task_merged.size(); merged_tid++) 
         {
             auto& merged_task = list_task_merged[merged_tid];
 
             std::set<uint> set_predecessors;
-            std::set<uint> set_successors;
-            std::set<uint> set_brothers; 
-            
-            bool is_brother_node = true;
-            uint brother_belong = -1u;
+            std::set<uint> set_successors;            
 
             std::map<uint, float> weight_map;
 
@@ -2180,62 +2171,12 @@ void Scheduler::compute_ranku(uint num_procs){
                             weight_map[merged_tid_succ] += curr_weight;
                     }
                 }
-
-                if (task.brothers.empty()) { is_brother_node = false; }
-                else 
-                {
-                    const uint curr_belong = list_brother_idx_belongs[tid];
-
-                    if (brother_belong == -1u)  {  brother_belong = curr_belong;  }
-                    else
-                    {
-                        if (curr_belong != brother_belong)
-                        {
-                            is_brother_node = false;
-                        }
-                    }
-
-                    for (const uint brot : task.brothers)    
-                    { 
-                        const uint merged_tid_brot = task_to_merged_task_map[brot]; 
-                        if (merged_tid_brot != merged_tid) {  set_brothers.insert(merged_tid_brot); } 
-                    }
-              
-                }
             }
             merged_task.predecessors.assign(set_predecessors.begin(), set_predecessors.end());
             merged_task.successors.assign(set_successors.begin(), set_successors.end());
             for (const uint succ : set_successors) { merged_task.weights.push_back(weight_map[succ]); }
 
-            if (is_brother_node && !set_brothers.empty())
-            {
-                merged_task.brothers.assign(set_brothers.begin(), set_brothers.end());
-                list_brothers_merged[brother_belong].push_back(merged_tid);
-            }
         } 
-        // Brothers
-        for (uint brotherIdx = 0; brotherIdx < list_brothers_merged.size(); brotherIdx++)
-        {
-            const auto& list = list_brothers_merged[brotherIdx];
-            for (const uint merged_idx : list)
-            {
-                list_brother_idx_belongs_merged[merged_idx] = brotherIdx;
-            }
-            if (!list.empty())
-            {
-                list_brothers_interface_node_merged[brotherIdx] = std::make_pair(list.front(), list.back());
-
-                // fast_format("  Merged Brothers {}  ", brotherIdx);
-                // for (const uint merged_idx : list)
-                // {
-                //     const auto& task = list_task_merged[merged_idx];
-                //     fast_format_single("       Tasks Merged TaskIdx {:2} : ", merged_idx);
-                //     for (const uint tid : task.tasks) { fast_print_single(taskNames.at(list_task[tid].func_id)); }
-                //     fast_print();
-                // }
-            }
-        }
-        
     } 
 
     // Check
@@ -2643,214 +2584,46 @@ void Scheduler::compute_ranku(uint num_procs){
         ranku[root_node] = inf; 
     }
     
-
 }
-
 #endif
 
-
-
-    
-    if (false) 
-    {
-        auto fn_is_constraint_node = [](const uint& constraint_idx)
-        {
-            return constraint_idx != -1u ; // && constraint_idx < NUM_CONSTRAINS;
-        };
-        // V2
-        std::vector< std::vector<std::pair<uint, double>> > list_ranku_per_constraint(NUM_CONSTRAINS);
-        std::vector< std::pair<double, double> > ranku_range_per_constraint(NUM_CONSTRAINS, {-1.0, -1.0});
-    #if USE_MERGED_TASK
-        const uint num_tasks_merged = list_task_merged.size();
-        for (uint tid = 0; tid < num_tasks_merged; tid++)
-        {
-            const auto& task = list_task_merged[tid];
-            const uint constraint_idx = task.constraint_idx;
-            if (fn_is_constraint_node(constraint_idx))
-                list_ranku_per_constraint[constraint_idx].push_back(std::make_pair(tid, ranku[tid]));
-        }
-    #else
-        for (uint tid = 0; tid < num_tasks; tid++)
-        {
-            const auto& task = list_task[tid];
-            const uint constraint_idx = task.constraint_idx;
-            if (fn_is_constraint_node(constraint_idx))
-                list_ranku_per_constraint[constraint_idx].push_back(std::make_pair(tid, ranku[tid]));
-        }
-    #endif
-        
-        for (uint constraint_idx = 0; constraint_idx < NUM_CONSTRAINS; constraint_idx++)
-        {
-            auto& list = list_ranku_per_constraint[constraint_idx];
-            if (list.empty())
-            {
-                // fast_format_err("There Is No Task In Constrains {}", constraint_idx);
-                continue;
-            }
-            std::sort(list.begin(), list.end(), [](const auto& left, const auto& right)
-            {
-                return left.second < right.second;
-            });
-
-            // fast_format("  Min ranku Task In constraint {} = {} ({}) (ranku = {})", constraint_idx, list.front().first, taskNames.at(list_task[list.front().first].func_id), list.front().second);
-
-            double min_ranku = list.front().second;
-            double max_ranku = list.back().second;
-            double range_ranku = max_ranku - min_ranku;
-            if (range_ranku < Epsilon)
-            {
-                fast_format_err("Range Of RankU In Constraint {} Is Lower Than Epsilon : {} , from {} to {}", 
-                    constraint_idx, range_ranku, min_ranku, max_ranku);
-                range_ranku = 1.0;
-                return;
-            }
-            std::pair<double, double> local_min_max_ranku = std::make_pair(min_ranku, max_ranku);
-            ranku_range_per_constraint[constraint_idx] = local_min_max_ranku; 
-        }     
-
-        std::pair<double, double> global_min_max_ranku = { inf, 0.0 };
-        for (const auto& local_min_max_ranku : ranku_range_per_constraint) 
-        {
-            if (local_min_max_ranku.first == -1.0) continue;
-            global_min_max_ranku.first  = min_scalar(global_min_max_ranku.first,  local_min_max_ranku.first);
-            global_min_max_ranku.second = max_scalar(global_min_max_ranku.second, local_min_max_ranku.second);
-        }
-
-
-        // Compute Local & Global Prefix
-        std::vector<double>                 global_ranku_prefix_per_sync(sync_count, 0.0);
-        std::vector< std::vector<double> >   local_ranku_prefix_per_sync(NUM_CONSTRAINS, std::vector<double>(sync_count, 0.0));
-        
-        for (uint constraint_idx = 0; constraint_idx < NUM_CONSTRAINS; constraint_idx++)
-        {
-            const std::pair<double, double>& local_min_max_ranku = ranku_range_per_constraint[constraint_idx];
-            if (local_min_max_ranku.first == 0.0) continue;
-            
-            const double local_range = local_min_max_ranku.second - local_min_max_ranku.first;
-            const double local_width_per_sync = local_range / double(sync_count);
-
-            // fast_format("  Local Min And Max Ranku = {} & {}", local_min_max_ranku.first, local_min_max_ranku.second);
-            for (uint sync_idx = 0; sync_idx < sync_count; sync_idx++) 
-            { 
-                local_ranku_prefix_per_sync[constraint_idx][sync_idx] = local_min_max_ranku.first + sync_idx * local_width_per_sync;
-                // fast_format("  Local Ranku Prefix of Constraint {} in Sync {} = {} ", constraint_idx, sync_idx, local_ranku_prefix_per_sync[constraint_idx][sync_idx]);
-            }
-        }
-        const double global_range = global_min_max_ranku.second - global_min_max_ranku.first;
-        const double global_width_per_sync = global_range / double(sync_count);
-        // fast_format("  Global Min And Max Ranku = {} & {}", global_min_max_ranku.first, global_min_max_ranku.second);
-        for (uint sync_idx = 0; sync_idx < sync_count; sync_idx++) 
-        {
-            global_ranku_prefix_per_sync[sync_idx] = global_min_max_ranku.first + sync_idx * global_width_per_sync;
-            // fast_format("  Global Ranku Prefix in Sync {} = {} ", sync_idx, global_ranku_prefix_per_sync[sync_idx]);
-        }
-        
-    #if USE_MERGED_TASK
-        // Re-Calculate Rank-U Besed On Its SyncIdx
-        for (uint tid = 0; tid < num_tasks_merged; tid++)
-        {
-            const auto& task = list_task_merged[tid];
-            const uint constraint_idx = task.constraint_idx;
-            if (fn_is_constraint_node(constraint_idx))
-            {
-                const double curr_ranku = ranku[tid];
-                const auto& curr_constraint_min_max_ranku = ranku_range_per_constraint[constraint_idx];
-                double normed_ranku = (curr_ranku - curr_constraint_min_max_ranku.first) / (curr_constraint_min_max_ranku.second - curr_constraint_min_max_ranku.first);
-                uint sync_idx = sync_count * normed_ranku;
-                double local_prefix = local_ranku_prefix_per_sync[constraint_idx][sync_idx];
-                double global_prefix = global_ranku_prefix_per_sync[sync_idx];
-                double local_offset = curr_ranku - local_prefix ;
-                double new_ranku = global_prefix + local_offset;
-                ranku[tid] = new_ranku;
-            }
-        }
-    #else
-        // Re-Calculate Rank-U Besed On Its SyncIdx
-        for (uint tid = 0; tid < num_tasks; tid++)
-        {
-            const auto& task = list_task[tid];
-            const uint constraint_idx = task.constraint_idx;
-            if (fn_is_constraint_node(constraint_idx))
-            {
-                const double curr_ranku = ranku[tid];
-                const auto& curr_constraint_min_max_ranku = ranku_range_per_constraint[constraint_idx];
-                double normed_ranku = (curr_ranku - curr_constraint_min_max_ranku.first) / (curr_constraint_min_max_ranku.second - curr_constraint_min_max_ranku.first + 0.1);
-                uint sync_idx = sync_count * normed_ranku;
-                double local_prefix = local_ranku_prefix_per_sync[constraint_idx][sync_idx];
-                double global_prefix = global_ranku_prefix_per_sync[sync_idx];
-                double local_offset = curr_ranku - local_prefix ;
-                double new_ranku = global_prefix + local_offset;
-                ranku[tid] = new_ranku;
-            }
-        }
-        // Re-Fill The Previous Task
-        for (uint i = 1; i < num_tasks; i++) 
-        {
-            const uint node = list_order[num_tasks - 1 - i];
-            const auto& task = list_task[node];
-            const uint constraint_idx = task.constraint_idx;
-            if (!fn_is_constraint_node(constraint_idx)) // Skip Re-Sized Task
-            {
-                if (metric == RankMetric::RankMetricMEAN) 
-                {
-                    double max_successor_ranku = -1.0f;
-                    for (uint j = 0; j < list_task[node].successors.size(); j++) 
-                    {
-                        uint succnode = list_task[node].successors[j];
-                        double val = list_avg_weight[node][j] + ranku[succnode];
-                        max_successor_ranku = max_scalar(max_successor_ranku, val);
-                    }
-
-                    // fast_format("    Remap Task {} 's Ranku From {} => {}", taskNames.at(task.func_id), ranku[node], fn_compute_avg_cost(node) + max_successor_ranku);
-                    
-                    if (max_successor_ranku < 0.f) std::cerr << "Expected maximum successor ranku to be greater or equal to 0 but was {" << max_successor_ranku << "}\n";
-                    ranku[node] = fn_compute_avg_cost(node) + max_successor_ranku;
-                } 
-            }
-        }
-        ranku[root_node] = inf; 
-    #endif
-    }
-
-    // for (uint tid = 0; tid < num_tasks; tid++) {
-    //     auto& task = list_task[tid];
-    //     std::cout << tid << " : ranku = " << ranku[tid] << " , name " << Launcher::taskNames.at(task.func_id) << " \n";
-    // }
-
 }
 
-ScheduleEvent fn_get_eft_in_processor(const uint proc, const std::vector<ScheduleEvent>& copy_proc_schedules, 
+ScheduleEvent fn_get_eft_in_processor(const uint proc, const std::vector<ScheduleEvent>& proc_schedule, 
     const float node, const float ready_time, 
     const float computation_time, const float communication_time_inner_device) 
 {
-    for (uint idx = 0; idx < copy_proc_schedules.size(); ++idx) 
+    for (uint idx = 0; idx < proc_schedule.size(); ++idx) 
     {
-        const ScheduleEvent& prev_job = copy_proc_schedules[idx];
+        const ScheduleEvent& prev_job = proc_schedule[idx];
         if (idx == 0) 
         {
             if (prev_job.start > ready_time + computation_time + communication_time_inner_device) 
             {
                 float job_start = ready_time;
+                // if (job_start >= inf || computation_time >= inf) { fast_format_err("1 Make inf {} -> {} + {}, ready_time = {}", job_start, job_start, computation_time, ready_time); prev_job.print(); }
                 return ScheduleEvent(node, proc, job_start, job_start + computation_time); // EFT = EST + w_ij, Where w_ij is Computation Cost of Task i in Prosessor j
             }
         } 
-        if (idx == copy_proc_schedules.size() - 1) 
+        if (idx == proc_schedule.size() - 1) 
         {
             float job_start = max_scalar(ready_time, prev_job.end + communication_time_inner_device);
+            // if (job_start >= inf || computation_time >= inf) { fast_format_err("2 Make inf {} -> {} + {}, ready_time = {}", job_start, job_start, computation_time, ready_time); prev_job.print(); }
             return ScheduleEvent(node, proc, job_start, job_start + computation_time);
         } 
         else 
         {
-            const ScheduleEvent& next_job = copy_proc_schedules[idx + 1];
+            const ScheduleEvent& next_job = proc_schedule[idx + 1];
             float slot_size = next_job.start - max_scalar(ready_time, prev_job.end + communication_time_inner_device);
             if (slot_size > computation_time) 
             {
                 float job_start = max_scalar(ready_time, prev_job.end + communication_time_inner_device);
+                // if (job_start >= inf || computation_time >= inf) { fast_format_err("3 Make inf {} -> {} + {}, ready_time = {}", job_start, job_start, computation_time, ready_time); prev_job.print(); }
                 return ScheduleEvent(node, proc, job_start, job_start + computation_time);
             }
         }
     }
-    if (ready_time >= inf || computation_time >= inf) { fast_print_err("Make inf inf computing EFT...", computation_time); }
+    // if (ready_time >= inf || computation_time >= inf) { fast_format_err("4 Make inf {} -> {} + {}", ready_time, ready_time, computation_time);  }
     return ScheduleEvent(node, proc, ready_time, ready_time + computation_time);
 };
 void insertAndMergeTask(std::vector<ScheduleEvent>& proc_schedules, const ScheduleEvent& new_task) 
@@ -2883,7 +2656,7 @@ void insertAndMergeTask(std::vector<ScheduleEvent>& proc_schedules, const Schedu
     );
 };
 
-ScheduleEvent Scheduler::_compute_eft(uint node, uint proc, bool is_uniform_memory_architecture){
+ScheduleEvent Scheduler::_compute_eft(uint node, uint proc){
 
     // const float weight = 0.f;
     float ready_time = 0;
@@ -2908,9 +2681,8 @@ ScheduleEvent Scheduler::_compute_eft(uint node, uint proc, bool is_uniform_memo
 
         /// 5.03124 : 4.96319 & 5.06651
         /// 4.93648 : 4.90397 & 5.09523
-        if(weight == 0.f) comm_cost = 0.f;
-        else comm_cost = is_uniform_memory_architecture ? communication_cost_matrix_uma[pred_job.proc][proc] : weight / comm_speed;
-        // else comm_cost = is_uniform_memory_architecture ? 0 : weight / comm_speed;
+        if (weight == 0.f) comm_cost = 0.f;
+        else comm_cost = fn_get_communication_cost(proc, pred_node, node);
 
         float ready_time_t;
         if (comm_speed == 0) {
@@ -2957,14 +2729,44 @@ ScheduleEvent Scheduler::_compute_eft(uint node, uint proc, bool is_uniform_memo
     /// If the loop completes without finding a suitable slot, schedule the job after the last job
     return ScheduleEvent(node, proc, ready_time, ready_time + computation_time);
 }
-ScheduleEvent Scheduler::_compute_eft_extend(uint node, uint proc, bool is_uniform_memory_architecture){
 
+
+float Scheduler::fn_get_communication_cost(const uint proc, const uint pred_node, const uint input_node)
+{
+    const auto& pred_task = list_task[pred_node];
+    const ScheduleEvent& pred_job = task_schedules[pred_node];
+
+    // 找到本节点在前置节点的偏移量
+    uint offset;
+    auto find = std::find(pred_task.successors.begin(), pred_task.successors.end(), input_node);
+    if (find == pred_task.successors.end())  { fast_format_err("Can NOT Find Current Task ({}) In Pred's ({}) Succ", taskNames.at(list_task[input_node].func_id), taskNames.at(pred_task.func_id)); exit(0); }
+    else                                    { offset = find - pred_task.successors.begin(); }
+
+    float weight = pred_task.list_weight[offset];
+    float comm_cost = weight == 0.f ? 0.f 
+                                   : !communication_cost_matrix_uma.empty() ? communication_cost_matrix_uma[pred_job.proc][proc] 
+                                   : pred_job.proc == proc ? communication_speed_matrix[pred_job.proc][proc] : weight / communication_speed_matrix[pred_job.proc][proc];
+    // if (comm_cost >= inf) 
+    // {
+    //     fast_format_err("Get inf in comm_cost : {} -> {} , weight = {}", pred_node, input_node, weight);
+    //     fast_print("communication_cost_matrix_uma"); for (const auto& list : communication_cost_matrix_uma) { for (const auto& comm : list) { fast_print_single(comm); } } fast_print();
+    //     fast_print("communication_speed_matrix"); for (const auto& list : communication_speed_matrix) { for (const auto& comm : list) { fast_print_single(comm); } } fast_print();
+    // }
+    return comm_cost;
+};
+float Scheduler::fn_get_inner_communication_cost(const uint proc)
+{
+    return !communication_cost_matrix_uma.empty() ? communication_cost_matrix_uma[proc][proc] : communication_speed_matrix[proc][proc];
+}
+ScheduleEvent Scheduler::_compute_eft_extend(uint node, uint proc)
+{
     float ready_time = 0; // T_Available
     const auto& task = list_task[node];
     const float computation_time = computation_matrix[node][proc];
-    const float communication_time_inner_device = communication_cost_matrix_uma[proc][proc];
+    const float communication_time_inner_device = fn_get_inner_communication_cost(proc);
 
     constexpr float reflection_rate = 1;
+
 #if false // Does Not Work...
     const bool use_refliction_computation_time = false; 
     if constexpr (use_refliction_computation_time)
@@ -2994,91 +2796,43 @@ ScheduleEvent Scheduler::_compute_eft_extend(uint node, uint proc, bool is_unifo
     }
 #endif
 
-    auto fn_update_ready_time_from_pred_of = [&](const uint pred_node, const uint input_node)
+    auto fn_get_ready_time_from_pred = [&](const uint pred_node, const uint input_node)
     {
-        const auto& pred_task = list_task[pred_node];
         const ScheduleEvent& pred_job = task_schedules[pred_node];
-        const float comm_speed = communication_speed_matrix[pred_job.proc][proc];
 
-        // 找到本节点在前置节点的偏移量
-        uint offset;
-        auto find = std::find(pred_task.successors.begin(), pred_task.successors.end(), input_node);
-        if (find == pred_task.successors.end())  { fast_format_err("Can NOT Find Current Task ({}) In Pred's ({}) Succ", taskNames.at(task.func_id), taskNames.at(pred_task.func_id)); exit(0); }
-        else                                     { offset = find - pred_task.successors.begin(); }
-
-        float weight = pred_task.list_weight[offset];
-        float comm_cost = weight == 0.f ? 0.f 
-                                        : is_uniform_memory_architecture ? communication_cost_matrix_uma[pred_job.proc][proc] 
-                                                                        : weight / comm_speed;
+        float comm_cost = fn_get_communication_cost(proc, pred_node, input_node);
 
         float ready_time_t = 
                         //    comm_speed == 0 ? pred_job.end              // 设备不变
                         //                      : 
                                             pred_job.end + comm_cost; // 加上通信成本
-        
-        // EST(n_i, p_j) = max{ T_available, max( AFT(n_m) + c_mi) } , p_j in Processors, n_m in Predecessors of n_i
-        ready_time = max_scalar(ready_time, ready_time_t);
+        return ready_time_t;
     };
 
-    // const bool prev_is_brother = std::find(task.brothers.begin(), task.brothers.end(), pred_node) == task.brothers.end();
-    // if (prev_is_brother) { continue; }
-
-    const uint brother_belongs = list_brother_idx_belongs[node];
-    const bool is_brother_node = brother_belongs != -1u;   
-    // if (is_brother_node) 
-    // {
-    //     const uint first_tid = list_brothers_interface_node[brother_belongs].first;
-    //     const auto& first_task = list_task[first_tid];
-    //     for (const uint& pred_node : first_task.predecessors) 
-    //     {
-    //         fn_update_ready_time_from_pred_of(pred_node, first_tid);
-    //     }
-    // }
     // else 
     {
         // Can not ealier than its predecessors => Same as original plan
         for (const uint& pred_node : task.predecessors) 
         {
-            fn_update_ready_time_from_pred_of(pred_node, node);
+            // EST(n_i, p_j) = max{ T_available, max( AFT(n_m) + c_mi) } , p_j in Processors, n_m in Predecessors of n_i
+            float ready_time_t = fn_get_ready_time_from_pred(pred_node, node);
+            ready_time = std::max(ready_time, ready_time_t);
         }
     }
     
-    ListSchedule copy_proc_schedules = proc_schedules[proc];
-
-    // Brothers
-    // if (!task.brothers.empty())
-    if (is_brother_node)
-    {
-        // std::vector< std::pair<float, float> > list_illigal_region = { std::make_pair(0, ready_time) };
-        std::vector< std::pair<float, float> > list_illigal_region;
-        for (const uint& bro_node : task.brothers) 
-        {
-            const ScheduleEvent& bro_job = task_schedules[bro_node];
-            // if (bro_job.start != 0) 
-            if (bro_job.end > ready_time) 
-            {
-                if (bro_job.proc != proc) // If bro_job.proc == proc, then i has been add to 'proc_schedules[proc]'
-                {
-                    float curr_to_bro = communication_cost_matrix_uma[proc][bro_job.proc];
-                    float bro_to_curr = communication_cost_matrix_uma[bro_job.proc][proc];
-                    float bg = max_scalar(ready_time, bro_job.start - curr_to_bro);
-                    float ed = bro_job.end + bro_to_curr;
-
-                    insertAndMergeTask(copy_proc_schedules, ScheduleEvent(bro_job.task_id, proc, bg, ed));
-                }
-            }
-        }
-    }
-
-    return fn_get_eft_in_processor(proc, copy_proc_schedules, node, ready_time, computation_time, communication_time_inner_device);
+    // ListSchedule copy_proc_schedules = proc_schedules[proc];
+    // fast_format("Task schedule of node {}, proc = {} , proc_schedule_size = {}, ready_time = {}, computation_time = {}, communication_time_inner_device = {}, eft = {}", 
+    //     node, proc, proc_schedules[proc].size(), ready_time, computation_time, communication_time_inner_device, fn_get_eft_in_processor(proc, proc_schedules[proc], node, ready_time, computation_time, communication_time_inner_device).end);
+    return fn_get_eft_in_processor(proc, proc_schedules[proc], node, ready_time, computation_time, communication_time_inner_device);
 
 }
-ScheduleEvent Scheduler::_compute_eft_merged(uint node, uint proc, bool is_uniform_memory_architecture){
+ScheduleEvent Scheduler::_compute_eft_merged(uint node, uint proc)
+{
 
     float ready_time = 0; // T_Available
     const auto& task = list_task_merged[node];
     const float computation_time = task.costs[proc];
-    const float communication_time_inner_device = communication_cost_matrix_uma[proc][proc];
+    const float communication_time_inner_device = fn_get_inner_communication_cost(proc);
 
     auto fn_update_ready_time_from_pred_of = [&](const uint pred_node, const uint input_node)
     {
@@ -3093,24 +2847,12 @@ ScheduleEvent Scheduler::_compute_eft_merged(uint node, uint proc, bool is_unifo
 
         float weight = pred_task.weights[offset];
         float comm_cost = weight == 0.f ? 0.f 
-                                        : is_uniform_memory_architecture ? communication_cost_matrix_uma[pred_job.proc][proc] 
-                                                                        : weight / comm_speed;
+                                        : !communication_cost_matrix_uma.empty() ? communication_cost_matrix_uma[pred_job.proc][proc] 
+                                                                                 : weight / comm_speed;
         float ready_time_t = pred_job.end + comm_cost; // 加上通信成本
         ready_time = max_scalar(ready_time, ready_time_t);
     };
 
-    const uint brother_belongs = list_brother_idx_belongs_merged[node];
-    const bool is_brother_node = brother_belongs != -1u;   
-    if (is_brother_node) 
-    {
-        const uint first_tid = list_brothers_interface_node_merged[brother_belongs].first;
-        const auto& first_task = list_task_merged[first_tid];
-        for (const uint& pred_node : first_task.predecessors) 
-        {
-            fn_update_ready_time_from_pred_of(pred_node, first_tid);
-        }
-    }
-    else 
     {
         for (const uint& pred_node : task.predecessors) 
         {
@@ -3120,45 +2862,14 @@ ScheduleEvent Scheduler::_compute_eft_merged(uint node, uint proc, bool is_unifo
 
     ListSchedule copy_proc_schedules = proc_schedules_merged[proc];
 
-    if (is_brother_node)
-    {
-        std::vector< std::pair<float, float> > list_illigal_region;
-        for (const uint& bro_node : task.brothers) 
-        {
-            const ScheduleEvent& bro_job = task_schedules_merged[bro_node];
-            if (bro_job.end > ready_time) 
-            {
-                if (bro_job.proc != proc) 
-                {
-                    float curr_to_bro = communication_cost_matrix_uma[proc][bro_job.proc];
-                    float bro_to_curr = communication_cost_matrix_uma[bro_job.proc][proc];
-                    float bg = max_scalar(ready_time, bro_job.start - curr_to_bro);
-                    float ed = bro_job.end + bro_to_curr;
-                    insertAndMergeTask(copy_proc_schedules, ScheduleEvent(bro_job.task_id, proc, bg, ed));
-                }
-            }
-        }
-    }
-
     return fn_get_eft_in_processor(proc, copy_proc_schedules, node, ready_time, computation_time, communication_time_inner_device);
 
 }
 
-void Scheduler::scheduler_dag(uint num_procs, bool is_uniform_memory_architecture) 
+void Scheduler::scheduler_dag() 
 {
-    list_brother_idx_belongs.resize(list_task.size(), -1u);
-    list_brothers_interface_node.resize(list_brothers.size(), std::make_pair(-1u, -1u));
-    for (uint brother_cluster_idx = 0; brother_cluster_idx < list_brothers.size(); brother_cluster_idx++) 
-    {   
-        const auto& list = list_brothers[brother_cluster_idx];
-        for (const uint tid : list)
-        {
-            list_brother_idx_belongs[tid] = brother_cluster_idx;
-        }
-        list_brothers_interface_node[brother_cluster_idx].first = list[0];
-        list_brothers_interface_node[brother_cluster_idx].second = list.back();
-    }
-
+    const uint num_procs = communication_startup.size();
+    
 #if USE_MERGED_TASK
     const uint num_tasks = list_task.size();
     
@@ -3373,13 +3084,13 @@ void Scheduler::scheduler_dag(uint num_procs, bool is_uniform_memory_architectur
 
         if (op_mode == OpMode::OpModeEFT){
             for (uint proc = 0; proc < num_procs; ++proc) {
-                // ScheduleEvent taskschedule = _compute_eft(node, proc, is_uniform_memory_architecture);
-                ScheduleEvent taskschedule = _compute_eft_extend(node, proc, is_uniform_memory_architecture);
+                // ScheduleEvent taskschedule = _compute_eft(node, proc);
+                ScheduleEvent taskschedule = _compute_eft_extend(node, proc);
 
                 /// For node 0 on processor 0, the EFT is ScheduleEvent(task=0, start=0, end=14, proc=0)
                 /// For node 0 on processor 1, the EFT is ScheduleEvent(task=0, start=0, end=16, proc=1)
                 /// For node 0 on processor 2, the EFT is ScheduleEvent(task=0, start=0, end=9, proc=2)
-                // taskschedule.print();
+                taskschedule.print();
                 if (taskschedule.start >= inf) {
                     fast_print_err("Make Inf...");
                     return;
@@ -3458,7 +3169,11 @@ void Scheduler::scheduler_dag(uint num_procs, bool is_uniform_memory_architectur
 
 #endif
 
+    //
+    // Post processing: Add communication between iteractive tasks
+    //
     // if constexpr (false)
+    if (!constraint_task_orders.empty() && !communication_cost_matrix_uma.empty()) // For iteration tasks, make additional connections
     {
         auto fn_is_cloth_task = [](const Task& task)
         {
@@ -3826,100 +3541,19 @@ void Scheduler::scheduler_dag(uint num_procs, bool is_uniform_memory_architectur
     }
     
 }
-void Scheduler::make_wait_events(uint num_procs){
-
+void Scheduler::make_wait_events()
+{
+    uint num_procs = communication_startup.size();
     // scheduler_shared_event = get_device()->newSharedEvent();
 
-    if(num_procs != 2){
-        fast_print_err("Sorry for the Unsuported Number of Processors, \
-            Our Algorism Now Can ONLY Handle the Case of Two Processors");
-        num_procs = 2;
+    if (num_procs != 2){
+        fast_print_err("Sorry for the unsuported number of processors, \
+            we only considering the transport between CPU and GPU");
+        return;
+        // num_procs = 2;
     }
     
     const uint num_tasks = list_task.size();
-    
-#if BROTHER_CONNECTION_RALATIONSHIP == 2
-
-    //
-    // Brothers : Re-Add Connection Between Brothers
-    //
-    for (std::vector<uint>& list : list_brothers) 
-    {
-        std::sort(list.begin(), list.end(), [&](const uint& left, const uint& right)
-        {
-            return task_schedules[left].start < task_schedules[right].start;
-        });
-        const uint first_tid = list[0];
-        if (list_task[first_tid].predecessors.size() != 1 || list_task[first_tid].successors.size() != 1)
-        {
-            fast_print_err(
-                std::format("Brother Task Connection Is Illigal, Task {} Have Over 1 Pred / Succ", 
-                taskNames.at(list_task[first_tid].func_id)));
-            fast_print("Its Pred : ");
-            for (const auto& pred : list_task[first_tid].predecessors) fast_print("    ", taskNames.at(list_task[pred].func_id));
-            fast_print("Its Succ : ");
-            for (const auto& succ : list_task[first_tid].successors) fast_print("    ", taskNames.at(list_task[succ].func_id));
-            fast_print();
-            return;
-        }
-        const uint pred_task = list_task[first_tid].predecessors[0];
-        const uint succ_task = list_task[first_tid].successors[0];
-        // fast_print("Reset Connection Of ", taskNames.at(func_name));
-        // Delete Old Connection
-
-        std::map<uint, float> weight_map;
-        weight_map[pred_task] = list_task[pred_task].list_weight[0];
-        
-        for (const uint& tid : list) 
-        {
-            // weight_map[pred_task] = delete_connect(pred_task, tid);
-            weight_map[tid] = delete_connect(tid, succ_task);
-        }
-        // New Connection
-        set_connect(pred_task, list[0], weight_map[pred_task]);
-        for (uint i = 0; i < list.size() - 1; i++) 
-        {
-            // std::cout << std::format("[{}->{}]", list_task[list[i]].cluster_idx, list_task[list[i + 1]].cluster_idx);
-            set_connect(list[i], list[i + 1], weight_map[list[i]]);
-        }
-        // fast_print();
-        set_connect(list.back(), succ_task, weight_map[list.back()]);
-    }
-
-#elif BROTHER_CONNECTION_RALATIONSHIP == 3
-
-    // for (uint brother_cluster_idx = 0; brother_cluster_idx < list_brothers.size(); brother_cluster_idx++) 
-    // {   
-    //     auto& list = list_brothers[brother_cluster_idx];
-
-    //     const uint orig_first_tid = list.front();
-    //     const uint orig_last_tid = list.back();
-    //     const auto& pred_tasks = list_task[orig_first_tid].predecessors;
-    //     const auto& succ_tasks = list_task[orig_last_tid].successors;
-
-    //     std::map<uint, float> weight_map;
-    //     for (uint i = 0; i < list.size() - 1; i++) 
-    //     {
-    //         weight_map[list[i]] = delete_connect(list[i], list[i + 1]);
-    //     }
-
-    //     std::sort(list.begin(), list.end(), [&](const uint& left, const uint& right)
-    //     {
-    //         return task_schedules[left].start < task_schedules[right].start;
-    //     });
-        
-    //     const uint curr_first_tid = list.front();
-    //     const uint curr_last_tid = list.back();
-    //     if (curr_first_tid != orig_first_tid)  {  for (const uint pred : pred_tasks) { float weight = delete_connect(pred, orig_first_tid); set_connect(pred, curr_first_tid, weight); } }
-    //     if (curr_last_tid != orig_last_tid)    {  for (const uint succ : succ_tasks) { float weight = delete_connect(orig_last_tid, succ);  set_connect(curr_last_tid, succ, weight); } }
-
-    //     for (uint i = 0; i < list.size() - 1; i++) 
-    //     {
-    //         set_connect(list[i], list[i + 1], weight_map[list[i]]);
-    //     }
-    // }
-
-#endif
 
     ///
     /// Given the Scheduled List, How to Launch These Task on CPU/GPU
@@ -3943,11 +3577,12 @@ void Scheduler::make_wait_events(uint num_procs){
 
     std::vector< std::vector<uint> > list_signal(num_procs);
     std::vector< std::vector<uint> > list_wait(num_procs);
-    
-    list_wait[0].resize(proc_schedules[0].size(), -1u);
-    list_wait[1].resize(proc_schedules[1].size(), -1u);
-    list_signal[0].resize(proc_schedules[0].size(), -1u);
-    list_signal[1].resize(proc_schedules[1].size(), -1u);
+    for (uint proc = 0; proc < num_procs; proc++) 
+    { 
+        const uint num_tasks_allocated_to_proc = proc_schedules[proc].size();
+        list_wait[proc].resize(num_tasks_allocated_to_proc, -1u);
+        list_signal[proc].resize(num_tasks_allocated_to_proc, -1u);
+    }
 
     // fast_format("CPU Size = {} , GPU Size = {}", proc_schedules[0].size(), proc_schedules[1].size());
 
@@ -3956,22 +3591,21 @@ void Scheduler::make_wait_events(uint num_procs){
     ///
     /// 区分任务间的依赖 : 任务需要等待/signal
     ///
-    if(print_events) 
+    if (print_events) 
         fast_print("\n------ Original Waiting & Signal Events ------\n");
 
-    for(uint proc = 0; proc < num_procs; proc++){
+    for (uint proc = 0; proc < num_procs; proc++){
 
-        if(print_events) fast_print("Proc", proc);
+        if (print_events) fast_print("Proc", proc);
 
         const ListSchedule& proc_schedule = proc_schedules[proc];
         std::vector<uint>& to_wait = list_wait[proc];
-        std::vector<uint>& to_signal = list_signal[1 - proc];
 
         std::vector< uint > list_waited_offsets;
 
-        for (uint i = 0; i < proc_schedule.size(); i++) {
+        for (uint offset = 0; offset < proc_schedule.size(); offset++) {
 
-            const ScheduleEvent& job = proc_schedule[i];
+            const ScheduleEvent& job = proc_schedule[offset];
             uint tid = job.task_id;
             auto& task = list_task[tid];
             const ListTask& preds = task.predecessors;
@@ -3980,13 +3614,13 @@ void Scheduler::make_wait_events(uint num_procs){
             float last_pred_time = 0.f;
             for (const auto& pred: preds) {
                 bool in_anot_queue = proc_belongs[pred].proc != proc;
-                if(in_anot_queue){
+                if (in_anot_queue){
                     const ScheduleEvent& pred_job = task_schedules[pred];
-                    if(pred_job.end > last_pred_time){
+                    if (pred_job.end > last_pred_time){
                         
                         last_pred_time = pred_job.end;
                         pred_offset = proc_belongs[pred].offset;
-                        if(pred_job.end > job.start){
+                        if (pred_job.end > job.start){
                             fast_print_err(std::format("Scheduling Result Miss Relying Relationship at tid {} -> {} ( Job Name : {} -> {}, Time : [{} -> {}] and [{} -> {}] )", 
                                 pred, tid, 
                                 taskNames.at(list_task[pred_job.task_id].func_id), taskNames.at(task.func_id), 
@@ -3998,16 +3632,16 @@ void Scheduler::make_wait_events(uint num_procs){
             if (pred_offset != -1u) {
                 /// 一个task的signal可能被多个任务使用, 则按照最小的即可
                 /// 到时候画图的时候可以把多种依赖关系都贴上去, 一对多, 多对一, cpu/gpu,gpu/cpu
+                std::vector<uint>& to_signal = list_signal[1 - proc];
                 uint target_signal = to_signal[pred_offset];
-                if(target_signal == -1){ /// 如果没有被signal过
+                if (target_signal == -1) { /// 如果没有被signal过
                     bool is_redundant_wait = false;
-                    for(const auto& waited_offset : list_waited_offsets){
-                        if(waited_offset >= pred_offset){
-                            if(print_events){
-                                std::cout << "Drop Redundant Wait : " << i << " Wait for " << pred_offset 
+                    for (const auto& waited_offset : list_waited_offsets){
+                        if (waited_offset >= pred_offset){
+                            if (print_events) {
+                                std::cout << "Drop Redundant Wait : " << offset << " Wait for " << pred_offset 
                                     << " , Already Exists : " << waited_offset << std::endl;
                             }
-                            
                             // uint pred = proc_schedules[1 - proc][pred_offset].task_id;
                             // uint waited_pred = proc_schedules[1 - proc][waited_offset].task_id;
                             // std::cout << "Drop Redundant Wait : " << i << " (" << Launcher::taskNames.at(task.func_id) 
@@ -4017,9 +3651,9 @@ void Scheduler::make_wait_events(uint num_procs){
                             break;
                         }
                     }
-                    if(!is_redundant_wait){
-                        to_wait[i] = pred_offset; 
-                        to_signal[pred_offset] = i; /// 它要signal我
+                    if (!is_redundant_wait) {
+                        to_wait[offset] = pred_offset; 
+                        to_signal[pred_offset] = offset; /// 它要signal我
 
                         // if(tid == 51){
                         //     fast_print("-----Find CheckHealthy-----", pred_offset, last_pred_time);
@@ -4036,7 +3670,7 @@ void Scheduler::make_wait_events(uint num_procs){
                         // std::cout << "   " << i << " Wait for "  << pred_offset << " , Task " << Launcher::taskNames.at(task.func_id) 
                         //     << " Rely on " << Launcher::taskNames.at(pred_task.func_id) << std::endl;
                         if(print_events) 
-                            std::cout << "   " << i << " Wait for "  << pred_offset << std::endl;
+                            std::cout << "   " << offset << " Wait for "  << pred_offset << std::endl;
                     }
 
                 }
@@ -4069,7 +3703,7 @@ void Scheduler::make_wait_events(uint num_procs){
     
     if(print_events)
         fast_print("\n------ Making Events From Waiting&Signal Flags ------\n");
-    for (uint proc = 0; proc < 2; proc++) {
+    for (uint proc = 0; proc < num_procs; proc++) {
 
         if(print_events)
             fast_print("For Processor", proc);
@@ -4173,22 +3807,21 @@ void Scheduler::make_wait_events(uint num_procs){
     //     }
     // }
 
-    if(print_events)
+    if (print_events)
         fast_print("\n------ Change the Signal to CommitIdx ------\n");
-    for (uint proc = 0; proc < num_procs; proc++) {
-        if(print_events) 
-            fast_print("Proc", proc);
-        std::vector<LaunchEvent>& this_proc_events = launch_events[proc];
-        std::vector<LaunchEvent>& anot_proc_events = launch_events[1 - proc];
-        for(uint cmd_idx = 0; cmd_idx < this_proc_events.size(); cmd_idx++){
-            auto& this_event = this_proc_events[cmd_idx];
+    for (uint curr_proc = 0; curr_proc < num_procs; curr_proc++) {
+        if (print_events) 
+            fast_print("Proc", curr_proc);
+        std::vector<LaunchEvent>& curr_proc_events = launch_events[curr_proc];
+        std::vector<LaunchEvent>& anot_proc_events = launch_events[1 - curr_proc];
+        for (uint cmd_idx = 0; cmd_idx < curr_proc_events.size(); cmd_idx++){
+            auto& this_event = curr_proc_events[cmd_idx];
             
             uint target_offset = this_event.signal; /// offset
-            if(target_offset != -1u){
-                uint target_cmd_idx = list_cmd_idx[1 - proc][target_offset];
-                this_proc_events[cmd_idx].signal = cmd_idx;
+            if (target_offset != -1u){
+                uint target_cmd_idx = list_cmd_idx[1 - curr_proc][target_offset];
+                curr_proc_events[cmd_idx].signal = cmd_idx;
                 anot_proc_events[target_cmd_idx].wait = cmd_idx;
-
                 if(print_events){
                     std::cout << "  Change the Signal " << target_offset << " to CommitIdx " << cmd_idx 
                         << " , Target CommitIdx = " << target_cmd_idx  << std::endl;
@@ -4230,11 +3863,8 @@ void Scheduler::make_wait_events(uint num_procs){
     // fast_format("Scheduling Result : CPU = {:6.3f} , GPU = {:6.3f} (Each Device Actually Working Time : CPU = {:6.3f} , GPU = {:6.3f}", 
     //     cpu_back, gpu_back, total_cpu, total_gpu);
 
-    
-
-   
     /// Check : All of the Waiting Events Has Target Signal 
-    if(false){
+    if (false) {
         for (uint proc = 0; proc < num_procs; proc++) {
             std::vector<LaunchEvent>& this_proc_events = launch_events[proc];
             std::vector<LaunchEvent>& anot_proc_events = launch_events[1 - proc];
@@ -4259,24 +3889,7 @@ void Scheduler::make_wait_events(uint num_procs){
     // print_proc_schedule();
 
     {
-    /// 如何考虑gpu内部的并行?
-    // std::vector< ScheduleEvent > sorted_jobs(task_schedules);
-    // std::sort(sorted_jobs.begin(), sorted_jobs.end(), [&](const ScheduleEvent& left, const ScheduleEvent& right){
-    //     if (left.start != right.start) {
-    //         return left.start < right.start;
-    //     }
-    //     else{
-    //         return left.proc < right.proc;
-    //     }
-    // });
-
-    // for(uint i = 1; i < sorted_jobs.size(); i++){
-    //     const ScheduleEvent& job = sorted_jobs[i];
-
-    // }
-
-
-
+        /// 如何考虑gpu内部的并行?
     }
 }
 
@@ -4331,7 +3944,8 @@ void Scheduler::print_costs(bool use_sort){
     }
 }
 
-void Scheduler::print_schedule(uint num_procs){
+void Scheduler::print_schedule(){
+    const uint num_procs = proc_schedules.size();
     const uint num_tasks = list_task.size();;
     std::vector<double> sum_t(2, 0.0);
     for (uint tid = 0; tid < num_tasks; tid++) {
@@ -4357,8 +3971,9 @@ void Scheduler::print_schedule(uint num_procs){
     }
 }
 
-void Scheduler::print_proc_schedule(uint num_procs){
+void Scheduler::print_scheduling_with_waiting_events(){
 
+    const uint num_procs = proc_schedules.size();
     { 
         fast_print("\nFinal Launch Events");
         for (uint proc = 0; proc < num_procs; proc++) {
@@ -4408,8 +4023,9 @@ void Scheduler::print_proc_schedule(uint num_procs){
     
 }
 
-void Scheduler::print_schedule_to_graph(uint num_procs){
+void Scheduler::print_proc_schedules(){
     fast_print("Task of each processor");
+    const uint num_procs = proc_schedules.size();
     for (uint proc = 0; proc < num_procs; proc++) {
         const auto& proc_tasks = proc_schedules[proc];
         std::cout << "[";
@@ -4426,8 +4042,8 @@ void Scheduler::print_schedule_to_graph(uint num_procs){
     }
     print_tasks();
 }
-
-void Scheduler::print_schedule_to_graph_xpbd(){
+void Scheduler::print_schedule_to_graph_xpbd()
+{
 
     if(proc_schedules.empty()) 
     {
@@ -4631,51 +4247,11 @@ void Scheduler::print_schedule_to_graph_xpbd(){
     }
     fast_print();
     
-    float end_0 = proc_schedules[0].empty() ? 0.f : proc_schedules[0].back().end;
-    float end_1 = proc_schedules[1].empty() ? 0.f : proc_schedules[1].back().end;
-    
-    double sum_cpu = 0.0, sum_gpu = 0.f;
-    double total_cpu = 0.0; double total_gpu = 0.0;
-    for (uint i = 0; i < proc_schedules[0].size(); i++) {
-        auto& cpu_jobs = proc_schedules[0][i];
-        uint tid = cpu_jobs.task_id;
-        total_cpu += computation_matrix[tid][0] + communication_cost_matrix_uma[0][0];
-    }
-    for (uint i = 0; i < proc_schedules[1].size(); i++) {
-        auto& cpu_jobs = proc_schedules[1][i];
-        uint tid = cpu_jobs.task_id;
-        total_gpu += computation_matrix[tid][1] + communication_cost_matrix_uma[1][1];
-    }
-    float end_time = std::max(end_0, end_1);
-    fast_format("\nUsage in CPU = {:4.2f}\%, GPU = {:4.2f}\%) (Theoretical Speedup = {:4.2f}% )",
-        total_cpu/end_time*100, total_gpu/end_time*100, total_gpu/get_theoretical_time()*100);
-
-    double cost_cpu = summary_of_costs_each_device[0], cost_gpu = summary_of_costs_each_device[1];
-    // double cost_cpu = 0.0, cost_gpu = 0.f;
-    // for (uint tid = 0; tid < list_task.size(); tid++)
-    // {
-    //     const auto& task = list_task[tid];
-    //     const std::vector<float>& pair = computation_matrix[tid];
-    //     cost_cpu += pair[0];
-    //     if (task.has_implementation(DeviceTypeGpu)) cost_gpu += pair[1];
-    //     else cost_gpu += pair[0] + communication_cost_matrix_uma[1][0] + communication_cost_matrix_uma[0][1];
-    // }
-
-    const float speedup = (cost_gpu - end_time)/end_time;
-    fast_format("Homogeneous Environment Cost in CPU = {:6.3f}, GPU = {:6.3f}  ( Hybrid = {:6.3f}, SpeedUP = {:4.3f}% to GPU)", 
-        cost_cpu, cost_gpu, end_time,
-        speedup * 100);    
-
-    fast_format("Homogeneous Environment Cost in CPU = {:6.3f} / {:6.3f}, GPU = {:6.3f} / {:6.3f}  ( Hybrid = {:6.3f} / {:6.3f}", 
-        cost_cpu * 12.0, 1000.0 / (cost_cpu * 12.0), 
-        cost_gpu * 12.0, 1000.0 / (cost_gpu * 12.0), 
-        end_time * 12.0, 1000.0 / (end_time * 12.0));    
-    fast_format("Speedup = {:6.3f}% / {:6.3f}% to GPU,  {:6.3f}% / {:6.3f}% to CPU", 
-        100.f*(cost_gpu - end_time)/end_time, 100.f*(cost_gpu - end_time)/cost_gpu,
-        100.f*(cost_cpu - end_time)/end_time, 100.f*(cost_cpu - end_time)/cost_cpu
-        );
-    fast_print();
-    
+    // auto usages = get_proc_usage();
+    // auto end_time = get_scheduled_end_time();
+    // auto speedups = get_scheduled_speedup();
+ 
+    // fast_print();
 }
 
 float Scheduler::get_theoretical_time()
@@ -4715,84 +4291,85 @@ float Scheduler::get_theoretical_time()
 }
 float Scheduler::get_scheduled_end_time()
 {
-    if (proc_schedules.empty()) 
+    float end_time = 0.0f; 
+    for (uint proc = 0; proc < proc_schedules.size(); proc++)
     {
-        fast_print_err("Scheduler Object Does Not Has Been Scheduled!");
-        return 0;
+        end_time = std::max(proc_schedules[proc].empty() ? 0.f : proc_schedules[proc].back().end, end_time);
     }
-    float end_0 = proc_schedules[0].empty() ? 0.f : proc_schedules[0].back().end;
-    float end_1 = proc_schedules[1].empty() ? 0.f : proc_schedules[1].back().end;
-    float end_time = std::max(end_0, end_1);
     return end_time;
 }
-float Scheduler::get_scheduled_speedup()
+std::vector<float> Scheduler::get_scheduled_speedups()
 {
     float end_time = get_scheduled_end_time();
-    double cost_gpu = summary_of_costs_each_device[1];
-
-    const float speedup = (cost_gpu - end_time)/end_time;
-    return speedup;
+    uint num_proc = proc_schedules.size();
+    std::vector<float> speedups(num_proc, 0.f);
+    for (uint proc = 0; proc < num_proc; proc++)
+    {
+        speedups[proc] = (summary_of_costs_each_device[proc] - end_time) / end_time;
+    }
+    return speedups;
 }
-float Scheduler::print_scheduled_speedup()
+void Scheduler::print_speedups_to_each_device()
 {
-    float end_0 = proc_schedules[0].empty() ? 0.f : proc_schedules[0].back().end;
-    float end_1 = proc_schedules[1].empty() ? 0.f : proc_schedules[1].back().end;
-    
-    double sum_cpu = 0.0, sum_gpu = 0.f;
-    double total_cpu = 0.0; double total_gpu = 0.0;
-    for (uint cmd_idx = 0; cmd_idx < launch_events[0].size(); cmd_idx++) {
-        const LaunchEvent& event = launch_events[0][cmd_idx];
-        for (uint i = event.start_idx; i <= event.end_idx; i++) {
-            auto& cpu_jobs = proc_schedules[0][i];
-            uint tid = cpu_jobs.task_id;
-            total_cpu += computation_matrix[tid][0];
-        }   
+    float end_time = get_scheduled_end_time();
+    uint num_proc = proc_schedules.size();
+    std::vector<float> speedups(num_proc, 0.f);
+    for (uint proc = 0; proc < num_proc; proc++)
+    {
+        float speedup = (summary_of_costs_each_device[proc] - end_time) / end_time;
+        fast_format("Speedup to proc {} = {:4.2f}\% (From {:4.2f} to {:4.2f} ) ", proc, speedup * 100, summary_of_costs_each_device[proc], end_time);
     }
-    for (uint cmd_idx = 0; cmd_idx < launch_events[1].size(); cmd_idx++) {
-        const LaunchEvent& event = launch_events[1][cmd_idx];
-        for (uint i = event.start_idx; i <= event.end_idx; i++) {
-            auto& cpu_jobs = proc_schedules[1][i];
-            uint tid = cpu_jobs.task_id;
-            total_gpu += computation_matrix[tid][1];
-        }   
-    }
-
-    float curr_min_time = get_theoretical_time();
-
-    double cost_cpu = summary_of_costs_each_device[0], cost_gpu = summary_of_costs_each_device[1];
-    // double cost_cpu = 0.0, cost_gpu = 0.f;
-    // for (uint tid = 0; tid < list_task.size(); tid++)
-    // {
-    //     const auto& task = list_task[tid];
-    //     const std::vector<float>& pair = computation_matrix[tid];
-    //     cost_cpu += pair[0];
-    //     if (task.has_implementation(DeviceTypeGpu)) cost_gpu += pair[1];
-    //     else cost_gpu += pair[0] + communication_cost_matrix_uma[1][0] + communication_cost_matrix_uma[0][1];
-    // }
-
-    float end_time = std::max(end_0, end_1);
-    fast_format("\nFinal Time = {:6.3f} & {:6.3f}   (Usage in CPU = {:4.2f}\%, GPU = {:4.2f}\% , Theoretical Optimal = {:6.3f}% (Theoretical SpeedUP = {:6.3f} \% to GPU))", 
-                    end_0, end_1,  total_cpu/end_time*100, total_gpu/end_time*100,
-                    curr_min_time, (cost_gpu - curr_min_time)/curr_min_time*100);
-    // fast_format("Sum of all task in CPU = {:6.3f} , GPU = {:6.3f}", total_cpu, total_gpu);
-
-
-    const float speedup = (cost_gpu - end_time)/end_time;
-    fast_format("Homogeneous Environment Cost in CPU = {:6.3f}, GPU = {:6.3f}  (  Hybrid = {:6.3f} , SpeedUP = {:4.2f}\% to GPU)", cost_cpu, cost_gpu, end_time,
-        speedup * 100);
-
-    // fast_format("                Theoretical Optimal = {:6.3f} (SpeedUP = {:6.3f} \% to GPU)", curr_min_time, (cost_gpu - curr_min_time)/curr_min_time*100);
-    
-    fast_print();
-
-    return speedup;
 }
+std::vector<float> Scheduler::get_proc_usage()
+{
+    float end_time = get_scheduled_end_time();
+    std::vector<float> proc_usage(proc_schedules.size(), 0.f);
+    for (uint proc = 0; proc < proc_schedules.size(); proc++)
+    {
+        float curr_proc_allocated_task_sum = 0.0f;
+        for (uint i = 0; i < proc_schedules[proc].size(); i++) 
+        {
+            auto& cpu_jobs = proc_schedules[proc][i];
+            uint tid = cpu_jobs.task_id;
+            curr_proc_allocated_task_sum += computation_matrix[tid][0] + communication_cost_matrix_uma[0][0];
+        }
+        proc_usage[proc] = curr_proc_allocated_task_sum / end_time;
+        // fast_format("Usage in proc {} = {:4.2f}\%", curr_proc_allocated_task_sum / end_time * 100);
+    }
+    return proc_usage;
+}
+void Scheduler::print_tasks(){
+    fast_print("List Tasks : ");
+    for (uint tid = 0; tid < list_task.size(); tid++) {
+        const auto& task = list_task[tid];
+        task.print_with_cluster(tid);
+    }
+}
+void Scheduler::print_dag() {
+    fast_print("nodes = [");
+    for (size_t i = 0; i < list_task.size(); ++i) 
+    {
+        fast_format("    ({}, {}),", i, int(list_task[i].func_id));
+    }
+    fast_print("]");
+    fast_print("edges = [");
+    for (size_t i = 0; i < list_task.size(); ++i) 
+    {
+        for (uint succ : list_task[i].successors) 
+        {
+            fast_format("    ({}, {}),", i, succ);
+            std::cout << "    (" << i << ", " << succ << "),\n";
+        }
+    }
+    fast_print("]");
+}
+
+
 void Scheduler::reset_scheduler_system()
 {
     list_task.clear();
     list_order.clear();
     sorted_nodes.clear();
-    list_brothers.clear();
     // list_virtual_sync.clear();
     orig_list_task.clear();
     orig_computation_matrix.clear(); 
@@ -4809,64 +4386,12 @@ void Scheduler::reset_scheduler_system()
     task_to_merged_task_map.clear();
     task_schedules_merged.clear();
     proc_schedules_merged.clear();
-    list_brother_idx_belongs.clear();
-    list_brother_idx_belongs_merged.clear();
-    list_brothers_interface_node.clear();
-    list_brothers_interface_node_merged.clear();
-    list_brothers_merged.clear();
 
     assemble_implementations.clear();
     constraint_task_orders.clear();
 }
-
-std::vector<float> Scheduler::get_proc_usage()
+void Scheduler::test_case_2002()
 {
-    double sum_cpu = 0.0, sum_gpu = 0.f;
-    double total_cpu = 0.0; double total_gpu = 0.0;
-    for (uint i = 0; i < proc_schedules[0].size(); i++) {
-        auto& cpu_jobs = proc_schedules[0][i];
-        uint tid = cpu_jobs.task_id;
-        total_cpu += computation_matrix[tid][0] + communication_cost_matrix_uma[0][0];
-    }
-    for (uint i = 0; i < proc_schedules[1].size(); i++) {
-        auto& cpu_jobs = proc_schedules[1][i];
-        uint tid = cpu_jobs.task_id;
-        total_gpu += computation_matrix[tid][1] + communication_cost_matrix_uma[1][1];
-    }
-
-    float end_0 = proc_schedules[0].empty() ? 0.f : proc_schedules[0].back().end;
-    float end_1 = proc_schedules[1].empty() ? 0.f : proc_schedules[1].back().end;
-    
-    float end_time = std::max(end_0, end_1);
-    return std::vector<float>({float(total_cpu)/end_time, float(total_gpu)/end_time});
-    // fast_format("\nUsage in CPU = {:4.2f}\%, GPU = {:4.2f}\%) (Theoretical Speedup = {:4.2f}% )",
-    //     total_cpu/end_time*100, total_gpu/end_time*100, total_gpu/get_theoretical_time()*100);
-
-}
-void Scheduler::print_tasks(){
-    fast_print("List Tasks");
-    for (uint tid = 0; tid < list_task.size(); tid++) {
-        const auto& task = list_task[tid];
-        task.print_with_cluster();
-    }
-}
-void Scheduler::print_dag() {
-    fast_print("nodes = [");
-    for (size_t i = 0; i < list_task.size(); ++i) {
-        fast_format("    ({}, {}),", i, int(list_task[i].func_id));
-    }
-    fast_print("]");
-    fast_print("edges = [");
-    for (size_t i = 0; i < list_task.size(); ++i) {
-        for (uint succ : list_task[i].successors) {
-            fast_format("    ({}, {}),", i, succ);
-            std::cout << "    (" << i << ", " << succ << "),\n";
-        }
-    }
-    fast_print("]");
-}
-
-void Scheduler::test_case_2002(){
 
     const uint num_procs = 3;
     const uint num_tasks = 10;
@@ -4915,17 +4440,10 @@ void Scheduler::test_case_2002(){
         [&](const Launcher::LaunchParam& param) {}
     });
 
-    scheduler_dag(3);
+    scheduler_dag();
  
 }
-void Scheduler::clear_DAG(){
-    list_task.clear();
-    list_order.clear();
-    sorted_nodes.clear();
-    list_brothers.clear();
-    // list_connect.clear();
-}
- 
+
 void Scheduler::set_sync_count(const uint& input_sync_count) { sync_count = input_sync_count; }
 void Scheduler::get_dag_from(const Scheduler& input_scheduler)
 {
@@ -4934,7 +4452,6 @@ void Scheduler::get_dag_from(const Scheduler& input_scheduler)
     for (uint tid = 0; tid < input_scheduler.list_task.size(); tid++) {
         list_task[tid] = input_scheduler.list_task[tid];
     }
-    list_brothers = input_scheduler.list_brothers;
     assemble_implementations = input_scheduler.assemble_implementations;
     constraint_task_orders = input_scheduler.constraint_task_orders;
 }
@@ -4979,7 +4496,8 @@ void Scheduler::set_as_sync_as_possible(const std::vector<Task>& assemble_impl)
     // }
 }
 
-uint Scheduler::add_task(const Task& task){
+uint Scheduler::add_task(const Task& task)
+{
 
     uint task_id = list_task.size();
     list_task.push_back(task);
@@ -4987,10 +4505,12 @@ uint Scheduler::add_task(const Task& task){
 
 }
 
-Task& Scheduler::get_task_by_tid(const uint& task_id){
+Task& Scheduler::get_task_by_tid(const uint& task_id)
+{
     return list_task[task_id];
 }
-uint Scheduler::find_task_by_func_id(const Launcher::FunctionID id) { 
+uint Scheduler::find_task_by_func_id(const Launcher::FunctionID id) 
+{ 
     for (uint tid = 0; tid < list_task.size(); tid++) {
         const auto& task = list_task[tid];
         if(task.func_id == id) 
@@ -5006,7 +4526,8 @@ uint Scheduler::find_task_by_func_id(const Launcher::FunctionID id) {
 // void set_root_task(const uint& task_id){ root_node = task_id; }
 // void set_terminal_task(const uint& task_id){ terminal_node = task_id; }
 
-void Scheduler::set_connect(const uint& task_idx1, const uint& task_idx2, const float& weight){
+void Scheduler::set_connect(const uint& task_idx1, const uint& task_idx2, const float& weight)
+{
     
     auto& task1 = list_task[task_idx1];
     auto& task2 = list_task[task_idx2];
@@ -5018,23 +4539,8 @@ void Scheduler::set_connect(const uint& task_idx1, const uint& task_idx2, const 
     task2.add_back(task_idx1);
     // task2.list_offset.push_back(offset);
 }
-void Scheduler::set_brother(const uint& task_idx1, const uint& task_idx2) {
-    
-    auto& task1 = list_task[task_idx1];
-    auto& task2 = list_task[task_idx2];
-    // uint offset = task1.brothers.size();
-    task1.add_brother(task_idx2);
-    task2.add_brother(task_idx1);
-}
-void Scheduler::set_brother(const std::vector<uint>& list) {
-    list_brothers.push_back(list);
-    for (uint i = 0; i < list.size() - 1; i++) {
-        for (uint j = i + 1; j < list.size(); j++) {
-            set_brother(list[i], list[j]);
-        }
-    }
-}
-float Scheduler::delete_connect(const uint& task_idx1, const uint& task_idx2){
+float Scheduler::delete_connect(const uint& task_idx1, const uint& task_idx2)
+{
     auto& task1 = list_task[task_idx1];
     auto& task2 = list_task[task_idx2];
 
@@ -5062,12 +4568,5 @@ float Scheduler::delete_connect(const uint& task_idx1, const uint& task_idx2){
     task2.predecessors.erase(find_2_1);
     return weight;
 }
-void Scheduler::delete_brother(const uint& task_idx1, const uint& task_idx2){
-    auto& task1 = list_task[task_idx1];
-    auto& task2 = list_task[task_idx2];
-    task1.brothers.erase(std::find(task1.brothers.begin(), task1.brothers.end(), task_idx2));
-    task2.brothers.erase(std::find(task2.brothers.begin(), task2.brothers.end(), task_idx1));
-}
-
 
 };

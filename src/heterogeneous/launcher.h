@@ -609,8 +609,6 @@ struct Task{
     
     std::vector< uint > predecessors; // back : current's rely
     std::vector< uint > successors;   // front : what task rely on currents
-    std::vector< uint > brothers;     // brother : can run without order but can not run at the same time
-    std::vector< uint > virtual_syncs;     // virtual syncs : assume that should sync, for making the schedule more widely
 
     std::vector< float > list_weight;
     // std::vector< uint >  list_offset; // offset of current node to its predecessors
@@ -668,9 +666,7 @@ struct Task{
         resources(input_task.resources), 
 
         predecessors(input_task.predecessors), 
-        brothers(input_task.brothers), 
         successors(input_task.successors), 
-        virtual_syncs(input_task.virtual_syncs), 
         
         list_weight(input_task.list_weight),
         indirect_buffer_cpu(input_task.indirect_buffer_cpu), 
@@ -678,14 +674,14 @@ struct Task{
         // , list_offset(input_task.list_offset) 
         {}
 
-    void print_with_cluster() const{
+    void print_with_cluster(const uint tid) const {
         if (iter_idx != -1u) 
         {
-            fast_format(" Task in iteraion {:2}'s cluster {} => {}", iter_idx, cluster_idx, taskNames.at(func_id));
+            fast_format("    Task {} in iteraion {:2}'s cluster {} => {}", tid, iter_idx, cluster_idx, taskNames.at(func_id));
         }
         else 
         {
-            fast_format(" Task with cluster {} => {}", cluster_idx, taskNames.at(func_id));
+            fast_format("    Task {} with cluster {} => {}", tid, cluster_idx, taskNames.at(func_id));
         }
     }
 
@@ -713,7 +709,6 @@ struct Task{
     // Connect
     void add_front(const uint& front_idx)   { successors.push_back(front_idx); }
     void add_back(const uint& back_idx)     { predecessors.push_back(back_idx); }
-    void add_brother(const uint& bro_idx)   { brothers.push_back(bro_idx); }
 
     // Implementation
     const Implementation& get_implementation(const DeviceType& type, bool& find_implement) const{
@@ -746,7 +741,6 @@ struct MergedTask {
 
     std::vector< uint > predecessors; // back : current's rely
     std::vector< uint > successors;   // front : what task rely on currents
-    std::vector< uint > brothers;     // brother : can run without order but can not run at the same time
     std::vector< float > costs;
     std::vector< float > weights;
 
@@ -843,9 +837,6 @@ private:
     std::vector< Task > list_task;
     std::vector<uint> list_order;
     std::vector<uint> sorted_nodes;
-    std::vector< std::vector<uint> > list_brothers; // TODO: Rename to "list_conflicts"
-    std::vector< uint > list_brother_idx_belongs;
-    std::vector< std::pair<uint, uint> > list_brothers_interface_node;
     uint sync_count = 1;
 
 private:
@@ -855,10 +846,6 @@ private:
 
     std::vector< ScheduleEvent > task_schedules_merged;
     std::vector< std::vector<ScheduleEvent> > proc_schedules_merged;
-
-    std::vector< std::vector<uint> > list_brothers_merged;
-    std::vector< uint > list_brother_idx_belongs_merged;
-    std::vector< std::pair<uint, uint> > list_brothers_interface_node_merged;
 
     std::vector<Task> assemble_implementations;
     std::vector<uint> constraint_task_orders;
@@ -881,16 +868,9 @@ public:
     uint find_task_by_func_id(const Launcher::FunctionID id);
 
     void set_connect(const uint& task_idx1, const uint& task_idx2, const float& weight = 1.0);
-    void set_brother(const uint& task_idx1, const uint& task_idx2);
-    void set_brother(const std::vector<uint>& list);
-    // void set_virtual_sync_node(const std::vector<uint>& list)
     float delete_connect(const uint& task_idx1, const uint& task_idx2);
-    void delete_brother(const uint& task_idx1, const uint& task_idx2);
-
-    void clear_DAG();
 
 public:
-
     using OptScalar = double;
 
     bool topological_sort();
@@ -907,9 +887,12 @@ public:
         std::vector<double> & cost_total);
 
     void standardizing_dag(const std::vector< std::function<void(const Launcher::LaunchParam&)> >& list_fn_empty_func = {});
-    void scheduler_dag(uint num_procs = 2, bool is_uniform_memory_architecture = false);
-    void post_process(uint num_procs = 2);
-    void make_wait_events(uint num_procs = 2);
+    void scheduler_dag();
+    void post_process();
+    void make_wait_events();
+
+    float fn_get_communication_cost(const uint proc, const uint pred_node, const uint input_node);
+    float fn_get_inner_communication_cost(const uint proc);
 
 public:
 
@@ -932,21 +915,17 @@ public:
     
     void print_tasks();
     void print_costs(bool use_sort = true);
-    void print_schedule(uint num_procs = 2);
+    void print_schedule();
     void print_dag();
-    void print_proc_schedule(uint num_procs = 2);
-    void print_schedule_to_graph(uint num_procs = 2);
+    void print_scheduling_with_waiting_events();
+    void print_proc_schedules();
     void print_schedule_to_graph_xpbd();
-    float get_scheduled_time() {
-        float end_0 = proc_schedules[0].empty() ? 0.f : proc_schedules[0].back().end;
-        float end_1 = proc_schedules[1].empty() ? 0.f : proc_schedules[1].back().end;
-        return max_scalar(end_0, end_1);
-    }
+    void print_speedups_to_each_device();
+    
+    float get_scheduled_end_time();
     float get_theoretical_time();
     std::vector<float> get_proc_usage();
-    float get_scheduled_speedup();
-    float get_scheduled_end_time();
-    float print_scheduled_speedup();
+    std::vector<float> get_scheduled_speedups();
     void reset_scheduler_system();
     void set_communication_matrix(const float cpu_to_gpu, const float gpu_to_cpu) 
     { 
@@ -966,9 +945,9 @@ private:
 private:
     void compute_ranku(uint num_procs = 2);
     
-    ScheduleEvent _compute_eft(uint node, uint proc, bool is_uniform_memory_architecture = false);
-    ScheduleEvent _compute_eft_extend(uint node, uint proc, bool is_uniform_memory_architecture = false);
-    ScheduleEvent _compute_eft_merged(uint node, uint proc, bool is_uniform_memory_architecture = false);
+    ScheduleEvent _compute_eft(uint node, uint proc);
+    ScheduleEvent _compute_eft_extend(uint node, uint proc);
+    ScheduleEvent _compute_eft_merged(uint node, uint proc);
 
     /// For Post Process
     // bool procFree(const uint& proc, const ListSchedule& jobs, const float& time, uint& idx);
@@ -989,15 +968,21 @@ public:
     std::vector< ListCost > computation_matrix;
     std::vector< double > summary_of_costs_each_device;
 
-private:
-    const float communication_speed_matrix[3][3] = {{0, 1, 1}, 
-                                                    {1, 0, 1}, 
-                                                    {1, 1, 0}}; /// communication speed between processors
-    // const float communication_cost_matrix_uma[2][2] = {{0.00, 0.28}, 
-                                                    //    {0.13, 0.00}};                                             
-    float communication_cost_matrix_uma[2][2] = {{0.002, 0.220},  /// gpu wait cpu
-                                                 {0.145, 0.01}}; /// cpu wait gpu                           
-    const float communication_startup[3] = {0, 0, 0}; /// First call cost
+public:
+    // Communication speed between processors, diagonal should be the constant communication cost inner device
+    std::vector<std::vector<float>> communication_speed_matrix = { 
+        {0, 1, 1}, 
+        {1, 0, 1}, 
+        {1, 1, 0}
+    };     
+    // Communication speed between processors  
+    std::vector<std::vector<float>> communication_cost_matrix_uma = {
+        {0.002, 0.220},  /// gpu wait cpu
+        {0.145, 0.01}    /// cpu wait gpu
+    };
+    // First call cost   
+    std::vector<float> communication_startup = {0, 0, 0}; 
+    // Should be additional root & additional terminal                    
     uint root_node, terminal_node;
 
     /// Map Of Cost : CPU to GPU , GPU to CPU , Cost , Theory Cost (Sort By Real Time)
