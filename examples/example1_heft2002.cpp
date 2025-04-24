@@ -1,9 +1,11 @@
 
 #include <iostream>
 #include <launcher.h>
+
 int main()
 {
     std::cout << "Hello, Heft!" << std::endl;
+    
     Launcher::Scheduler scheduler;
 
     //
@@ -90,7 +92,7 @@ int main()
         scheduler.scheduler_dag();
         
         scheduler.print_proc_schedules();
-        
+
         scheduler.print_speedups_to_each_device();
         
         // scheduler.make_wait_events(); 

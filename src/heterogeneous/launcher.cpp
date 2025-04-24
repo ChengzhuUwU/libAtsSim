@@ -1,25 +1,21 @@
 #if __APPLE__
-#ifndef NS_PRIVATE_IMPLEMENTATION
-
-#define NS_PRIVATE_IMPLEMENTATION
-#define CA_PRIVATE_IMPLEMENTATION
-#define MTL_PRIVATE_IMPLEMENTATION
-#endif
+    #ifndef NS_PRIVATE_IMPLEMENTATION
+        #define NS_PRIVATE_IMPLEMENTATION
+        #define CA_PRIVATE_IMPLEMENTATION
+        #define MTL_PRIVATE_IMPLEMENTATION
+    #endif
 #endif
 
 #include "launcher.h"
 #include "clock.h"
 #include "command_list.h"
-#include "scene_params.h"
 #include <map>
 #include <numeric>
 #include <queue>
 #include <set>
-#include <functional>
 #include <stack>
 
 const float inf = 99999.0;
-const float wait_time = 0.2;
 
 namespace Launcher {
 
@@ -1923,8 +1919,11 @@ void Scheduler::standardizing_dag(const std::vector< std::function<void(const La
         for (uint tid = 0; tid < num_tasks; tid++){
             auto& rows = list_connectivity[tid];
             rows.resize(num_tasks, 0.f);
-            for (auto& front : list_task[tid].successors) {
-                rows[front] = wait_time;
+            const auto& task = list_task[tid];
+            for (uint j = 0; j < task.successors.size(); j++) {
+                const uint front = task.successors[j];
+                const uint weight = task.list_weight[j];
+                rows[front] = weight;
             }
         }
         std::cout << "list_connectivity : \n" << "T";

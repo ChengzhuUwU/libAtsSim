@@ -3,7 +3,8 @@ set(CODES_DIR
               ${CMAKE_CURRENT_SOURCE_DIR} 
               ${CMAKE_CURRENT_SOURCE_DIR}/SharedDefine
               ${CMAKE_CURRENT_SOURCE_DIR}/Utils
-              ${CMAKE_CURRENT_SOURCE_DIR}/heterogeneous
+              ${CMAKE_CURRENT_SOURCE_DIR}/Heterogeneous
+              ${CMAKE_CURRENT_SOURCE_DIR}/Solver
 )
 
 set(SOURCES "")
@@ -38,18 +39,40 @@ set(TBB_DIR ${THIRDPARTY_DIR}/oneapi-tbb-2021.12.0-win/oneapi-tbb-2021.12.0/lib/
 endif()
 
 
+# include(FetchContent)
+# FetchContent_Declare(
+#         polyscope
+#         GIT_REPOSITORY https://github.com/nmwsharp/polyscope.git
+#         GIT_TAG 2cd38b7496a1e8ff79f615920de2980295bedef7
+# )
+
+# FetchContent_GetProperties(polyscope)
+# if(NOT polyscope_POPULATED)
+#     # Fetch the content using previously declared details
+#     FetchContent_Populate(polyscope)
+#     message(STATUS "polyscope_SOURCE_DIR: ${polyscope_SOURCE_DIR}")
+#     message(STATUS "polyscope_BINARY_DIR: ${polyscope_BINARY_DIR}")
+#     add_subdirectory(${polyscope_SOURCE_DIR} ${polyscope_BINARY_DIR})
+# endif()
+# FetchContent_MakeAvailable(polyscope)
+# include(polyscope)
+
 # find_package(OpenMP)
 # find_package(embree 4 REQUIRED)
 # find_package(CGAL REQUIRED)
 # set(Boost_USE_STATIC_RUNTIME OFF) 
 # set(Boost_USE_STATIC_LIBS OFF) 
 find_package(TBB REQUIRED)
+# find_package(polyscope REQUIRED)
 # find_package(Eigen3 REQUIRED)
 # find_package(tinyobjloader CONFIG REQUIRED)
 find_package(glm CONFIG REQUIRED)
 # find_package(spdlog REQUIRED)
 # find_package(Boost REQUIRED) 
 
+
+
+# include(polyscope)
 
 if(WIN32)
 else()

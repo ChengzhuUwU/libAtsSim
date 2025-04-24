@@ -58,11 +58,11 @@ public:
     inline void resize(uint input_length, 
                        unsigned long resource_mode = MTL::ResourceStorageModeShared | MTL::ResourceHazardTrackingModeUntracked)
     {
-        if(length != 0) {
+        if (length != 0) {
             release();
             std::cerr << "array is not empty!!!\n";
         }
-        if(input_length == 0){
+        if (input_length == 0){
             std::cerr << "Length of Array is Zero!!!\n" ;
             input_length = 1;
         }
@@ -70,9 +70,9 @@ public:
         length = input_length;
         byte_length = length * sizeof(T);
 
-        if(byte_length > 1024 * 1024 * 100) { // 100 MB
+        if (byte_length > 1024 * 1024 * 100) { // 100 MB
             // std::cerr << "array is too large!!!\n";
-            if(byte_length > 1024 * 1024 * 1024 * 3u){ // 3GB
+            if (byte_length > 1024 * 1024 * 1024 * 3u){ // 3GB
                 std::cerr << "Out of buffer range !!! : " << byte_length / (1024 * 1024 * 1024) << " gb \n";
                 return;
             }

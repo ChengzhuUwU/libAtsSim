@@ -2,7 +2,6 @@
 
 #include "float_n.h"
 #include "float_n_n.h"
-#include "line_intersect.h"
 
 namespace sim 
 {

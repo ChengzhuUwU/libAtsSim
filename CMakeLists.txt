@@ -46,7 +46,9 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR}/src)
 endif()
 
 
-add_executable(TestHEFT2002 ${EXAMPLE_PATH}/heft_2002.cpp)
+add_executable(Example1 ${EXAMPLE_PATH}/example1_heft2002.cpp)
+add_executable(Example2 ${EXAMPLE_PATH}/example2_async_iter.cpp)
+add_executable(Example3 ${EXAMPLE_PATH}/example3_scheduled_iter.cpp)
 # add_executable(TestHEFT2002 ${SRC_PATH}/heft_2002.cpp)
 if(APPLE)
 # add_executable(Simulation ${SRC_PATH}/simulation.cpp)
