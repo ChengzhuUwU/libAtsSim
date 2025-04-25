@@ -34,6 +34,7 @@ struct BasicMeshData
     SharedArray<uint> sa_vert_adj_edges; std::vector< std::vector<uint> > vert_adj_edges;
     SharedArray<uint> sa_vert_adj_bending_edges; std::vector< std::vector<uint> > vert_adj_bending_edges;
     
+    SharedArray<float> sa_system_energy;
     // SharedArray<uint> sa_edge_adj_faces;
     // SharedArray<uint> sa_bending_edge_adj_faces;
 };
@@ -46,8 +47,12 @@ struct XpbdData
     SharedArray<Float3> sa_v_start;
     SharedArray<Float3> sa_x_start; // For calculating velocity
 
-    SharedArray<Int2> sa_merged_edges; SharedArray<float> sa_merged_edges_rest_length;
-    SharedArray<Int4> sa_merged_bending_edges; SharedArray<float> sa_merged_bending_edges_rest_angle;
+    SharedArray<Int2> sa_merged_edges; 
+    SharedArray<float> sa_merged_edges_rest_length;
+
+    SharedArray<Int4> sa_merged_bending_edges; 
+    SharedArray<float> sa_merged_bending_edges_rest_angle;
+    SharedArray<Float4x4> sa_merged_bending_edge_Q;
 
     uint num_clusters_stretch_mass_spring = 0;
     SharedArray<uint> clusterd_constraint_stretch_mass_spring; 
@@ -75,7 +80,8 @@ struct XpbdData
             sa_merged_edges.is_empty() || 
             sa_merged_edges_rest_length.is_empty() || 
             sa_merged_bending_edges.is_empty() || 
-            sa_merged_bending_edges_rest_angle.is_empty()
+            sa_merged_bending_edges_rest_angle.is_empty() ||
+            sa_merged_bending_edge_Q.is_empty()
         );
     }
     const bool check3()
@@ -237,14 +243,15 @@ void init_mesh(BasicMeshData* mesh_data)
         mesh_data->sa_v_frame_start.resize(num_verts); mesh_data->sa_v_frame_start = mesh_data->sa_rest_v;
         mesh_data->sa_x_frame_end.resize(num_verts); mesh_data->sa_x_frame_end = mesh_data->sa_rest_x;
         mesh_data->sa_v_frame_end.resize(num_verts); mesh_data->sa_v_frame_end = mesh_data->sa_rest_v;
+        mesh_data->sa_system_energy.resize(1024);
     }
 }
 
 class XpbdSolver
 {
 public:
-    XpbdSolver() { fast_format("Init for XPBD Solver"); }
-    ~XpbdSolver() { fast_format("Destroy XPBD Solver"); }
+    XpbdSolver() {}
+    ~XpbdSolver() {}
 
     // TODO: Replace to shared_ptr
     void get_data_pointer(XpbdData* xpbd_ptr, BasicMeshData* mesh_ptr) 
@@ -257,6 +264,7 @@ public:
 
 public:    
     void physics_step();
+    void compute_energy(const uint curr_it, const SharedArray<Float3>& curr_cloth_position);
 
 private:
     void collision_detection();
@@ -386,7 +394,7 @@ void XpbdSolver::init_xpbd_system()
             mesh_data->vert_adj_edges, mesh_data->sa_edges, 2);
 
         fn_graph_coloring_sequenced_constraint(
-            mesh_data->num_edges, 
+            mesh_data->num_bending_edges, 
             "Bending   Angle  Constraint", 
             tmp_clusterd_constraint_bending, 
             mesh_data->vert_adj_bending_edges, mesh_data->sa_bending_edges, 4);
@@ -420,7 +428,7 @@ void XpbdSolver::init_xpbd_system()
                     xpbd_data->sa_merged_edges[prefix + i] = mesh_data->sa_edges[constaint_idx];
                 });
                 prefix += curr_cluster.size();
-            } if (prefix != mesh_data->num_edges) fast_format_err("Sum of Mass Spring Cluster Is Smaller Than Orig");
+            } if (prefix != mesh_data->num_edges) fast_format_err("Sum of Mass Spring Cluster Is Not Equal  Than Orig");
             
             // Rest spring length
             parallel_for(0, xpbd_data->sa_merged_edges.size(), [&](const uint eid)
@@ -436,27 +444,74 @@ void XpbdSolver::init_xpbd_system()
         {
             xpbd_data->sa_merged_bending_edges.resize(mesh_data->num_bending_edges);
             xpbd_data->sa_merged_bending_edges_rest_angle.resize(mesh_data->num_bending_edges);
+            xpbd_data->sa_merged_bending_edge_Q.resize(mesh_data->num_bending_edges);
             xpbd_data->sa_lambda_bending.resize(mesh_data->num_bending_edges);
 
-            parallel_for(0, xpbd_data->sa_merged_bending_edges.size(), [&](const uint eid)
+            uint prefix = 0;
+            for (uint cluster = 0; cluster < tmp_clusterd_constraint_bending.size(); cluster++)
             {
-                Int4 edge = xpbd_data->sa_merged_bending_edges[eid];
-                const float eps = 1.0e-6;
-    
-                const uint i = edge[2];
-                const uint j = edge[3];
-                const uint k = edge[0];
-                const uint l = edge[1];
-                const Float3 x1 = mesh_data->sa_rest_x[i];
-                const Float3 x2 = mesh_data->sa_rest_x[j];
-                const Float3 x3 = mesh_data->sa_rest_x[k];
-                const Float3 x4 = mesh_data->sa_rest_x[l];
+                const auto& curr_cluster = tmp_clusterd_constraint_bending[cluster];
+                parallel_for(0, curr_cluster.size(), [&](const uint i)
+                {
+                    const uint constaint_idx = curr_cluster[i];
+                    xpbd_data->sa_merged_bending_edges[prefix + i] = mesh_data->sa_bending_edges[constaint_idx];
+                });
+                prefix += curr_cluster.size();
+            } if (prefix != mesh_data->num_bending_edges) fast_format_err("Sum of Bending Cluster Is Not Equal Than Orig");
+
+            parallel_for(0, mesh_data->num_bending_edges, [&](const uint eid)
+            {
+                const Int4 edge = xpbd_data->sa_merged_bending_edges[eid];
+                const Float3 vert_pos[4] = {
+                    mesh_data->sa_rest_x[edge[0]], 
+                    mesh_data->sa_rest_x[edge[1]], 
+                    mesh_data->sa_rest_x[edge[2]], 
+                    mesh_data->sa_rest_x[edge[3]]};
+                
+                // Rest state angle
+                {
+                    const Float3& x1 = vert_pos[2];
+                    const Float3& x2 = vert_pos[3];
+                    const Float3& x3 = vert_pos[0];
+                    const Float3& x4 = vert_pos[1];
+            
+                    Float3 tmp;
+                    const float angle = Constrains::CalcGradientsAndAngle(x1, x2, x3, x4, tmp, tmp, tmp, tmp);
+                    if (is_nan_scalar(angle)) fast_format_err("is nan rest angle {}", eid);
         
-                Float3 tmp;
-                const float angle = Constrains::CalcGradientsAndAngle(x1, x2, x3, x4, tmp, tmp, tmp, tmp);
-                if (is_nan_scalar(angle)) fast_format_err("is nan rest angle {}", eid);
-    
-                xpbd_data->sa_merged_bending_edges_rest_angle[eid] = angle; /// 
+                    xpbd_data->sa_merged_bending_edges_rest_angle[eid] = angle; 
+                }
+                // Rest state Q
+                {
+                    auto calculateCotTheta = [](const Float3& x, const Float3& y)
+                    {
+                        // const float scaled_cos_theta = dot_vec(x, y);
+                        // const float scaled_sin_theta = (sqrt_scalar(1.0f - square_scalar(scaled_cos_theta))); 
+                        const float scaled_cos_theta = dot_vec(x, y);
+                        const float scaled_sin_theta = length_vec(cross_vec(x, y)); 
+                        return scaled_cos_theta / scaled_sin_theta;
+                    };
+
+                    Float3 e0 = vert_pos[1] - vert_pos[0];
+                    Float3 e1 = vert_pos[2] - vert_pos[0];
+                    Float3 e2 = vert_pos[3] - vert_pos[0];
+                    Float3 e3 = vert_pos[2] - vert_pos[1];
+                    Float3 e4 = vert_pos[3] - vert_pos[1];
+                    const float cot_01 = calculateCotTheta(e0, -e1);
+                    const float cot_02 = calculateCotTheta(e0, -e2);
+                    const float cot_03 = calculateCotTheta(e0, e3);
+                    const float cot_04 = calculateCotTheta(e0, e4);
+                    const Float4 K = makeFloat4(
+                        cot_03 + cot_04, 
+                        cot_01 + cot_02, 
+                        -cot_01 - cot_03, 
+                        -cot_02 - cot_04);
+                    const float A_0 = 0.5f * length_vec(cross_vec(e0, e1));
+                    const float A_1 = 0.5f * length_vec(cross_vec(e0, e2));
+                    // if (is_nan_vec<Float4>(K) || is_inf_vec<Float4>(K)) fast_print_err("Q of Bending is Illigal");
+                    const Float4x4 m_Q = (3.f / (A_0 + A_1)) * outer_product(K, K); // Q = 3 qq^T / (A0+A1) ==> Q is symmetric
+                    xpbd_data->sa_merged_bending_edge_Q[eid] = m_Q; // See : A quadratic bending model for inextensible surfaces.
+                }
             });
         }
     }
@@ -469,20 +524,24 @@ void XpbdSolver::physics_step()
     const uint constraint_iter_count = get_scene_params().print_xpbd_convergence ? 100 : get_scene_params().constraint_iter_count;
     const float substep_dt = get_scene_params().get_substep_dt();
 
-    fast_format("Frame {:3} : numstep = {}, iter = {}", get_scene_params().current_frame, num_substep, constraint_iter_count);
-
-    xpbd_data->sa_v_start = mesh_data->sa_v_frame_start;
+    mesh_data->sa_system_energy.set_zero();
     xpbd_data->sa_x_start = mesh_data->sa_x_frame_start;
-  
+    xpbd_data->sa_v_start = mesh_data->sa_v_frame_start;
+    xpbd_data->sa_x = mesh_data->sa_x_frame_start;
+    xpbd_data->sa_v = mesh_data->sa_v_frame_start;
+    
+    SimClock clock; clock.start_clock();
+
     for (uint substep = 0; substep < num_substep; substep++) // 1 or 50 ?
     {   { get_scene_params().current_substep = substep; }
         
-        SimClock substep_clock; substep_clock.start_clock();
+        // SimClock substep_clock; substep_clock.start_clock();
         {   
-            predict_position();
+            predict_position(); 
 
             collision_detection();
 
+            // Constraint iteration part
             {
                 reset_constrains();
                 reset_collision_constrains();
@@ -496,11 +555,94 @@ void XpbdSolver::physics_step()
 
             update_velocity(); 
         }
-        substep_clock.end_clock();
+        // substep_clock.end_clock();
+    }
+    float frame_cost = clock.end_clock();
+    fast_format("Frame {:3} : cost = {:6.3f}", get_scene_params().current_frame, frame_cost);
+
+
+    mesh_data->sa_x_frame_end = xpbd_data->sa_x;
+    mesh_data->sa_v_frame_end = xpbd_data->sa_v;
+}
+void XpbdSolver::compute_energy(const uint curr_it, const SharedArray<Float3>& curr_position)
+{
+    double energy = 0.0;
+    double energy_inertia = 0.f, energy_stretch = 0.f, energy_bending = 0.f;
+
+    // Inertia
+    {
+        energy_inertia = parallel_for_and_reduce_sum<double>(0, mesh_data->num_verts, [&](const uint vid)
+        {
+            return Constrains::Energy::compute_energy_inertia(vid, 
+                curr_position.data(), &get_scene_params(), mesh_data->sa_is_fixed.data(), mesh_data->sa_vert_mass.data(), 
+                xpbd_data->sa_x_start.data(), xpbd_data->sa_v_start.data());
+        });
+    }
+    
+    // Stretch 
+    {
+        const float stiffness = get_scene_params().stiffness_stretch_spring;
+        energy_stretch = parallel_for_and_reduce_sum<double>(0, mesh_data->num_edges, [&](const uint eid)
+        {
+            return Constrains::Energy::compute_energy_stretch_mass_spring(
+                eid, curr_position.data(), 
+                xpbd_data->sa_merged_edges.data(), xpbd_data->sa_merged_edges_rest_length.data(), stiffness);
+        });
     }
 
-    mesh_data->sa_v_frame_end = xpbd_data->sa_v;
-    mesh_data->sa_x_frame_end = xpbd_data->sa_x;
+    // Bending
+    const auto bending_type = get_scene_params().use_quadratic_bending_model ? Constrains::BendingTypeQuadratic : Constrains::BendingTypeDAB;
+    const bool use_xpbd_solver = true;
+    if (get_scene_params().use_bending)
+    {   
+        const float stiffness_bending_quadratic = get_scene_params().get_stiffness_quadratic_bending();
+        const float stiffness_bending_DAB = get_scene_params().get_stiffness_DAB_bending();
+
+        energy_bending = parallel_for_and_reduce_sum<double>(0, mesh_data->num_bending_edges, [&](const uint eid)
+        {
+            float energy = 0.f;
+            Constrains::Energy::compute_energy_bending(bending_type, eid, curr_position.data(), 
+                xpbd_data->sa_merged_bending_edges.data(), nullptr,
+                nullptr, xpbd_data->sa_merged_bending_edge_Q.data(),
+                xpbd_data->sa_merged_bending_edges_rest_angle.data(), 
+                stiffness_bending_DAB, stiffness_bending_quadratic, use_xpbd_solver
+            );
+            return energy;
+        });
+    }
+    
+    // Obstacle Collisoin
+    float energy_obs_collision = 0.0f;
+    // if (get_scene_params().use_obstacle_collision)
+    // {
+    //     const auto& obstacle_collision_data = obstacle_collision_data_cloth;
+    //     const float thickness1 = 0.0f;
+    //     const float thickness2 = get_scene_params().thickness_vv_obstacle;
+    //     energy_obs_collision += parallel_for_and_reduce_sum<float>(0, obstacle_collision_data->collision_count[0], [&](const uint i)
+    //     {
+    //         return Constrains::Energy::compute_energy_collision_vf(i, curr_position.data(), obstacle_data->sa_substep_position.data(), 
+    //         obstacle_collision_data->narrow_phase_list_pair_vf.data(), obstacle_collision_data->collision_count.data(), thickness2);
+    //     });
+    // }
+
+    // Self Collision
+    float energy_self_collision = 0.0f;
+    // if (get_scene_params().use_self_collision)
+    // {
+    //     const auto& self_collision_data = self_collision_data_cloth;
+    //     const float thickness1 = 0.0f;
+    //     const float thickness2 = get_scene_params().thickness_vv_cloth;
+    //     energy_self_collision = parallel_for_and_reduce_sum<float>(0, self_collision_data->collision_count[0], [&](const uint i)
+    //     {
+    //         return Constrains::Energy::compute_energy_collision_vv(i, curr_position.data(), 
+    //         self_collision_data->narrow_phase_list_pair_vv.data(), self_collision_data->collision_count.data(), thickness2);
+    //     });
+    // }
+
+    double total_energy = energy_inertia + energy_stretch + energy_bending + energy_obs_collision + energy_self_collision;
+
+    const uint it = curr_it; //; get_scene_params().current_substep * get_scene_params().num_substep + get_scene_params().current_it;
+    mesh_data->sa_system_energy[it] = total_energy;
 }
 void XpbdSolver::reset_constrains()
 {
@@ -597,6 +739,10 @@ void XpbdSolver::solve_constraints()
         {
             solve_constraint_stretch_spring(iter_position_cloth, i);
         }
+        for (uint i = 0; i < xpbd_data->num_clusters_bending; i++) 
+        {
+            solve_constraint_bending(iter_position_cloth, i);
+        }
     }
 }
 void XpbdSolver::solve_constraint_stretch_spring(SharedArray<Float3>& curr_cloth_position, const uint cluster_idx)
@@ -609,7 +755,8 @@ void XpbdSolver::solve_constraint_stretch_spring(SharedArray<Float3>& curr_cloth
     {
         const uint eid = curr_prefix + i;
         Constrains::solve_stretch_mass_spring_template(
-            eid, curr_cloth_position.data(), curr_cloth_position.data(), xpbd_data->sa_x_start.data(),
+            eid, curr_cloth_position.data(), curr_cloth_position.data(), 
+            xpbd_data->sa_x_start.data(),
             nullptr, 
             xpbd_data->sa_lambda_stretch_mass_spring.data(), mesh_data->sa_vert_mass_inv.data(), 
             xpbd_data->sa_merged_edges.data(), xpbd_data->sa_merged_edges_rest_length.data(),  // Here
@@ -618,12 +765,40 @@ void XpbdSolver::solve_constraint_stretch_spring(SharedArray<Float3>& curr_cloth
 }
 void XpbdSolver::solve_constraint_bending(SharedArray<Float3>& curr_cloth_position, const uint cluster_idx)
 {
+    if (!get_scene_params().use_bending) return;
 
+    // auto& fn_bending = Constrains::solve_bending_quadratic_template;
+    auto& fn_bending = get_scene_params().use_quadratic_bending_model ? 
+                                    Constrains::solve_bending_quadratic_template : 
+                                    Constrains::solve_bending_DAB_template_v2;
+
+    // fast_format("do i iter more ? substep = {} , iter = {}, cluster = {}", get_scene_params().current_substep, get_scene_params().current_it, cluster_idx);
+    const float stiffness_bending_quadratic = get_scene_params().get_stiffness_quadratic_bending();
+    const float stiffness_bending_DAB = get_scene_params().get_stiffness_DAB_bending();
+
+
+    const uint curr_prefix = xpbd_data->prefix_bending[cluster_idx];
+    const uint next_prefix = xpbd_data->prefix_bending[cluster_idx + 1];
+    const uint num_elements_clustered = next_prefix - curr_prefix;
+
+    parallel_for(0, num_elements_clustered, [&](const uint i)
+    {
+        const uint eid = curr_prefix + i;
+        fn_bending(
+                eid, curr_cloth_position.data(), curr_cloth_position.data(), 
+                xpbd_data->sa_x_start.data(),
+                nullptr, 
+                xpbd_data->sa_lambda_bending.data(), mesh_data->sa_vert_mass_inv.data(), 
+                xpbd_data->sa_merged_bending_edges.data(), nullptr, 
+                xpbd_data->sa_merged_bending_edge_Q.data(), xpbd_data->sa_merged_bending_edges_rest_angle.data(),
+                stiffness_bending_quadratic, stiffness_bending_DAB, get_scene_params().get_substep_dt(), false);
+    }, 32);  
 }
 
 
 
-enum SolverType{
+enum SolverType
+{
     SolverTypeGaussNewton,
     SolverTypeXPBD,
 };
@@ -631,14 +806,14 @@ enum SolverType{
 class SolverInterface
 {
 public:
-    SolverInterface() { fast_format("Init for Solver interface"); }
-    ~SolverInterface() { fast_format("Destroy Solver interface"); }  
+    SolverInterface() {}
+    ~SolverInterface() {}  
 
     void set_data_pointer(BasicMeshData* mesh_ptr) 
     {
         mesh_data = mesh_ptr;
     }
-    void set_solver_type(SolverType type)
+    void register_solver_type(SolverType type)
     {        
         switch (type) 
         {
@@ -664,7 +839,7 @@ public:
 public:
     void physics_step(SolverType type);
     void restart_system();
-    void save_mesh_to_obj();
+    void save_mesh_to_obj(const std::string& addition_str = "");
 
 private:
     BasicMeshData* mesh_data;
@@ -681,18 +856,23 @@ void SolverInterface::restart_system()
     {
         Float3 rest_pos = mesh_data->sa_rest_x[vid];
         mesh_data->sa_x_frame_start[vid] = rest_pos;
+        mesh_data->sa_x_frame_end[vid] = rest_pos;
 
         Float3 rest_vel = mesh_data->sa_rest_v[vid];
         mesh_data->sa_v_frame_start[vid] = rest_vel;
+        mesh_data->sa_v_frame_end[vid] = rest_vel;
     });
 }
 void SolverInterface::physics_step(SolverType type)
 {
+    mesh_data->sa_x_frame_start = mesh_data->sa_x_frame_end;
+    mesh_data->sa_v_frame_start = mesh_data->sa_v_frame_end;
+
     switch (type) 
     {
         case SolverTypeXPBD:
         {
-            xpbd_solver.physics_step();
+            xpbd_solver.physics_step(); /////////////
             break;
         }
         default:
@@ -705,12 +885,11 @@ void SolverInterface::physics_step(SolverType type)
     {
         // Other operations...
     }
-    mesh_data->sa_x_frame_start = mesh_data->sa_x_frame_end;
-    mesh_data->sa_v_frame_start = mesh_data->sa_v_frame_end;
+    
 }
-void SolverInterface::save_mesh_to_obj()
+void SolverInterface::save_mesh_to_obj(const std::string& addition_str)
 {
-    const std::string filename = std::format("frame_{}.obj", get_scene_params().current_frame);
+    const std::string filename = std::format("frame_{}{}.obj", get_scene_params().current_frame, addition_str);
 
     std::string full_path = std::string(SELF_RESOURCES_PATH) + std::string("/outputs/") + filename;
     std::ofstream file(full_path, std::ios::out);
@@ -723,7 +902,7 @@ void SolverInterface::save_mesh_to_obj()
         uint glocal_mesh_id_prefix = 0;
         
         // Cloth Part
-        if (get_scene_params().draw_cloth)
+        // if (get_scene_params().draw_cloth)
         {
             // for (uint clothIdx = 0; clothIdx < cloth_data.num_cloths; clothIdx++) 
             const uint clothIdx = 0;
@@ -757,8 +936,6 @@ int main()
 {
     std::cout << "Hello, Asynchronous Iteration!" << std::endl;
     
-    
-
     // Init metal system
     {
         create_device();
@@ -767,7 +944,7 @@ int main()
 
         init_scene_params();
     }
-    
+
     // Init mesh
     BasicMeshData mesh_data;
     {
@@ -779,22 +956,44 @@ int main()
     {
         solver.set_data_pointer(&mesh_data);
 
-        solver.set_solver_type(SolverTypeXPBD);
+        solver.register_solver_type(SolverTypeXPBD);
+    }
+
+
+
+    // Some params
+    {
+        get_scene_params().use_substep = false;
+        get_scene_params().num_substep = 1;
+        get_scene_params().constraint_iter_count = 100;
+        get_scene_params().use_bending = true;
+        get_scene_params().use_quadratic_bending_model = false;
     }
     
-
     // Simulation
+    solver.restart_system();
+    solver.save_mesh_to_obj("");
+    {
+        // get_scene_params().use_bending = false;
+    }
     {   
-        solver.restart_system();
-
         for (uint frame = 0; frame < 20; frame++)
-        {
-            get_scene_params().current_frame = frame;
-            
+        {   get_scene_params().current_frame = frame;    
             solver.physics_step(SolverTypeXPBD);
         }
+        solver.save_mesh_to_obj("_large_bending");        
+    }
 
-        solver.save_mesh_to_obj();
+    solver.restart_system();
+    {
+        get_scene_params().use_bending = false;
+    }
+    {
+        for (uint frame = 0; frame < 20; frame++)
+        {   get_scene_params().current_frame = frame;    
+            solver.physics_step(SolverTypeXPBD);
+        }
+        solver.save_mesh_to_obj("_no_bending");
     }
     
 
