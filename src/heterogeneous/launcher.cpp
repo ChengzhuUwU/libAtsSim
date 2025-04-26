@@ -1836,17 +1836,14 @@ void Scheduler::standardizing_dag(const std::vector< std::function<void(const La
     const bool print_root_terminal = false;
 
     std::vector<Implementation> list_empty_imp = {};
-    if (!input_list_fn_empty_func.empty())
-    {
-        for (uint proc = 0; proc < input_list_fn_empty_func.size(); proc++) 
-        {
+    if (!input_list_fn_empty_func.empty()) {
+        for (uint proc = 0; proc < input_list_fn_empty_func.size(); proc++) {
             list_empty_imp.push_back(Implementation(proc, input_list_fn_empty_func[proc]));
         }
     }
     
     // if(list_root.size() > 1) 
-    if (true)
-    {
+    if (true) {
         root_node = add_task(Task(id_additional_root, 0, false, true, 
             list_empty_imp));
             // { Implementation(DeviceTypeCpu, fn_empty_func, 0), Implementation(DeviceTypeGpu, fn_empty_func, 0) }));
@@ -1883,8 +1880,7 @@ void Scheduler::standardizing_dag(const std::vector< std::function<void(const La
     }
 
     // if(list_terminal.size() > 1) 
-    if (true)
-    {
+    if (true) {
         terminal_node = add_task(Task(id_additional_terminal, 0, false, true, 
             list_empty_imp));
             // { Implementation(DeviceTypeCpu, fn_empty_func, 0), Implementation(DeviceTypeGpu, fn_empty_func, 0) }));
@@ -1906,12 +1902,12 @@ void Scheduler::standardizing_dag(const std::vector< std::function<void(const La
     }
     else {
         terminal_node = list_terminal[0];
-        if(print_root_terminal) fast_print("   Terminal Node", Launcher::taskNames.at(list_task[terminal_node].func_id));
+        if (print_root_terminal) fast_print("   Terminal Node", Launcher::taskNames.at(list_task[terminal_node].func_id));
     }
 
 
     const bool print_connectivity_matrix = false; /// --- Print --- 
-    if(print_connectivity_matrix){
+    if (print_connectivity_matrix){
         const uint num_tasks = list_task.size();
         
         // T  ,T0 ,T1 ,T2 ,T3 ,T4 ,T5 ,T6 ,T7 ,T8 ,T9

@@ -409,12 +409,12 @@ private:
 
 private:
     SharedArray<Float4x3>& get_Hf_in_iter();
-    void solve_all_constraints();
+    void solve_constraints_XPBD();
     void solve_constraint_stretch_spring(SharedArray<Float3>& curr_cloth_position, const uint cluster_idx);
     void solve_constraint_bending(SharedArray<Float3>& curr_cloth_position, const uint cluster_idx);
 
 private:
-    void solve_constraints_vbd();
+    void solve_constraints_VBD();
     void vbd_evaluate_inertia(SharedArray<Float3>& curr_cloth_position, const uint cluster_idx);
     void vbd_evaluate_stretch_spring(SharedArray<Float3>& curr_cloth_position, const uint cluster_idx);
     void vbd_evaluate_bending(SharedArray<Float3>& curr_cloth_position, const uint cluster_idx);
@@ -714,8 +714,8 @@ void XpbdSolver::physics_step()
                 for (uint iter = 0; iter < constraint_iter_count; iter++) // 200 or 1 ?
                 {   
                     { get_scene_params().current_it = iter; }
-                    if (get_scene_params().use_xpbd_solver)     { solve_all_constraints(); }
-                    else if (get_scene_params().use_vbd_solver) { solve_constraints_vbd(); }
+                    if (get_scene_params().use_xpbd_solver)     { solve_constraints_XPBD(); }
+                    else if (get_scene_params().use_vbd_solver) { solve_constraints_VBD(); }
                     else { fast_format_err("empty solver"); }
                 }
             }
@@ -1050,7 +1050,7 @@ void XpbdSolver::vbd_step(SharedArray<Float3>& sa_iter_position, const uint clus
     }, 32);
 }
 
-void XpbdSolver::solve_constraints_vbd()
+void XpbdSolver::solve_constraints_VBD()
 {
     auto& iter_position = xpbd_data->sa_x;
 
@@ -1079,7 +1079,7 @@ void XpbdSolver::solve_constraints_vbd()
         compute_energy(iter_position); 
     }
 }
-void XpbdSolver::solve_all_constraints()
+void XpbdSolver::solve_constraints_XPBD()
 {
     auto& iter_position_cloth = xpbd_data->sa_x;
 
@@ -1288,11 +1288,13 @@ int main()
         get_scene_params().use_vbd_solver = true;
     }
     {   
-        for (uint frame = 0; frame < 20; frame++)
+        for (uint frame = 0; frame < 10; frame++)
         {   get_scene_params().current_frame = frame;    
+
             solver.physics_step(SolverTypeXPBD);
+
         }
-        solver.save_mesh_to_obj("_large_bending");        
+        solver.save_mesh_to_obj("");        
     }
 
     // solver.restart_system();
