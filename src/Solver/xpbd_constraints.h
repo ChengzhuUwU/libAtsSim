@@ -352,7 +352,7 @@ inline void predict_position(
 
 	// Velocity Filter
 	{
-		if (sa_is_fixed[vid]){ outer_acceleration = Zero3; v_pred = Zero3; }
+		if (sa_is_fixed[vid]) { outer_acceleration = Zero3; v_pred = Zero3; }
 
 		// const float max_vel = radius * thick_ness / sub_step_dt;
 		// float len_vel = length_vec(vel_pred);
@@ -1466,7 +1466,7 @@ inline void solve_bending_DAB_template_v2(
 
     // const float eps = 1e-6;
     const float ke = stiffness_bending_DAB; // 弯曲刚度
-    const float kd = 0.1f; // 阻尼系数（可以调整）
+    const float kd = 0.0f; // 阻尼系数（可以调整）
 
     const uint i = edge[0];
     const uint j = edge[1];
@@ -1513,7 +1513,7 @@ inline void solve_bending_DAB_template_v2(
 		const float SinPhi = clamp_scalar(dot_vec(N2CrossN1, SharedEdgeNormalized), (float)(-0.999999), (float)(0.999999));
 		// const float SinPhi = clamp_scalar(dot_vec(N2CrossN1, SharedEdgeNormalized), 1e-8, (float)(1));
 
-		// if (Normal1Len < FLOAT_SMALL_NUMBER || Normal2Len < FLOAT_SMALL_NUMBER || abs_scalar(CosPhi) < FLOAT_SMALL_NUMBER) return;
+		if (Normal1Len < FLOAT_SMALL_NUMBER || Normal2Len < FLOAT_SMALL_NUMBER || abs_scalar(CosPhi) < FLOAT_SMALL_NUMBER) return;
 
 		Angle = atan2_scalar(SinPhi, CosPhi); // if CosPhi == 0, atan(sin/cos) -> nan, so we use safe atan2
 		// const float Angle = acos_scalar(CosPhi);
@@ -1531,21 +1531,23 @@ inline void solve_bending_DAB_template_v2(
 		Grad3 = -1 * DPhiDP13 - DPhiDP23;
 		Grad4 = -1 * DPhiDP14 - DPhiDP24;
 	}
+    const float RestAngle = sa_bending_edge_rest_state_angle[eid];
 
     const float CombinedInvMass = w1 + w2 + w3 + w4;
     const float Damping = 2.f * kd * sqrt_scalar(ke / CombinedInvMass);
     const float BetaDt = Damping * substep_dt;
 
-    const Float3 V1TimesDt = x1 - sa_start_position[i];
-    const Float3 V2TimesDt = x2 - sa_start_position[j];
-    const Float3 V3TimesDt = x3 - sa_start_position[k];
-    const Float3 V4TimesDt = x4 - sa_start_position[l];
-    const float DampingTerm = BetaDt * (dot_vec(V1TimesDt, Grad1) + dot_vec(V2TimesDt, Grad2) + dot_vec(V3TimesDt, Grad3) + dot_vec(V4TimesDt, Grad4));
-
-    const float RestAngle = sa_bending_edge_rest_state_angle[eid];
-    // const float RestAngle = 0;
     const float AlphaInv = ke * substep_dt * substep_dt;
-    const float ElasticTerm = AlphaInv * (Angle - RestAngle);
+    float ElasticTerm = AlphaInv * (Angle - RestAngle);
+    float DampingTerm = 0.0f;
+	if (kd != 0.0f) 
+	{
+		const Float3 V1TimesDt = x1 - sa_start_position[i];
+		const Float3 V2TimesDt = x2 - sa_start_position[j];
+		const Float3 V3TimesDt = x3 - sa_start_position[k];
+		const Float3 V4TimesDt = x4 - sa_start_position[l];
+		DampingTerm = BetaDt * (dot_vec(V1TimesDt, Grad1) + dot_vec(V2TimesDt, Grad2) + dot_vec(V3TimesDt, Grad3) + dot_vec(V4TimesDt, Grad4));
+	}
 
 	{
 		// const FVector3f SharedEdgeNormalized = VectorGetSafeNormal(x2 - x1);
@@ -1569,7 +1571,6 @@ inline void solve_bending_DAB_template_v2(
 		// else sa_bending_edge_Q[eid] = make<Float4x4>(0.f);
 	}
 	
-
     const float Denom = (AlphaInv + BetaDt) * (
         w1 * length_squared_vec(Grad1) +
         w2 * length_squared_vec(Grad2) +
@@ -2107,9 +2108,19 @@ inline float compute_energy_stretch_mass_spring(
 		input_position[edge[1]]  
 	};
 	const float rest_edge_length = sa_edge_rest_state_length[eid];
-	stretch_mass_spring<true, false, false>(
-		&energy, nullptr, nullptr, 
-		vert_pos, rest_edge_length, stiffness_spring);
+
+	Float3 diff = vert_pos[1] - vert_pos[0];
+	float orig_lengthsqr = length_squared_vec(diff);
+	if (orig_lengthsqr < 1e-8) { return 0.0f; }
+	float l = sqrt_scalar(orig_lengthsqr);
+	float l0 = rest_edge_length;
+	float C = l - l0;
+
+	energy = 0.5f * stiffness_spring * square_scalar(C);
+	
+	// stretch_mass_spring<true, false, false>(
+	// 	&energy, nullptr, nullptr, 
+	// 	vert_pos, rest_edge_length, stiffness_spring);
 	return energy;
 }
 
@@ -2119,7 +2130,7 @@ inline float compute_energy_bending(
 	BendingType bending_type, const uint eid, const PTR(Float3) input_position, 
 	 PTR(Int4) sa_bending_edges, PTR(Int2) sa_bending_edge_adj_faces, PTR(float)  sa_face_area, 
 	PTR(Float4x4) sa_bending_edge_Q, PTR(float) sa_bending_edge_rest_state_angle,
-	const float stiffness_bending_quadratic, const float stiffness_bending_DBA, const bool use_xpbd)
+	const float stiffness_bending_quadratic, const float stiffness_bending_DAB, const bool use_xpbd)
 {
 	Int4 edge = sa_bending_edges[eid];	
 	const Float3 vert_pos[4] = {
@@ -2140,7 +2151,7 @@ inline float compute_energy_bending(
 			core_bending_quadratic<true, false, false>(
 				&C, nullptr, nullptr, 
 				vert_pos, m_Q, 1.0f);
-			energy = stiffness_bending_DBA * square_scalar(C);
+			energy = stiffness_bending_DAB * square_scalar(C);
 		}
 		else
 		{
@@ -2156,7 +2167,7 @@ inline float compute_energy_bending(
 			Int4 edge = sa_bending_edges[eid];
 
 			// const float eps = 1e-6;
-			const float ke = stiffness_bending_DBA; // 弯曲刚度
+			const float ke = stiffness_bending_DAB; // 弯曲刚度
 
 			const uint i = edge[0];
 			const uint j = edge[1];
@@ -2184,6 +2195,8 @@ inline float compute_energy_bending(
 
 				const float CosPhi = clamp_scalar(dot_vec(Normal1, Normal2), (float)(-0.999999), (float)(0.999999));
 				const float SinPhi = clamp_scalar(dot_vec(N2CrossN1, SharedEdgeNormalized), (float)(-0.999999), (float)(0.999999));
+
+				if (Normal1Len < FLOAT_SMALL_NUMBER || Normal2Len < FLOAT_SMALL_NUMBER || abs_scalar(CosPhi) < FLOAT_SMALL_NUMBER) return 0.0f;
 
 				float Angle = atan2_scalar(SinPhi, CosPhi); // if CosPhi == 0, atan(sin/cos) -> nan, so we use safe atan2
 				const float RestAngle = sa_bending_edge_rest_state_angle[eid];
@@ -4145,7 +4158,7 @@ inline Float4x3 compute_stretch_mass_spring(
 	return hf;
 };
 
-inline Float4x3 compute_bending(
+inline Float4x3 compute_bending_quadratic(
 	const uint vid, PTR(Float3) sa_iter_position,
 	PTR(uint) sa_vert_adj_bending_edges_csr,
 	PTR(Int4) sa_bending_edges, PTR(Float4x4) sa_bending_edge_Q, const float stiffness_quadratic_bending
@@ -4191,7 +4204,7 @@ inline Float4x3 compute_bending(
 	return hf;
 };
 
-inline Float4x3  compute_ground_collision(
+inline Float4x3 compute_ground_collision(
 	const uint vid,
 	PTR(Float3) sa_iter_position, const float stiffness_collision,
 	const float thickness_vv_obstacle, PTR(SceneParams) scene_param
@@ -4269,7 +4282,7 @@ inline Float4x3 compute_obstacle_collision(
 	}
 	return hf;
 };
-inline Float4x3  compute_self_collision(
+inline Float4x3 compute_self_collision(
 	const uint vid, PTR(Float3) sa_iter_position, 
 	PTR(uint) vert_VV_prefix_narrow_phase, PTR(uint) vert_VV_num_narrow_phase, PTR(uint) vert_adj_elements,
 	PTR(ProximityVV) narrow_phase_list_pair_vv, const float thickness_vv_cloth, const float stiffness_collision

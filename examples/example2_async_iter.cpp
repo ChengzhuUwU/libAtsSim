@@ -29,7 +29,13 @@ struct BasicMeshData
     SharedArray<float> sa_vert_mass;
     SharedArray<float> sa_vert_mass_inv;
     SharedArray<uchar> sa_is_fixed;
+    
+    SharedArray<float> sa_edges_rest_state_length;
+    SharedArray<float> sa_bending_edges_rest_angle;
+    SharedArray<Float4x4> sa_bending_edges_Q;
 
+    SharedArray<uint> sa_vert_adj_verts; std::vector< std::vector<uint> > vert_adj_verts;
+    SharedArray<uint> sa_vert_adj_verts_with_bending; std::vector< std::vector<uint> > vert_adj_verts_with_bending;
     SharedArray<uint> sa_vert_adj_faces; std::vector< std::vector<uint> > vert_adj_faces;
     SharedArray<uint> sa_vert_adj_edges; std::vector< std::vector<uint> > vert_adj_edges;
     SharedArray<uint> sa_vert_adj_bending_edges; std::vector< std::vector<uint> > vert_adj_bending_edges;
@@ -51,8 +57,8 @@ struct XpbdData
     SharedArray<float> sa_merged_edges_rest_length;
 
     SharedArray<Int4> sa_merged_bending_edges; 
-    SharedArray<float> sa_merged_bending_edges_rest_angle;
-    SharedArray<Float4x4> sa_merged_bending_edge_Q;
+    SharedArray<float> sa_merged_bending_edges_angle;
+    SharedArray<Float4x4> sa_merged_bending_edges_Q;
 
     uint num_clusters_stretch_mass_spring = 0;
     SharedArray<uint> clusterd_constraint_stretch_mass_spring; 
@@ -63,6 +69,13 @@ struct XpbdData
     SharedArray<uint> clusterd_constraint_bending; 
     SharedArray<uint> prefix_bending; 
     SharedArray<float> sa_lambda_bending;
+
+    // VBD
+    uint num_clusters_per_vertex_bending = 0; 
+    SharedArray<uint> prefix_per_vertex_bending; 
+    SharedArray<uint> clusterd_per_vertex_bending; 
+    SharedArray<uchar> per_vertex_bending_cluster_id; 
+    SharedArray<Float4x3> sa_Hf; 
 
 #if false
     const bool check1()
@@ -143,6 +156,7 @@ void init_mesh(BasicMeshData* mesh_data)
         mesh_data->num_edges = num_edges; mesh_data->sa_edges.upload(input_mesh.edges); 
         mesh_data->num_bending_edges = num_bending_edges; mesh_data->sa_bending_edges.upload(input_mesh.bending_edges); 
     }
+    
     // Init vert info
     {
         // Set rest position & velocity
@@ -206,12 +220,14 @@ void init_mesh(BasicMeshData* mesh_data)
         }
 
     }
+
     // Init adjacent list
     {
         mesh_data->vert_adj_faces.resize(num_verts);
         mesh_data->vert_adj_edges.resize(num_verts);
         mesh_data->vert_adj_bending_edges.resize(num_verts);
 
+        // Vert adj faces
         for (uint eid = 0; eid < num_faces; eid++)
         {
             auto edge = mesh_data->sa_faces[eid];
@@ -220,6 +236,7 @@ void init_mesh(BasicMeshData* mesh_data)
         } 
         mesh_data->sa_vert_adj_faces.upload_2d_csr(mesh_data->vert_adj_faces); 
 
+        // Vert adj edges
         for (uint eid = 0; eid < num_edges; eid++)
         {
             auto edge = mesh_data->sa_edges[eid];
@@ -228,6 +245,7 @@ void init_mesh(BasicMeshData* mesh_data)
         } 
         mesh_data->sa_vert_adj_edges.upload_2d_csr(mesh_data->vert_adj_edges);
 
+        // Vert adj bending-edges
         for (uint eid = 0; eid < num_bending_edges; eid++)
         {
             auto edge = mesh_data->sa_bending_edges[eid];
@@ -235,6 +253,121 @@ void init_mesh(BasicMeshData* mesh_data)
                 mesh_data->vert_adj_bending_edges[edge[j]].push_back(eid);
         }  
         mesh_data->sa_vert_adj_bending_edges.upload_2d_csr(mesh_data->vert_adj_bending_edges);
+
+        // Vert adj verts based on 1-order connection
+        mesh_data->vert_adj_verts.resize(num_verts);
+        for (uint eid = 0; eid < num_edges; eid++)
+        {
+            auto edge = mesh_data->sa_edges[eid];
+            for (uint j = 0; j < 2; j++)
+            {
+                const uint left = edge[j];
+                const uint right = edge[1 - j];
+                mesh_data->vert_adj_verts[left].push_back(right);
+            }
+        } 
+        mesh_data->sa_vert_adj_verts.upload_2d_csr(mesh_data->vert_adj_verts);
+        
+        // Vert adj verts based on 1-order bending-connection
+        auto insert_adj_vert = [](std::vector<std::vector<uint>>& adj_map, const uint& vid1, const uint& vid2) 
+        {
+            if (vid1 == vid2) std::cerr << "redudant!";
+            auto& inner_list = adj_map[vid1];
+            auto find_result = std::find(inner_list.begin(), inner_list.end(), vid2);
+            if (find_result == inner_list.end())
+            {
+                inner_list.push_back(vid2);
+            }
+        };
+        mesh_data->vert_adj_verts_with_bending = mesh_data->vert_adj_verts;
+        for (uint eid = 0; eid < mesh_data->num_bending_edges; eid++)
+        {
+            const Int4 edge = mesh_data->sa_bending_edges[eid];
+            for (size_t i = 0; i < 4; i++) 
+            {
+                for (size_t j = 0; j < 4; j++)
+                {
+                    if (i != j) { insert_adj_vert(mesh_data->vert_adj_verts_with_bending, edge[i], edge[j]); }
+                    if (i != j) { if (edge[i] == edge[j])
+                    {
+                        fast_format("Redundant Edge {} : {} & {}", eid, edge[i], edge[j]);
+                    } }
+                }
+            }
+        }
+        mesh_data->sa_vert_adj_verts_with_bending.upload_2d_csr(mesh_data->vert_adj_verts_with_bending);
+    }
+
+    // Init energy
+    {
+        // Rest spring length
+        mesh_data->sa_edges_rest_state_length.resize(num_edges);
+        parallel_for(0, num_edges, [&](const uint eid)
+        {
+            Int2 edge = mesh_data->sa_edges[eid];
+            Float3 x1 = mesh_data->sa_rest_x[edge[0]];
+            Float3 x2 = mesh_data->sa_rest_x[edge[1]];
+            mesh_data->sa_edges_rest_state_length[eid] = length_vec(x1 - x2); /// 
+        });
+
+        // Rest bending info
+        mesh_data->sa_bending_edges_rest_angle.resize(num_bending_edges);
+        mesh_data->sa_bending_edges_Q.resize(num_bending_edges);
+        parallel_for(0, num_bending_edges, [&](const uint eid)
+        {
+            const Int4 edge = mesh_data->sa_bending_edges[eid];
+            const Float3 vert_pos[4] = {
+                mesh_data->sa_rest_x[edge[0]], 
+                mesh_data->sa_rest_x[edge[1]], 
+                mesh_data->sa_rest_x[edge[2]], 
+                mesh_data->sa_rest_x[edge[3]]};
+            
+            // Rest state angle
+            {
+                const Float3& x1 = vert_pos[2];
+                const Float3& x2 = vert_pos[3];
+                const Float3& x3 = vert_pos[0];
+                const Float3& x4 = vert_pos[1];
+        
+                Float3 tmp;
+                const float angle = Constrains::CalcGradientsAndAngle(x1, x2, x3, x4, tmp, tmp, tmp, tmp);
+                if (is_nan_scalar(angle)) fast_format_err("is nan rest angle {}", eid);
+    
+                mesh_data->sa_bending_edges_rest_angle[eid] = angle; 
+            }
+
+            // Rest state Q
+            {
+                auto calculateCotTheta = [](const Float3& x, const Float3& y)
+                {
+                    // const float scaled_cos_theta = dot_vec(x, y);
+                    // const float scaled_sin_theta = (sqrt_scalar(1.0f - square_scalar(scaled_cos_theta))); 
+                    const float scaled_cos_theta = dot_vec(x, y);
+                    const float scaled_sin_theta = length_vec(cross_vec(x, y)); 
+                    return scaled_cos_theta / scaled_sin_theta;
+                };
+
+                Float3 e0 = vert_pos[1] - vert_pos[0];
+                Float3 e1 = vert_pos[2] - vert_pos[0];
+                Float3 e2 = vert_pos[3] - vert_pos[0];
+                Float3 e3 = vert_pos[2] - vert_pos[1];
+                Float3 e4 = vert_pos[3] - vert_pos[1];
+                const float cot_01 = calculateCotTheta(e0, -e1);
+                const float cot_02 = calculateCotTheta(e0, -e2);
+                const float cot_03 = calculateCotTheta(e0, e3);
+                const float cot_04 = calculateCotTheta(e0, e4);
+                const Float4 K = makeFloat4(
+                    cot_03 + cot_04, 
+                    cot_01 + cot_02, 
+                    -cot_01 - cot_03, 
+                    -cot_02 - cot_04);
+                const float A_0 = 0.5f * length_vec(cross_vec(e0, e1));
+                const float A_1 = 0.5f * length_vec(cross_vec(e0, e2));
+                // if (is_nan_vec<Float4>(K) || is_inf_vec<Float4>(K)) fast_print_err("Q of Bending is Illigal");
+                const Float4x4 m_Q = (3.f / (A_0 + A_1)) * outer_product(K, K); // Q = 3 qq^T / (A0+A1) ==> Q is symmetric
+                mesh_data->sa_bending_edges_Q[eid] = m_Q; // See : A quadratic bending model for inextensible surfaces.
+            }
+        });
     }
 
     // Init vert status
@@ -243,8 +376,9 @@ void init_mesh(BasicMeshData* mesh_data)
         mesh_data->sa_v_frame_start.resize(num_verts); mesh_data->sa_v_frame_start = mesh_data->sa_rest_v;
         mesh_data->sa_x_frame_end.resize(num_verts); mesh_data->sa_x_frame_end = mesh_data->sa_rest_x;
         mesh_data->sa_v_frame_end.resize(num_verts); mesh_data->sa_v_frame_end = mesh_data->sa_rest_v;
-        mesh_data->sa_system_energy.resize(1024);
+        mesh_data->sa_system_energy.resize(10240);
     }
+    
 }
 
 class XpbdSolver
@@ -264,7 +398,7 @@ public:
 
 public:    
     void physics_step();
-    void compute_energy(const uint curr_it, const SharedArray<Float3>& curr_cloth_position);
+    void compute_energy(const SharedArray<Float3>& curr_cloth_position);
 
 private:
     void collision_detection();
@@ -274,14 +408,24 @@ private:
     void reset_collision_constrains();
 
 private:
-    void solve_constraints();
+    SharedArray<Float4x3>& get_Hf_in_iter();
+    void solve_all_constraints();
     void solve_constraint_stretch_spring(SharedArray<Float3>& curr_cloth_position, const uint cluster_idx);
     void solve_constraint_bending(SharedArray<Float3>& curr_cloth_position, const uint cluster_idx);
+
+private:
+    void solve_constraints_vbd();
+    void vbd_evaluate_inertia(SharedArray<Float3>& curr_cloth_position, const uint cluster_idx);
+    void vbd_evaluate_stretch_spring(SharedArray<Float3>& curr_cloth_position, const uint cluster_idx);
+    void vbd_evaluate_bending(SharedArray<Float3>& curr_cloth_position, const uint cluster_idx);
+    void vbd_step(SharedArray<Float3>& curr_cloth_position, const uint cluster_idx);
+    void vbd_solve(SharedArray<Float3>& curr_cloth_position, const uint cluster_idx);
 
 private:
     XpbdData* xpbd_data;
     BasicMeshData* mesh_data;
 };
+static uint energy_idx = 0; 
 
 void XpbdSolver::init_xpbd_system()
 {
@@ -410,6 +554,82 @@ void XpbdSolver::init_xpbd_system()
 
     }
 
+    // Vertex Block Descent Coloring
+    {
+        // Graph Coloring
+        const uint num_verts_total = mesh_data->num_verts;
+        xpbd_data->sa_Hf.resize(mesh_data->num_verts);
+
+        const std::vector< std::vector<uint> >& vert_adj_verts = mesh_data->vert_adj_verts_with_bending;
+        std::vector<std::vector<uint>> clusterd_vertices_bending; std::vector<uint> prefix_vertices_bending;
+
+        auto fn_graph_coloring_pervertex = [&](const std::vector< std::vector<uint> >& vert_adj_, std::vector<std::vector<uint>>& clusterd_vertices, std::vector<uint>& prefix_vert)
+        {
+            std::vector<bool> marked_verts(num_verts_total, false);
+            uint total_marked_count = 0;
+
+            while (true) 
+            {
+                std::vector<uint> current_cluster;
+                std::vector<bool> current_marked(marked_verts);
+
+                for (uint vid = 0; vid < num_verts_total; vid++) 
+                {
+                    if (current_marked[vid]) 
+                    {
+                        continue;
+                    }
+                    else 
+                    {
+                        // Add To Sets
+                        marked_verts[vid] = true;
+                        current_cluster.push_back(vid);
+
+                        // Mark
+                        current_marked[vid] = true;
+                        const auto& list = vert_adj_[vid];
+                        for (const uint& adj_vid : list) 
+                        {
+                            current_marked[adj_vid] = true;
+                        }
+                    }
+                }
+                clusterd_vertices.push_back(current_cluster);
+                total_marked_count += current_cluster.size();
+
+                if (total_marked_count == num_verts_total) break;
+            }
+            
+
+            prefix_vert.resize(clusterd_vertices.size() + 1); uint curr_prefix = 0;
+            for (uint cluster = 0; cluster < clusterd_vertices.size(); cluster++)
+            {
+                prefix_vert[cluster] = curr_prefix;
+                curr_prefix += clusterd_vertices[cluster].size();
+            } prefix_vert[clusterd_vertices.size()] = curr_prefix;
+        };
+
+        fn_graph_coloring_pervertex(vert_adj_verts, clusterd_vertices_bending, prefix_vertices_bending);
+        xpbd_data->num_clusters_per_vertex_bending = clusterd_vertices_bending.size();
+        xpbd_data->prefix_per_vertex_bending.upload(prefix_vertices_bending ); 
+        xpbd_data->clusterd_per_vertex_bending.upload_2d_csr(clusterd_vertices_bending);
+
+        // Reverse map
+        xpbd_data->per_vertex_bending_cluster_id.resize(mesh_data->num_verts);
+        for (uint cluster = 0; cluster < xpbd_data->num_clusters_per_vertex_bending; cluster++)
+        {
+            const uint next_prefix = xpbd_data->clusterd_per_vertex_bending[cluster + 1];
+            const uint curr_prefix = xpbd_data->clusterd_per_vertex_bending[cluster];
+            const uint num_verts_cluster = next_prefix - curr_prefix;
+            parallel_for(0, num_verts_cluster, [&](const uint i)
+            {
+                const uint vid = xpbd_data->clusterd_per_vertex_bending[curr_prefix + i];
+                xpbd_data->per_vertex_bending_cluster_id[vid] = cluster;
+            });
+        }
+        
+    }
+
     // Precomputation
     {
         // Spring Constraint
@@ -424,27 +644,21 @@ void XpbdSolver::init_xpbd_system()
                 const auto& curr_cluster = tmp_clusterd_constraint_stretch_mass_spring[cluster];
                 parallel_for(0, curr_cluster.size(), [&](const uint i)
                 {
-                    const uint constaint_idx = curr_cluster[i];
-                    xpbd_data->sa_merged_edges[prefix + i] = mesh_data->sa_edges[constaint_idx];
+                    const uint eid = curr_cluster[i];
+                    {
+                        xpbd_data->sa_merged_edges[prefix + i] = mesh_data->sa_edges[eid];
+                        xpbd_data->sa_merged_edges_rest_length[prefix + i] = mesh_data->sa_edges_rest_state_length[eid];
+                    }
                 });
                 prefix += curr_cluster.size();
             } if (prefix != mesh_data->num_edges) fast_format_err("Sum of Mass Spring Cluster Is Not Equal  Than Orig");
-            
-            // Rest spring length
-            parallel_for(0, xpbd_data->sa_merged_edges.size(), [&](const uint eid)
-            {
-                Int2 edge = xpbd_data->sa_merged_edges[eid];
-                Float3 x1 = mesh_data->sa_rest_x[edge[0]];
-                Float3 x2 = mesh_data->sa_rest_x[edge[1]];
-                xpbd_data->sa_merged_edges_rest_length[eid] = length_vec(x1 - x2); /// 
-            });
         }
 
         // Bending Constraint
         {
             xpbd_data->sa_merged_bending_edges.resize(mesh_data->num_bending_edges);
-            xpbd_data->sa_merged_bending_edges_rest_angle.resize(mesh_data->num_bending_edges);
-            xpbd_data->sa_merged_bending_edge_Q.resize(mesh_data->num_bending_edges);
+            xpbd_data->sa_merged_bending_edges_angle.resize(mesh_data->num_bending_edges);
+            xpbd_data->sa_merged_bending_edges_Q.resize(mesh_data->num_bending_edges);
             xpbd_data->sa_lambda_bending.resize(mesh_data->num_bending_edges);
 
             uint prefix = 0;
@@ -453,82 +667,33 @@ void XpbdSolver::init_xpbd_system()
                 const auto& curr_cluster = tmp_clusterd_constraint_bending[cluster];
                 parallel_for(0, curr_cluster.size(), [&](const uint i)
                 {
-                    const uint constaint_idx = curr_cluster[i];
-                    xpbd_data->sa_merged_bending_edges[prefix + i] = mesh_data->sa_bending_edges[constaint_idx];
+                    const uint eid = curr_cluster[i];
+                    {
+                        xpbd_data->sa_merged_bending_edges[prefix + i] = mesh_data->sa_bending_edges[eid];
+                        xpbd_data->sa_merged_bending_edges_angle[prefix + i] = mesh_data->sa_bending_edges_rest_angle[eid];
+                        xpbd_data->sa_merged_bending_edges_Q[prefix + i] = mesh_data->sa_bending_edges_Q[eid];
+                    }
                 });
                 prefix += curr_cluster.size();
             } if (prefix != mesh_data->num_bending_edges) fast_format_err("Sum of Bending Cluster Is Not Equal Than Orig");
-
-            parallel_for(0, mesh_data->num_bending_edges, [&](const uint eid)
-            {
-                const Int4 edge = xpbd_data->sa_merged_bending_edges[eid];
-                const Float3 vert_pos[4] = {
-                    mesh_data->sa_rest_x[edge[0]], 
-                    mesh_data->sa_rest_x[edge[1]], 
-                    mesh_data->sa_rest_x[edge[2]], 
-                    mesh_data->sa_rest_x[edge[3]]};
-                
-                // Rest state angle
-                {
-                    const Float3& x1 = vert_pos[2];
-                    const Float3& x2 = vert_pos[3];
-                    const Float3& x3 = vert_pos[0];
-                    const Float3& x4 = vert_pos[1];
-            
-                    Float3 tmp;
-                    const float angle = Constrains::CalcGradientsAndAngle(x1, x2, x3, x4, tmp, tmp, tmp, tmp);
-                    if (is_nan_scalar(angle)) fast_format_err("is nan rest angle {}", eid);
-        
-                    xpbd_data->sa_merged_bending_edges_rest_angle[eid] = angle; 
-                }
-                // Rest state Q
-                {
-                    auto calculateCotTheta = [](const Float3& x, const Float3& y)
-                    {
-                        // const float scaled_cos_theta = dot_vec(x, y);
-                        // const float scaled_sin_theta = (sqrt_scalar(1.0f - square_scalar(scaled_cos_theta))); 
-                        const float scaled_cos_theta = dot_vec(x, y);
-                        const float scaled_sin_theta = length_vec(cross_vec(x, y)); 
-                        return scaled_cos_theta / scaled_sin_theta;
-                    };
-
-                    Float3 e0 = vert_pos[1] - vert_pos[0];
-                    Float3 e1 = vert_pos[2] - vert_pos[0];
-                    Float3 e2 = vert_pos[3] - vert_pos[0];
-                    Float3 e3 = vert_pos[2] - vert_pos[1];
-                    Float3 e4 = vert_pos[3] - vert_pos[1];
-                    const float cot_01 = calculateCotTheta(e0, -e1);
-                    const float cot_02 = calculateCotTheta(e0, -e2);
-                    const float cot_03 = calculateCotTheta(e0, e3);
-                    const float cot_04 = calculateCotTheta(e0, e4);
-                    const Float4 K = makeFloat4(
-                        cot_03 + cot_04, 
-                        cot_01 + cot_02, 
-                        -cot_01 - cot_03, 
-                        -cot_02 - cot_04);
-                    const float A_0 = 0.5f * length_vec(cross_vec(e0, e1));
-                    const float A_1 = 0.5f * length_vec(cross_vec(e0, e2));
-                    // if (is_nan_vec<Float4>(K) || is_inf_vec<Float4>(K)) fast_print_err("Q of Bending is Illigal");
-                    const Float4x4 m_Q = (3.f / (A_0 + A_1)) * outer_product(K, K); // Q = 3 qq^T / (A0+A1) ==> Q is symmetric
-                    xpbd_data->sa_merged_bending_edge_Q[eid] = m_Q; // See : A quadratic bending model for inextensible surfaces.
-                }
-            });
         }
     }
 
 }
-
 void XpbdSolver::physics_step()
 {
-    const uint num_substep = get_scene_params().print_xpbd_convergence ? 1 : get_scene_params().num_substep;
-    const uint constraint_iter_count = get_scene_params().print_xpbd_convergence ? 100 : get_scene_params().constraint_iter_count;
-    const float substep_dt = get_scene_params().get_substep_dt();
-
-    mesh_data->sa_system_energy.set_zero();
     xpbd_data->sa_x_start = mesh_data->sa_x_frame_start;
     xpbd_data->sa_v_start = mesh_data->sa_v_frame_start;
     xpbd_data->sa_x = mesh_data->sa_x_frame_start;
     xpbd_data->sa_v = mesh_data->sa_v_frame_start;
+
+
+    
+    const uint num_substep = get_scene_params().print_xpbd_convergence ? 1 : get_scene_params().num_substep;
+    const uint constraint_iter_count = get_scene_params().print_xpbd_convergence ? 100 : get_scene_params().constraint_iter_count;
+    const float substep_dt = get_scene_params().get_substep_dt();
+
+    mesh_data->sa_system_energy.set_zero(); energy_idx = 0;
     
     SimClock clock; clock.start_clock();
 
@@ -549,7 +714,9 @@ void XpbdSolver::physics_step()
                 for (uint iter = 0; iter < constraint_iter_count; iter++) // 200 or 1 ?
                 {   
                     { get_scene_params().current_it = iter; }
-                    solve_constraints();
+                    if (get_scene_params().use_xpbd_solver)     { solve_all_constraints(); }
+                    else if (get_scene_params().use_vbd_solver) { solve_constraints_vbd(); }
+                    else { fast_format_err("empty solver"); }
                 }
             }
 
@@ -559,13 +726,30 @@ void XpbdSolver::physics_step()
     }
     float frame_cost = clock.end_clock();
     fast_format("Frame {:3} : cost = {:6.3f}", get_scene_params().current_frame, frame_cost);
+    
+
+    {
+        if (get_scene_params().print_xpbd_convergence)
+        {
+            std::vector<double> list_energy(energy_idx);
+            for(uint it = 0; it < list_energy.size(); it++)
+            {
+                list_energy[it] = mesh_data->sa_system_energy[it];
+            }
+            fast_print_iterator(list_energy, "Energy Convergence"); energy_idx = 0;
+        }
+    }
+
+
 
 
     mesh_data->sa_x_frame_end = xpbd_data->sa_x;
     mesh_data->sa_v_frame_end = xpbd_data->sa_v;
 }
-void XpbdSolver::compute_energy(const uint curr_it, const SharedArray<Float3>& curr_position)
+void XpbdSolver::compute_energy(const SharedArray<Float3>& curr_position)
 {
+    if (!get_scene_params().print_xpbd_convergence) return;
+
     double energy = 0.0;
     double energy_inertia = 0.f, energy_stretch = 0.f, energy_bending = 0.f;
 
@@ -591,7 +775,10 @@ void XpbdSolver::compute_energy(const uint curr_it, const SharedArray<Float3>& c
     }
 
     // Bending
-    const auto bending_type = get_scene_params().use_quadratic_bending_model ? Constrains::BendingTypeQuadratic : Constrains::BendingTypeDAB;
+    const auto bending_type = 
+        (get_scene_params().use_vbd_solver // Our VBD solver only add quadratic bending implementation
+        || get_scene_params().use_quadratic_bending_model) ?  
+        Constrains::BendingTypeQuadratic : Constrains::BendingTypeDAB;
     const bool use_xpbd_solver = true;
     if (get_scene_params().use_bending)
     {   
@@ -603,8 +790,8 @@ void XpbdSolver::compute_energy(const uint curr_it, const SharedArray<Float3>& c
             float energy = 0.f;
             Constrains::Energy::compute_energy_bending(bending_type, eid, curr_position.data(), 
                 xpbd_data->sa_merged_bending_edges.data(), nullptr,
-                nullptr, xpbd_data->sa_merged_bending_edge_Q.data(),
-                xpbd_data->sa_merged_bending_edges_rest_angle.data(), 
+                nullptr, xpbd_data->sa_merged_bending_edges_Q.data(),
+                xpbd_data->sa_merged_bending_edges_angle.data(), 
                 stiffness_bending_DAB, stiffness_bending_quadratic, use_xpbd_solver
             );
             return energy;
@@ -641,8 +828,7 @@ void XpbdSolver::compute_energy(const uint curr_it, const SharedArray<Float3>& c
 
     double total_energy = energy_inertia + energy_stretch + energy_bending + energy_obs_collision + energy_self_collision;
 
-    const uint it = curr_it; //; get_scene_params().current_substep * get_scene_params().num_substep + get_scene_params().current_it;
-    mesh_data->sa_system_energy[it] = total_energy;
+    mesh_data->sa_system_energy[energy_idx++] = total_energy;
 }
 void XpbdSolver::reset_constrains()
 {
@@ -662,7 +848,7 @@ void XpbdSolver::reset_collision_constrains()
 void XpbdSolver::init_simulation_params()
 {
     get_scene_params().print_cost_detail = true;
-    get_scene_params().print_system_energy = false; // false true
+    get_scene_params().print_xpbd_convergence = false; // false true
 
     if (get_scene_params().use_substep)
     {
@@ -730,21 +916,8 @@ void XpbdSolver::update_velocity()
             false);
     });
 }
-void XpbdSolver::solve_constraints()
-{
-    auto& iter_position_cloth = xpbd_data->sa_x;
 
-    {
-        for (uint i = 0; i < xpbd_data->num_clusters_stretch_mass_spring; i++) 
-        {
-            solve_constraint_stretch_spring(iter_position_cloth, i);
-        }
-        for (uint i = 0; i < xpbd_data->num_clusters_bending; i++) 
-        {
-            solve_constraint_bending(iter_position_cloth, i);
-        }
-    }
-}
+// XPBD constraints
 void XpbdSolver::solve_constraint_stretch_spring(SharedArray<Float3>& curr_cloth_position, const uint cluster_idx)
 {
     const uint curr_prefix = xpbd_data->prefix_stretch_mass_spring[cluster_idx];
@@ -790,12 +963,148 @@ void XpbdSolver::solve_constraint_bending(SharedArray<Float3>& curr_cloth_positi
                 nullptr, 
                 xpbd_data->sa_lambda_bending.data(), mesh_data->sa_vert_mass_inv.data(), 
                 xpbd_data->sa_merged_bending_edges.data(), nullptr, 
-                xpbd_data->sa_merged_bending_edge_Q.data(), xpbd_data->sa_merged_bending_edges_rest_angle.data(),
+                xpbd_data->sa_merged_bending_edges_Q.data(), xpbd_data->sa_merged_bending_edges_angle.data(),
                 stiffness_bending_quadratic, stiffness_bending_DAB, get_scene_params().get_substep_dt(), false);
     }, 32);  
 }
 
+// VBD constraints (energy)
+SharedArray<Float4x3>& XpbdSolver::get_Hf_in_iter()
+{
+    return xpbd_data->sa_Hf;
+}
+void XpbdSolver::vbd_evaluate_inertia(SharedArray<Float3>& sa_iter_position, const uint cluster_idx)
+{
+    auto& clusters = xpbd_data->clusterd_per_vertex_bending;
+    const uint next_prefix = clusters[cluster_idx + 1];
+    const uint curr_prefix = clusters[cluster_idx];
+    const uint num_verts_cluster = next_prefix - curr_prefix;
 
+    parallel_for(0, num_verts_cluster, [&](const uint i)
+    {
+        const uint vid = clusters[curr_prefix + i];
+        Float4x3 Hf = Constrains::VBD::compute_inertia(
+            vid, sa_iter_position.data(), 
+            xpbd_data->sa_x_start.data(), xpbd_data->sa_v.data(), 
+            mesh_data->sa_is_fixed.data(), mesh_data->sa_vert_mass.data(), &get_scene_params(),
+            get_scene_params().get_substep_dt());
+        get_Hf_in_iter()[vid] = Hf;
+    });
+}
+void XpbdSolver::vbd_evaluate_stretch_spring(SharedArray<Float3>& sa_iter_position, const uint cluster_idx)
+{
+    auto& clusters = xpbd_data->clusterd_per_vertex_bending;
+    const uint next_prefix = clusters[cluster_idx + 1];
+    const uint curr_prefix = clusters[cluster_idx];
+    const uint num_verts_cluster = next_prefix - curr_prefix;
+    
+    parallel_for(0, num_verts_cluster, [&](const uint i)
+    {
+        const uint vid = clusters[curr_prefix + i];
+        Float4x3 Hf = Constrains::VBD::compute_stretch_mass_spring(
+                vid, sa_iter_position.data(), 
+                mesh_data->sa_vert_adj_edges.data(),
+                mesh_data->sa_edges.data(), mesh_data->sa_edges_rest_state_length.data(), 
+                get_scene_params().stiffness_stretch_spring);
+        get_Hf_in_iter()[vid] += Hf;
+    }, 32);
+}
+void XpbdSolver::vbd_evaluate_bending(SharedArray<Float3>& sa_iter_position, const uint cluster_idx)
+{
+    auto& clusters = xpbd_data->clusterd_per_vertex_bending;
+    const uint next_prefix = clusters[cluster_idx + 1];
+    const uint curr_prefix = clusters[cluster_idx];
+    const uint num_verts_cluster = next_prefix - curr_prefix;
+
+    parallel_for(0, num_verts_cluster, [&](const uint i)
+    {
+        const uint vid = clusters[curr_prefix + i];
+        Float4x3 Hf = Constrains::VBD::compute_bending_quadratic(
+                vid, sa_iter_position.data(),
+                mesh_data->sa_vert_adj_bending_edges.data(), mesh_data->sa_bending_edges.data(), 
+                mesh_data->sa_bending_edges_Q.data(), 
+                get_scene_params().get_stiffness_quadratic_bending());
+        get_Hf_in_iter()[vid] += Hf;
+    }, 32);
+}
+void XpbdSolver::vbd_step(SharedArray<Float3>& sa_iter_position, const uint cluster_idx)
+{
+    auto& clusters = xpbd_data->clusterd_per_vertex_bending;
+    const uint next_prefix = clusters[cluster_idx + 1];
+    const uint curr_prefix = clusters[cluster_idx];
+    const uint num_verts_cluster = next_prefix - curr_prefix;
+
+    parallel_for(0, num_verts_cluster, [&](const uint i)
+    {
+        const uint vid = clusters[curr_prefix + i];
+        Float4x3 Hf = get_Hf_in_iter()[vid];
+        Float3x3 H = makeFloat3x3(get(Hf, 0), get(Hf, 1), get(Hf, 2));
+        Float3 f = get(Hf, 3);
+        float det = determinant_mat(H);
+        if (abs_scalar(det) > Epsilon)
+        {
+            Float3x3 H_inv = inverse_mat(H, det);
+            Float3 dx = H_inv * f;
+            sa_iter_position[vid] += dx;
+        }
+    }, 32);
+}
+
+void XpbdSolver::solve_constraints_vbd()
+{
+    auto& iter_position = xpbd_data->sa_x;
+
+    if (get_scene_params().print_xpbd_convergence && get_scene_params().current_it == 0) 
+    { 
+        compute_energy(iter_position); 
+    }
+
+    for (uint cluster = 0; cluster < xpbd_data->num_clusters_per_vertex_bending; cluster++)
+    {
+        const uint next_prefix = xpbd_data->clusterd_per_vertex_bending[cluster + 1];
+        const uint curr_prefix = xpbd_data->clusterd_per_vertex_bending[cluster];
+        const uint num_verts_cluster = next_prefix - curr_prefix;
+
+        vbd_evaluate_inertia(iter_position, cluster);
+
+        vbd_evaluate_stretch_spring(iter_position, cluster);
+        
+        vbd_evaluate_bending(iter_position, cluster);
+        
+        vbd_step(iter_position, cluster);
+    }
+
+    if (get_scene_params().print_xpbd_convergence) 
+    { 
+        compute_energy(iter_position); 
+    }
+}
+void XpbdSolver::solve_all_constraints()
+{
+    auto& iter_position_cloth = xpbd_data->sa_x;
+
+    if (get_scene_params().print_xpbd_convergence && get_scene_params().current_it == 0) 
+    { 
+        compute_energy(iter_position_cloth); 
+    }
+
+    {
+        for (uint i = 0; i < xpbd_data->num_clusters_stretch_mass_spring; i++) 
+        {
+            solve_constraint_stretch_spring(iter_position_cloth, i);
+            compute_energy(iter_position_cloth); 
+        }
+        for (uint i = 0; i < xpbd_data->num_clusters_bending; i++) 
+        {
+            solve_constraint_bending(iter_position_cloth, i);
+        }
+    }
+
+    if (get_scene_params().print_xpbd_convergence) 
+    { 
+        compute_energy(iter_position_cloth); 
+    }
+}
 
 enum SolverType
 {
@@ -847,7 +1156,6 @@ private:
 private:
     XpbdData xpbd_data;
     XpbdSolver xpbd_solver;
-    
 };
 
 void SolverInterface::restart_system()
@@ -967,14 +1275,17 @@ int main()
         get_scene_params().num_substep = 1;
         get_scene_params().constraint_iter_count = 100;
         get_scene_params().use_bending = true;
-        get_scene_params().use_quadratic_bending_model = false;
+        get_scene_params().use_quadratic_bending_model = true;
     }
     
     // Simulation
     solver.restart_system();
     solver.save_mesh_to_obj("");
     {
-        // get_scene_params().use_bending = false;
+        get_scene_params().use_bending = false;
+        get_scene_params().print_xpbd_convergence = true;
+        get_scene_params().use_xpbd_solver = false;
+        get_scene_params().use_vbd_solver = true;
     }
     {   
         for (uint frame = 0; frame < 20; frame++)
@@ -984,17 +1295,17 @@ int main()
         solver.save_mesh_to_obj("_large_bending");        
     }
 
-    solver.restart_system();
-    {
-        get_scene_params().use_bending = false;
-    }
-    {
-        for (uint frame = 0; frame < 20; frame++)
-        {   get_scene_params().current_frame = frame;    
-            solver.physics_step(SolverTypeXPBD);
-        }
-        solver.save_mesh_to_obj("_no_bending");
-    }
+    // solver.restart_system();
+    // {
+    //     get_scene_params().use_bending = false;
+    // }
+    // {
+    //     for (uint frame = 0; frame < 20; frame++)
+    //     {   get_scene_params().current_frame = frame;    
+    //         solver.physics_step(SolverTypeXPBD);
+    //     }
+    //     solver.save_mesh_to_obj("_no_bending");
+    // }
     
 
     return 0;

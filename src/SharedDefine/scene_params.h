@@ -57,6 +57,7 @@ struct SceneParams {
     bool use_stretch_animation = false;
     bool use_fake_hetero = false;
     bool print_xpbd_convergence = false;
+    bool use_xpbd_solver = true;
     bool use_vbd_solver = false;
     bool use_sod_solver = false;
     bool sod_use_jacobi = false;
