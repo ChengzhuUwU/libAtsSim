@@ -16,7 +16,7 @@ This example shows the difference between the original iteration pipeline and ou
 
 This example only considering the simplist case: costs of tasks is a constant value $t_c$ and the comminication delay is exactly the same value $t_c$, then we make make the data transfering as follows:
 
-![Example 2 case](example_2.png)
+![Example 2 case](image.png)
 
 We use mass-spring streching and quadratic bending model, this can also extended to non-linear energy model. VBD (Vertex Block Descent) is a SIGGRAPH 2024 paper.
 
