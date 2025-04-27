@@ -320,7 +320,7 @@ inline uint get_index_from_color(const bool use_multi_color, const uint kernel_i
 
 inline void predict_position(
 	const uint vid,
-	PTR(SceneParams) scene_params,
+	// PTR(SceneParams) scene_params,
 	PTR(Float3) sa_iter_position, PTR(Float3) sa_vert_velocity, PTR(Float3) sa_iter_start_position, 
 	const bool predict_for_collision, PTR(Float3) sa_next_position,
 	PTR(float) sa_vert_mass, 
@@ -538,7 +538,7 @@ inline void update_velocity(
 	PTR(Float3) sa_iter_position, 
 	PTR(Float3) sa_iter_start_position, 
 	PTR(Float3) sa_start_position, 
-	PTR(Float3) sa_velocity_copy, 
+	PTR(Float3) sa_velocity_start, 
 	const float substep_dt,
 	const float damping,
 	const bool fix_scene
@@ -576,7 +576,7 @@ inline void update_velocity(
 
 	// Update Velocity
 	sa_vert_velocity[vid] = vel;
-	sa_velocity_copy[vid] = vel;
+	sa_velocity_start[vid] = vel;
 	sa_iter_start_position[vid] = x_k;
 }
 inline void velocity_damping_laplacian(

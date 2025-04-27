@@ -8,6 +8,10 @@
 #include "fem_energy.h"
 #include "xpbd_constraints.h"
 
+template<typename T>
+using Buffer = std::vector<T>;
+// using Buffer = SharedArray<T>;
+
 struct BasicMeshData
 {
     uint num_verts;
@@ -15,121 +19,113 @@ struct BasicMeshData
     uint num_edges;
     uint num_bending_edges;
 
-    SharedArray<Float3> sa_rest_x;
-    SharedArray<Float3> sa_rest_v;
+    Buffer<Float3> sa_rest_x;
+    Buffer<Float3> sa_rest_v;
 
-    SharedArray<Float3> sa_x_frame_start;
-    SharedArray<Float3> sa_v_frame_start;
-    SharedArray<Float3> sa_x_frame_end;
-    SharedArray<Float3> sa_v_frame_end;
+    Buffer<Float3> sa_x_frame_start;
+    Buffer<Float3> sa_v_frame_start;
+    Buffer<Float3> sa_x_frame_end;
+    Buffer<Float3> sa_v_frame_end;
 
-    SharedArray<Int3> sa_faces;
-    SharedArray<Int2> sa_edges;
-    SharedArray<Int4> sa_bending_edges;
-    
-    SharedArray<float> sa_vert_mass;
-    SharedArray<float> sa_vert_mass_inv;
-    SharedArray<uchar> sa_is_fixed;
-    
-    SharedArray<float> sa_edges_rest_state_length;
-    SharedArray<float> sa_bending_edges_rest_angle;
-    SharedArray<Float4x4> sa_bending_edges_Q;
+    Buffer<Int3> sa_faces;
+    Buffer<Int2> sa_edges;
+    Buffer<Int4> sa_bending_edges;
 
-    SharedArray<uint> sa_vert_adj_verts; std::vector< std::vector<uint> > vert_adj_verts;
-    SharedArray<uint> sa_vert_adj_verts_with_bending; std::vector< std::vector<uint> > vert_adj_verts_with_bending;
-    SharedArray<uint> sa_vert_adj_faces; std::vector< std::vector<uint> > vert_adj_faces;
-    SharedArray<uint> sa_vert_adj_edges; std::vector< std::vector<uint> > vert_adj_edges;
-    SharedArray<uint> sa_vert_adj_bending_edges; std::vector< std::vector<uint> > vert_adj_bending_edges;
-    
-    SharedArray<float> sa_system_energy;
-    // SharedArray<uint> sa_edge_adj_faces;
-    // SharedArray<uint> sa_bending_edge_adj_faces;
+    Buffer<float> sa_vert_mass;
+    Buffer<float> sa_vert_mass_inv;
+    Buffer<uchar> sa_is_fixed;
+
+    Buffer<float> sa_edges_rest_state_length;
+    Buffer<float> sa_bending_edges_rest_angle;
+    Buffer<Float4x4> sa_bending_edges_Q;
+
+    Buffer<uint> sa_vert_adj_verts; std::vector< std::vector<uint> > vert_adj_verts;
+    Buffer<uint> sa_vert_adj_verts_with_bending; std::vector< std::vector<uint> > vert_adj_verts_with_bending;
+    Buffer<uint> sa_vert_adj_faces; std::vector< std::vector<uint> > vert_adj_faces;
+    Buffer<uint> sa_vert_adj_edges; std::vector< std::vector<uint> > vert_adj_edges;
+    Buffer<uint> sa_vert_adj_bending_edges; std::vector< std::vector<uint> > vert_adj_bending_edges;
+
+    Buffer<float> sa_system_energy;
 };
 
 struct XpbdData
 {
-    SharedArray<Float3> sa_x_tilde;
-    SharedArray<Float3> sa_x;
-    SharedArray<Float3> sa_v;
-    SharedArray<Float3> sa_v_start;
-    SharedArray<Float3> sa_x_start; // For calculating velocity
+    Buffer<Float3> sa_x_tilde;
+    Buffer<Float3> sa_x;
+    Buffer<Float3> sa_v;
+    Buffer<Float3> sa_v_start;
+    Buffer<Float3> sa_x_start; // For calculating velocity
 
-    SharedArray<Int2> sa_merged_edges; 
-    SharedArray<float> sa_merged_edges_rest_length;
+    Buffer<Int2> sa_merged_edges; 
+    Buffer<float> sa_merged_edges_rest_length;
 
-    SharedArray<Int4> sa_merged_bending_edges; 
-    SharedArray<float> sa_merged_bending_edges_angle;
-    SharedArray<Float4x4> sa_merged_bending_edges_Q;
+    Buffer<Int4> sa_merged_bending_edges; 
+    Buffer<float> sa_merged_bending_edges_angle;
+    Buffer<Float4x4> sa_merged_bending_edges_Q;
 
     uint num_clusters_stretch_mass_spring = 0;
-    SharedArray<uint> clusterd_constraint_stretch_mass_spring; 
-    SharedArray<uint> prefix_stretch_mass_spring;
-    SharedArray<float> sa_lambda_stretch_mass_spring;
+    Buffer<uint> clusterd_constraint_stretch_mass_spring; 
+    Buffer<uint> prefix_stretch_mass_spring;
+    Buffer<float> sa_lambda_stretch_mass_spring;
 
     uint num_clusters_bending = 0;
-    SharedArray<uint> clusterd_constraint_bending; 
-    SharedArray<uint> prefix_bending; 
-    SharedArray<float> sa_lambda_bending;
+    Buffer<uint> clusterd_constraint_bending; 
+    Buffer<uint> prefix_bending; 
+    Buffer<float> sa_lambda_bending;
 
     // VBD
     uint num_clusters_per_vertex_bending = 0; 
-    SharedArray<uint> prefix_per_vertex_bending; 
-    SharedArray<uint> clusterd_per_vertex_bending; 
-    SharedArray<uchar> per_vertex_bending_cluster_id; 
-    SharedArray<Float4x3> sa_Hf; 
+    Buffer<uint> prefix_per_vertex_bending; 
+    Buffer<uint> clusterd_per_vertex_bending; 
+    Buffer<uchar> per_vertex_bending_cluster_id; 
+    Buffer<Float4x3> sa_Hf; 
 
     // Async
-    SharedArray<Float3> sa_async_iter_positions_cloth[32];
-    SharedArray<Float3> sa_async_begin_positions_cloth[32];
+    Buffer<Float3> sa_async_iter_positions_cloth[32];
+    Buffer<Float3> sa_async_begin_positions_cloth[32];
+};
 
-#if false
-    const bool check1()
-    {
-        return !(
-            sa_x_tilde.is_empty() || 
-            sa_x.is_empty() || 
-            sa_v.is_empty() || 
-            sa_v_start.is_empty() || 
-            sa_x_start.is_empty());
-    }
-    const bool check2()
-    {
-        return !(
-            sa_merged_edges.is_empty() || 
-            sa_merged_edges_rest_length.is_empty() || 
-            sa_merged_bending_edges.is_empty() || 
-            sa_merged_bending_edges_rest_angle.is_empty() ||
-            sa_merged_bending_edge_Q.is_empty()
-        );
-    }
-    const bool check3()
-    {
-        return !(
-            clusterd_constraint_stretch_mass_spring.is_empty() || 
-            prefix_stretch_mass_spring.is_empty() || 
-            sa_lambda_stretch_mass_spring.is_empty()
-        );
-    }
-    const bool check4()
-    {
-        return !(
-            clusterd_constraint_bending.is_empty() || 
-            prefix_bending.is_empty() || 
-            sa_lambda_bending.is_empty()
-        );
-    }
+template<typename T>
+inline void upload_from(std::vector<T>& dest, const std::vector<T>& input_data) { 
+    dest.resize(input_data.size());
+    std::memcpy(dest.data(), input_data.data(), dest.size() * sizeof(T));  
+}
+template<typename T>
+inline void upload_from(SharedArray<T>& dest, const std::vector<T>& input_data) { 
+    dest.upload(input_data);
+}
+inline uint upload_2d_csr_from(std::vector<uint>& dest, const std::vector<std::vector<uint>>& input_map){
+    uint num_outer = input_map.size();
+    uint current_prefix = num_outer + 1;
+    
+    std::vector<uint> prefix_list(num_outer + 1);
 
-    void check()
-    {
-        if (!(
-            check1() && check2() && check3() && check4() 
-        ))
-        {
-            fast_format_err("exist empty buffer");
+    uint max_count = 0;
+    for (uint i = 0; i < num_outer; i++) {
+        const auto& inner_list = input_map[i];
+        uint num_inner = inner_list.size(); max_count = std::max(max_count, num_inner);
+        prefix_list[i] = current_prefix;
+        current_prefix += num_inner;
+    }
+    uint num_data = current_prefix;
+    prefix_list[num_outer] = current_prefix;
+    
+    dest.resize(num_data);
+    std::memcpy(dest.data(), prefix_list.data(), (num_outer + 1) * sizeof(uint));
+
+    for (uint i = 0; i < num_outer; i++) {
+        const auto& inner_list = input_map[i];
+        uint current_prefix = prefix_list[i];
+        uint current_end = prefix_list[i + 1];
+        for (uint j = current_prefix; j < current_end; j++) {
+            dest[j] = inner_list[j - current_prefix];
         }
     }
-#endif
-};
+    return max_count;
+}
+inline uint upload_2d_csr_from(SharedArray<uint>& dest, const std::vector<std::vector<uint>>& input_map){
+    return dest.upload_2d_csr(input_map);
+}
 
 
 void init_mesh(BasicMeshData* mesh_data)
@@ -153,32 +149,31 @@ void init_mesh(BasicMeshData* mesh_data)
     const uint num_faces = input_mesh.faces.size();
     const uint num_edges = input_mesh.edges.size();
     const uint num_bending_edges = input_mesh.bending_edges.size();
-    
+
     fast_format("Cloth : (numVerts : {}) (numFaces : {})  (numEdges : {}) (numBendingEdges : {})", 
         num_verts, num_faces, num_edges, num_bending_edges);
 
     // Constant scalar
     {
-        mesh_data->num_verts = num_verts; mesh_data->sa_rest_x.upload(input_mesh.model_positions); 
-        mesh_data->num_faces = num_faces; mesh_data->sa_faces.upload(input_mesh.faces); 
-        mesh_data->num_edges = num_edges; mesh_data->sa_edges.upload(input_mesh.edges); 
-        mesh_data->num_bending_edges = num_bending_edges; mesh_data->sa_bending_edges.upload(input_mesh.bending_edges); 
+        mesh_data->num_verts = num_verts; upload_from(mesh_data->sa_rest_x, input_mesh.model_positions); 
+        mesh_data->num_faces = num_faces; upload_from(mesh_data->sa_faces, input_mesh.faces); 
+        mesh_data->num_edges = num_edges; upload_from(mesh_data->sa_edges, input_mesh.edges); 
+        mesh_data->num_bending_edges = num_bending_edges; upload_from(mesh_data->sa_bending_edges, input_mesh.bending_edges); 
     }
     
     // Init vert info
     {
         // Set rest position & velocity
         {
+            mesh_data->sa_rest_v.resize(num_verts); 
             parallel_for(0, num_verts, [&](const uint vid)
             {
                 Float3 model_position = mesh_data->sa_rest_x[vid];
                 Float4x4 model_matrix = make_model_matrix(transform, rotation, scale);
                 Float3 world_position = affine_position(model_matrix, model_position);
                 mesh_data->sa_rest_x[vid] = world_position;
+                mesh_data->sa_rest_v[vid] = Zero3;
             });
-
-            mesh_data->sa_rest_v.resize(num_verts); 
-            mesh_data->sa_rest_v.set_zero();
         }
 
         // Set fixed-points
@@ -242,7 +237,7 @@ void init_mesh(BasicMeshData* mesh_data)
             for (uint j = 0; j < 3; j++)
                 mesh_data->vert_adj_faces[edge[j]].push_back(eid);
         } 
-        mesh_data->sa_vert_adj_faces.upload_2d_csr(mesh_data->vert_adj_faces); 
+        upload_2d_csr_from(mesh_data->sa_vert_adj_faces, mesh_data->vert_adj_faces); 
 
         // Vert adj edges
         for (uint eid = 0; eid < num_edges; eid++)
@@ -251,7 +246,7 @@ void init_mesh(BasicMeshData* mesh_data)
             for (uint j = 0; j < 2; j++)
                 mesh_data->vert_adj_edges[edge[j]].push_back(eid);
         } 
-        mesh_data->sa_vert_adj_edges.upload_2d_csr(mesh_data->vert_adj_edges);
+        upload_2d_csr_from(mesh_data->sa_vert_adj_edges, mesh_data->vert_adj_edges);
 
         // Vert adj bending-edges
         for (uint eid = 0; eid < num_bending_edges; eid++)
@@ -260,7 +255,7 @@ void init_mesh(BasicMeshData* mesh_data)
             for (uint j = 0; j < 4; j++)
                 mesh_data->vert_adj_bending_edges[edge[j]].push_back(eid);
         }  
-        mesh_data->sa_vert_adj_bending_edges.upload_2d_csr(mesh_data->vert_adj_bending_edges);
+        upload_2d_csr_from(mesh_data->sa_vert_adj_bending_edges, mesh_data->vert_adj_bending_edges);
 
         // Vert adj verts based on 1-order connection
         mesh_data->vert_adj_verts.resize(num_verts);
@@ -274,7 +269,7 @@ void init_mesh(BasicMeshData* mesh_data)
                 mesh_data->vert_adj_verts[left].push_back(right);
             }
         } 
-        mesh_data->sa_vert_adj_verts.upload_2d_csr(mesh_data->vert_adj_verts);
+        upload_2d_csr_from(mesh_data->sa_vert_adj_verts, mesh_data->vert_adj_verts);
         
         // Vert adj verts based on 1-order bending-connection
         auto insert_adj_vert = [](std::vector<std::vector<uint>>& adj_map, const uint& vid1, const uint& vid2) 
@@ -303,7 +298,7 @@ void init_mesh(BasicMeshData* mesh_data)
                 }
             }
         }
-        mesh_data->sa_vert_adj_verts_with_bending.upload_2d_csr(mesh_data->vert_adj_verts_with_bending);
+        upload_2d_csr_from(mesh_data->sa_vert_adj_verts_with_bending, mesh_data->vert_adj_verts_with_bending);
     }
 
     // Init energy
@@ -407,7 +402,7 @@ public:
 public:    
     void physics_step();
     void physics_step_async();
-    void compute_energy(const SharedArray<Float3>& curr_cloth_position);
+    void compute_energy(const Buffer<Float3>& curr_cloth_position);
 
 private:
     void collision_detection();
@@ -417,18 +412,18 @@ private:
     void reset_collision_constrains();
 
 private:
-    SharedArray<Float4x3>& get_Hf_in_iter();
+    Buffer<Float4x3>& get_Hf_in_iter();
     void solve_constraints_XPBD();
-    void solve_constraint_stretch_spring(SharedArray<Float3>& curr_cloth_position, const uint cluster_idx);
-    void solve_constraint_bending(SharedArray<Float3>& curr_cloth_position, const uint cluster_idx);
+    void solve_constraint_stretch_spring(Buffer<Float3>& curr_cloth_position, const uint cluster_idx);
+    void solve_constraint_bending(Buffer<Float3>& curr_cloth_position, const uint cluster_idx);
 
 private:
     void solve_constraints_VBD();
-    void vbd_evaluate_inertia(SharedArray<Float3>& curr_cloth_position, const uint cluster_idx);
-    void vbd_evaluate_stretch_spring(SharedArray<Float3>& curr_cloth_position, const uint cluster_idx);
-    void vbd_evaluate_bending(SharedArray<Float3>& curr_cloth_position, const uint cluster_idx);
-    void vbd_step(SharedArray<Float3>& curr_cloth_position, const uint cluster_idx);
-    void vbd_solve(SharedArray<Float3>& curr_cloth_position, const uint cluster_idx);
+    void vbd_evaluate_inertia(Buffer<Float3>& curr_cloth_position, const uint cluster_idx);
+    void vbd_evaluate_stretch_spring(Buffer<Float3>& curr_cloth_position, const uint cluster_idx);
+    void vbd_evaluate_bending(Buffer<Float3>& curr_cloth_position, const uint cluster_idx);
+    void vbd_step(Buffer<Float3>& curr_cloth_position, const uint cluster_idx);
+    void vbd_solve(Buffer<Float3>& curr_cloth_position, const uint cluster_idx);
 
 private:
     XpbdData* xpbd_data;
@@ -444,7 +439,7 @@ void XpbdSolver::init_xpbd_system()
     xpbd_data->sa_v_start.resize(mesh_data->num_verts); xpbd_data->sa_v_start = mesh_data->sa_rest_v;
     xpbd_data->sa_x_start.resize(mesh_data->num_verts);
 
-    for (auto& buffer : xpbd_data->sa_async_iter_positions_cloth) buffer.resize(mesh_data->num_verts);
+    for (auto& buffer : xpbd_data->sa_async_iter_positions_cloth)  buffer.resize(mesh_data->num_verts);
     for (auto& buffer : xpbd_data->sa_async_begin_positions_cloth) buffer.resize(mesh_data->num_verts);
 
     // Graph Coloring
@@ -529,7 +524,7 @@ void XpbdSolver::init_xpbd_system()
             fast_format("Cluster Count of {} = {}", constraint_name, clusterd_constraint.size());
         };
 
-        auto fn_get_prefix = [](SharedArray<uint>& prefix_buffer, const std::vector< std::vector<uint> >& clusterd_constraint)
+        auto fn_get_prefix = [](auto& prefix_buffer, const std::vector< std::vector<uint> >& clusterd_constraint)
         {
             const uint num_cluster = clusterd_constraint.size();
             prefix_buffer.resize(num_cluster + 1);
@@ -561,8 +556,8 @@ void XpbdSolver::init_xpbd_system()
         fn_get_prefix(xpbd_data->prefix_stretch_mass_spring, tmp_clusterd_constraint_stretch_mass_spring);
         fn_get_prefix(xpbd_data->prefix_bending, tmp_clusterd_constraint_bending);
         
-        xpbd_data->clusterd_constraint_stretch_mass_spring.upload_2d_csr(tmp_clusterd_constraint_stretch_mass_spring);
-        xpbd_data->clusterd_constraint_bending.upload_2d_csr(tmp_clusterd_constraint_bending);
+        upload_2d_csr_from(xpbd_data->clusterd_constraint_stretch_mass_spring, tmp_clusterd_constraint_stretch_mass_spring);
+        upload_2d_csr_from(xpbd_data->clusterd_constraint_bending, tmp_clusterd_constraint_bending);
 
     }
 
@@ -623,8 +618,8 @@ void XpbdSolver::init_xpbd_system()
 
         fn_graph_coloring_pervertex(vert_adj_verts, clusterd_vertices_bending, prefix_vertices_bending);
         xpbd_data->num_clusters_per_vertex_bending = clusterd_vertices_bending.size();
-        xpbd_data->prefix_per_vertex_bending.upload(prefix_vertices_bending ); 
-        xpbd_data->clusterd_per_vertex_bending.upload_2d_csr(clusterd_vertices_bending);
+        upload_from(xpbd_data->prefix_per_vertex_bending, prefix_vertices_bending ); 
+        upload_2d_csr_from(xpbd_data->clusterd_per_vertex_bending, clusterd_vertices_bending);
 
         // Reverse map
         xpbd_data->per_vertex_bending_cluster_id.resize(mesh_data->num_verts);
@@ -705,7 +700,8 @@ void XpbdSolver::physics_step()
     const uint constraint_iter_count = get_scene_params().print_xpbd_convergence ? 100 : get_scene_params().constraint_iter_count;
     const float substep_dt = get_scene_params().get_substep_dt();
 
-    mesh_data->sa_system_energy.set_zero(); energy_idx = 0;
+    std::memset(mesh_data->sa_system_energy.data(), 0, mesh_data->sa_system_energy.size() * sizeof(float));
+    energy_idx = 0;
     
     SimClock clock; clock.start_clock();
 
@@ -770,7 +766,7 @@ void XpbdSolver::physics_step_async()
     const uint constraint_iter_count = get_scene_params().constraint_iter_count;
     const float substep_dt = get_scene_params().get_substep_dt();
 
-    mesh_data->sa_system_energy.set_zero(); energy_idx = 0;
+    std::memset(mesh_data->sa_system_energy.data(), 0, mesh_data->sa_system_energy.size() * sizeof(float)); energy_idx = 0;
 
 
     Launcher::Scheduler scheduler;
@@ -782,20 +778,24 @@ void XpbdSolver::physics_step_async()
         //
         // Asynchronous iteration part
         //
-        constexpr uint max_buffer_count = 32;
-        auto fn_get_iter_buffer = [&](const uint buffer_idx) -> SharedArray<Float3>& 
+        constexpr uint max_buffer_count = 32; 
+        constexpr bool print_buffer_idx = false;
+        auto fn_get_iter_buffer = [&](const uint buffer_idx) -> Buffer<Float3>& 
         { 
+            if constexpr (print_buffer_idx) fast_format("Iter buffer {} ({}) size = {}", buffer_idx, buffer_idx % max_buffer_count, xpbd_data->sa_async_iter_positions_cloth[buffer_idx % max_buffer_count].size());
             return xpbd_data->sa_async_iter_positions_cloth[buffer_idx % max_buffer_count];
         };
-        auto fn_get_begin_buffer = [&](const uint buffer_idx) -> SharedArray<Float3>& 
+        auto fn_get_begin_buffer = [&](const uint buffer_idx) -> Buffer<Float3>& 
         { 
+            if constexpr (print_buffer_idx) fast_format("Begin buffer {} ({}) size = {}", buffer_idx, buffer_idx % max_buffer_count, xpbd_data->sa_async_begin_positions_cloth[buffer_idx % max_buffer_count].size());
             return xpbd_data->sa_async_begin_positions_cloth[buffer_idx % max_buffer_count];
         };
-        auto fn_copy_to_start_and_iter = [&](const SharedArray<Float3>& input_array, const uint output_buffer_idx)
+        auto fn_copy_to_start_and_iter = [&](const Buffer<Float3>& input_array, const uint output_buffer_idx)
         {
-            auto& out1 = fn_get_begin_buffer(output_buffer_idx);
-            auto& out2 = fn_get_iter_buffer(output_buffer_idx);
-            parallel_for(0, mesh_data->num_verts, [&](const uint vid)
+            Buffer<Float3>& out1 = fn_get_begin_buffer(output_buffer_idx);
+            Buffer<Float3>& out2 = fn_get_iter_buffer(output_buffer_idx);
+            if constexpr (print_buffer_idx) fast_format("fn_copy_to_start_and_iter from {} to {}/{}", input_array.size(), out1.size(), out2.size());
+            parallel_for(0, input_array.size(), [&](const uint vid)
             {   
                 Float3 input_vec = input_array[vid];
                 out1[vid] = input_vec;
@@ -804,40 +804,46 @@ void XpbdSolver::physics_step_async()
         };
         auto fn_cloth_constraint_prev_func = [&](const Launcher::LaunchParam& param)
         {
-            if (get_scene_params().print_xpbd_convergence) // Or Static Count 
-                { compute_energy(fn_get_iter_buffer(param.buffer_idx)); }
-
-            // if (get_scene_params().current_substep == 0) fast_format("Geted Buffer {} = {}", param.buffer_idx, get_iter_buffer_sum(param.buffer_idx));
-            if (!param.input_buffer_idxs.empty() && param.left_buffer_idx != -1u)
+            if constexpr (print_buffer_idx) fast_format("Prev get Buffer {}", param.buffer_idx);
+            const float weight = 0.5f;
+            
+            if (!param.input_buffer_idxs.empty() && param.left_buffer_idx != -1u) // Weight from left and input
             {
-                for (auto input_idx : param.input_buffer_idxs)
+                for (const uint input_buffer_idx : param.input_buffer_idxs)
                 {
+                    if constexpr (print_buffer_idx) fast_format("Weight : from {} and {}", input_buffer_idx, param.left_buffer_idx);
+                    auto& begin_buffer = param.is_allocated_to_main_device ? fn_get_begin_buffer(input_buffer_idx) : fn_get_begin_buffer(param.left_buffer_idx);
                     parallel_for(0, mesh_data->num_verts, [&](const uint vid)
                     {
                         Constrains::Core::read_and_solve_conflict(vid, 
-                            fn_get_begin_buffer(param.left_buffer_idx).data(), 
-                            fn_get_begin_buffer(param.left_buffer_idx).data(), 
-                            fn_get_iter_buffer(input_idx).data(), 
+                            begin_buffer.data(), 
+                            begin_buffer.data(), 
+                            fn_get_iter_buffer(input_buffer_idx).data(), 
                             fn_get_iter_buffer(param.left_buffer_idx).data(), 
-                            get_scene_params().stretch_bending_assemble_weight);
+                            weight);
                     });
                 }
             }
-            else if (!param.input_buffer_idxs.empty()) 
+            else if (!param.input_buffer_idxs.empty()) // Copy from input
             {
-                // if (get_scene_params().current_substep == 0) fast_format("CPU : Copy Input From {} to {}, sum = {}", param.input_buffer_idx, param.buffer_idx, get_iter_buffer_sum(param.input_buffer_idx));
-                // if (get_scene_params().current_substep == 0) fast_format("  CPU : Copy Input From {} to {}", param.input_buffer_idx, param.buffer_idx);
+                if constexpr (print_buffer_idx) fast_format("Copy left  : from {} to {}", param.input_buffer_idxs.back(), param.buffer_idx);
                 fn_copy_to_start_and_iter(fn_get_iter_buffer(param.input_buffer_idxs.back()), param.buffer_idx);
             }
-            else if (param.left_buffer_idx != -1u) 
+            else if (param.left_buffer_idx != -1u) // Copy from left
             {
-                // if (get_scene_params().current_substep == 0) fast_format("CPU : Copy Left From {} to {} , sum = {}", param.left_buffer_idx,  param.buffer_idx,  get_iter_buffer_sum(param.left_buffer_idx));
-                // if (get_scene_params().current_substep == 0) fast_format("  CPU : Copy Left From {} to {}", param.left_buffer_idx, param.buffer_idx);
+                if constexpr (print_buffer_idx) fast_format("Copy input: from {} to {}", param.left_buffer_idx, param.buffer_idx);
                 fn_copy_to_start_and_iter(fn_get_iter_buffer(param.left_buffer_idx), param.buffer_idx);
+            }
+
+            if (get_scene_params().print_xpbd_convergence)
+            { 
+                compute_energy(fn_get_iter_buffer(param.buffer_idx)); 
             }
         };
         auto fn_cloth_constraint_post_func = [&](const Launcher::LaunchParam& param)
         {
+            if constexpr (print_buffer_idx) fast_format("Post get Buffer {}", param.buffer_idx);
+
             if (get_scene_params().print_xpbd_convergence) 
             {
                 if (
@@ -887,14 +893,15 @@ void XpbdSolver::physics_step_async()
                 case Launcher::id_xpbd_copy_to_cpu_gpu:
                 {
                     fn_copy_to_start_and_iter(xpbd_data->sa_x, 0);
+                    fn_copy_to_start_and_iter(xpbd_data->sa_x, 1);
                     break;
                 }
                 case Launcher::id_vbd_all_in_one:
                 {
                     auto& iter_position = fn_get_iter_buffer(param.buffer_idx); 
-                    const uint iter = param.iter_idx;
+                    
                     const uint cluster = param.cluster_idx;
-
+                    
                     fn_cloth_constraint_prev_func(param);
                     {
                         vbd_evaluate_inertia(iter_position, cluster);
@@ -905,6 +912,7 @@ void XpbdSolver::physics_step_async()
                         
                         vbd_step(iter_position, cluster);
                     }
+                    // const uint iter = param.iter_idx;
                     // if (cluster == xpbd_data->num_clusters_per_vertex_bending - 1) 
                     //     chebyshev_step(iter_position, iter); // chebyshev acceleration is not supported, which may be future work
                     fn_cloth_constraint_post_func(param);
@@ -1027,15 +1035,16 @@ void XpbdSolver::physics_step_async()
     //
     // Make scheduling
     //
-    if (scheduler.topological_sort()) // Also, we will check whether the connection relationship (DAG) is correct
+    if (scheduler.topological_sort()) 
     {
-        scheduler.print_sort_by_typology();
+        // scheduler.print_sort_by_typology();
 
-        scheduler.standardizing_dag(); // Add additional root and terminal node 
+        scheduler.standardizing_dag();
 
         scheduler.scheduler_dag();
         
-        scheduler.print_proc_schedules();
+        // scheduler.print_proc_schedules();
+        scheduler.print_schedule_to_graph_xpbd();
 
         scheduler.print_speedups_to_each_device();
 
@@ -1045,7 +1054,12 @@ void XpbdSolver::physics_step_async()
     
     auto fn_task_to_param = [](const Launcher::Task& task) 
     { 
-        return Launcher::LaunchParam(task.func_id, task.block_dim, task.iter_idx, task.cluster_idx, task.buffer_idx, task.buffer_left, task.buffer_ins, task.buffer_out); 
+        task.print_with_cluster(0);
+        return Launcher::LaunchParam(
+            task.func_id, task.block_dim, 
+            task.iter_idx, task.cluster_idx, 
+            task.buffer_idx, task.buffer_left, task.buffer_ins, task.buffer_out, task.is_allocated_to_main_device
+        ); 
     };
     
     SimClock clock; clock.start_clock();
@@ -1077,9 +1091,10 @@ void XpbdSolver::physics_step_async()
     mesh_data->sa_x_frame_end = xpbd_data->sa_x;
     mesh_data->sa_v_frame_end = xpbd_data->sa_v;
 }
-void XpbdSolver::compute_energy(const SharedArray<Float3>& curr_position)
+void XpbdSolver::compute_energy(const Buffer<Float3>& curr_position)
 {
     if (!get_scene_params().print_xpbd_convergence) return;
+    // fast_format("buffer size = {}", curr_position.size());
 
     double energy = 0.0;
     double energy_inertia = 0.f, energy_stretch = 0.f, energy_bending = 0.f;
@@ -1220,7 +1235,6 @@ void XpbdSolver::predict_position()
     parallel_for(0, xpbd_data->sa_x.size(), [&](const uint vid)
     {
         Constrains::Core::predict_position(vid, 
-            get_scene_params_array().ptr(), 
             xpbd_data->sa_x.data(), 
             xpbd_data->sa_v.data(), 
             xpbd_data->sa_x_start.data(),
@@ -1241,7 +1255,7 @@ void XpbdSolver::update_velocity()
             xpbd_data->sa_x.data(), 
             xpbd_data->sa_x_start.data(), 
             mesh_data->sa_x_frame_start.data(), 
-            xpbd_data->sa_v.data(), 
+            xpbd_data->sa_v_start.data(), 
             get_scene_params().get_substep_dt(), 
             get_scene_params().damping_cloth, 
             false);
@@ -1249,7 +1263,7 @@ void XpbdSolver::update_velocity()
 }
 
 // XPBD constraints
-void XpbdSolver::solve_constraint_stretch_spring(SharedArray<Float3>& curr_cloth_position, const uint cluster_idx)
+void XpbdSolver::solve_constraint_stretch_spring(Buffer<Float3>& curr_cloth_position, const uint cluster_idx)
 {
     const uint curr_prefix = xpbd_data->prefix_stretch_mass_spring[cluster_idx];
     const uint next_prefix = xpbd_data->prefix_stretch_mass_spring[cluster_idx + 1];
@@ -1267,7 +1281,7 @@ void XpbdSolver::solve_constraint_stretch_spring(SharedArray<Float3>& curr_cloth
             get_scene_params().stiffness_stretch_spring, get_scene_params().get_substep_dt(), false);
     }, 32);
 }
-void XpbdSolver::solve_constraint_bending(SharedArray<Float3>& curr_cloth_position, const uint cluster_idx)
+void XpbdSolver::solve_constraint_bending(Buffer<Float3>& curr_cloth_position, const uint cluster_idx)
 {
     if (!get_scene_params().use_bending) return;
 
@@ -1300,11 +1314,11 @@ void XpbdSolver::solve_constraint_bending(SharedArray<Float3>& curr_cloth_positi
 }
 
 // VBD constraints (energy)
-SharedArray<Float4x3>& XpbdSolver::get_Hf_in_iter()
+Buffer<Float4x3>& XpbdSolver::get_Hf_in_iter()
 {
     return xpbd_data->sa_Hf;
 }
-void XpbdSolver::vbd_evaluate_inertia(SharedArray<Float3>& sa_iter_position, const uint cluster_idx)
+void XpbdSolver::vbd_evaluate_inertia(Buffer<Float3>& sa_iter_position, const uint cluster_idx)
 {
     auto& clusters = xpbd_data->clusterd_per_vertex_bending;
     const uint next_prefix = clusters[cluster_idx + 1];
@@ -1322,7 +1336,7 @@ void XpbdSolver::vbd_evaluate_inertia(SharedArray<Float3>& sa_iter_position, con
         get_Hf_in_iter()[vid] = Hf;
     });
 }
-void XpbdSolver::vbd_evaluate_stretch_spring(SharedArray<Float3>& sa_iter_position, const uint cluster_idx)
+void XpbdSolver::vbd_evaluate_stretch_spring(Buffer<Float3>& sa_iter_position, const uint cluster_idx)
 {
     auto& clusters = xpbd_data->clusterd_per_vertex_bending;
     const uint next_prefix = clusters[cluster_idx + 1];
@@ -1340,7 +1354,7 @@ void XpbdSolver::vbd_evaluate_stretch_spring(SharedArray<Float3>& sa_iter_positi
         get_Hf_in_iter()[vid] += Hf;
     }, 32);
 }
-void XpbdSolver::vbd_evaluate_bending(SharedArray<Float3>& sa_iter_position, const uint cluster_idx)
+void XpbdSolver::vbd_evaluate_bending(Buffer<Float3>& sa_iter_position, const uint cluster_idx)
 {
     auto& clusters = xpbd_data->clusterd_per_vertex_bending;
     const uint next_prefix = clusters[cluster_idx + 1];
@@ -1358,7 +1372,7 @@ void XpbdSolver::vbd_evaluate_bending(SharedArray<Float3>& sa_iter_position, con
         get_Hf_in_iter()[vid] += Hf;
     }, 32);
 }
-void XpbdSolver::vbd_step(SharedArray<Float3>& sa_iter_position, const uint cluster_idx)
+void XpbdSolver::vbd_step(Buffer<Float3>& sa_iter_position, const uint cluster_idx)
 {
     auto& clusters = xpbd_data->clusterd_per_vertex_bending;
     const uint next_prefix = clusters[cluster_idx + 1];

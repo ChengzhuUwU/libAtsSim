@@ -683,11 +683,11 @@ void Scheduler::profile_from(
     }
 
     
-    fast_print("\n======================= New Scheduler ===========================");
-    for (uint proc = 0; proc < num_procs; proc++)
-    {
-        fast_format("Total Cost of {} : {}", proc, cost_sum[proc]);
-    }
+    // fast_print("\n======================= New Scheduler ===========================");
+    // for (uint proc = 0; proc < num_procs; proc++)
+    // {
+    //     fast_format("Total Cost of {} : {}", proc, cost_sum[proc]);
+    // }
 
     orig_list_task = list_task;
     orig_computation_matrix = computation_matrix;
@@ -1345,8 +1345,8 @@ void Scheduler::launch(LaunchMode mode, const std::function<LaunchParam(const Ta
     }
     else if (mode == LaunchModeSequeceHetero) {
 
-        const bool print_schedule_event = true;
-        const bool print_task = true;
+        const bool print_schedule_event = false;
+        const bool print_task = false;
         
         const ListSchedule& gpu_schedules = proc_schedules[1];
         const std::vector<LaunchEvent>& gpu_event = launch_events[1];
@@ -1356,38 +1356,16 @@ void Scheduler::launch(LaunchMode mode, const std::function<LaunchParam(const Ta
         const std::vector<LaunchEvent>& cpu_event = launch_events[0];
         const uint num_cpu_events = cpu_event.size();
 
-        auto fn_launch_gpu = [&](uint begin_cmd_idx, uint end_cmd_idx){
-            for(uint gpu_cmd_idx = begin_cmd_idx; gpu_cmd_idx <= end_cmd_idx; gpu_cmd_idx++){
-
-                const LaunchEvent& event = gpu_event[gpu_cmd_idx];
-                for (uint i = event.start_idx; i <= event.end_idx; i++) {
-                    auto& gpu_jobs = gpu_schedules[i];
-                    uint tid = gpu_jobs.task_id;
-                    auto& task = list_task[tid];
-                    bool find;
-                    auto& imp = task.get_implementation(Launcher::DeviceTypeGpu, find);
-                    if (find){
-                        // imp.launch_task({task.func_id, 0, task.num_threads, 256, 0, 0, true, false, true});
-                        if (print_task) task.print_with_cluster(tid);
-                        imp.launch_task(task_to_param(task)); 
-                    }   
-                    else{
-                        fast_print_err("Does NOT Have GPU Implementation, Wrong Dispatch Logic");
-                        return;
-                    }
-                }   
-            }
-        };
         auto fn_launch_gpu_by_cpu = [&](uint begin_cmd_idx, uint end_cmd_idx){
             for (uint gpu_cmd_idx = begin_cmd_idx; gpu_cmd_idx <= end_cmd_idx; gpu_cmd_idx++) {
                 const LaunchEvent& event = gpu_event[gpu_cmd_idx];
                 for (uint i = event.start_idx; i <= event.end_idx; i++) {
                     auto& gpu_jobs = gpu_schedules[i];
                     uint tid = gpu_jobs.task_id;
-                    auto& task = list_task[tid];  task.print_with_cluster(tid);
+                    auto& task = list_task[tid]; 
 
                     bool find;
-                    auto& imp = task.get_implementation(Launcher::DeviceTypeCpu, find);
+                    auto& imp = task.get_implementation(Launcher::DeviceTypeCpu, find); if (print_task) task.print_with_cluster(tid);
                     if (find) {
                         imp.launch_task(task_to_param(task));
                     }   
@@ -1404,10 +1382,10 @@ void Scheduler::launch(LaunchMode mode, const std::function<LaunchParam(const Ta
                 for (uint i = event.start_idx; i <= event.end_idx; i++) {
                     auto& cpu_jobs = cpu_schedules[i];
                     uint tid = cpu_jobs.task_id;
-                    auto& task = list_task[tid]; task.print_with_cluster(tid);
+                    auto& task = list_task[tid]; 
 
                     bool find;
-                    auto& imp = task.get_implementation(Launcher::DeviceTypeCpu, find);
+                    auto& imp = task.get_implementation(Launcher::DeviceTypeCpu, find); if (print_task) task.print_with_cluster(tid);
                     if (find) {
                         imp.launch_task(task_to_param(task));
                     }   
@@ -1420,37 +1398,8 @@ void Scheduler::launch(LaunchMode mode, const std::function<LaunchParam(const Ta
         };
 
         
-
-        uint gpu_new_begin = 0; const uint segment_point = 0;
-
-        for (uint cmd_idx = 0; cmd_idx < segment_point; cmd_idx++) {
-            const LaunchEvent& event = cpu_event[cmd_idx];
-            
-            /// Wait for GPU
-            if (event.wait != -1u) {
-                fn_launch_gpu_by_cpu(gpu_new_begin, event.wait);
-                gpu_new_begin = event.wait + 1;
-            }
-
-            /// Launch CPU
-            for (uint i = event.start_idx; i <= event.end_idx; i++) {
-                auto& cpu_jobs = cpu_schedules[i];
-                uint tid = cpu_jobs.task_id;
-                auto& task = list_task[tid];
-                
-                bool find;
-                auto& imp = task.get_implementation(Launcher::DeviceTypeCpu, find);
-                if (find) {
-                    imp.launch_task(task_to_param(task));
-                }   
-                else {
-                    fast_print_err("Does NOT Have CPU Implementation, Wrong Dispatch Logic");
-                    return;
-                }
-            }   
-        }
-        
-        for (uint cmd_idx = segment_point; cmd_idx < num_cpu_events; cmd_idx++) {
+        uint gpu_new_begin = 0; 
+        for (uint cmd_idx = 0; cmd_idx < num_cpu_events; cmd_idx++) {
             const LaunchEvent& event = cpu_event[cmd_idx];
             
             /// Wait
@@ -1469,11 +1418,10 @@ void Scheduler::launch(LaunchMode mode, const std::function<LaunchParam(const Ta
                 uint tid = cpu_jobs.task_id;
                 auto& task = list_task[tid];
 
-                if (print_task) task.print_with_cluster(tid);
                 // fast_print("cpu", Launcher::taskNames.at(task.func_id));
                 
                 bool find;
-                auto& imp = task.get_implementation(Launcher::DeviceTypeCpu, find);
+                auto& imp = task.get_implementation(Launcher::DeviceTypeCpu, find); if (print_task) task.print_with_cluster(tid);
                 if (find) {
                     imp.launch_task(task_to_param(task)); 
                 }   
@@ -1597,204 +1545,6 @@ void Scheduler::launch(LaunchMode mode, const std::function<LaunchParam(const Ta
    
 }
 
-/// Just For Debug
-void Scheduler::launch_mixed(uint stop_cpu_idx, uint stop_gpu_idx, std::function<void()> additioal_func){
-
-    #if __APPLE__
-    const uint num_tasks = list_task.size();
-    std::vector<uint> sorted_nodes(num_tasks);
-    std::vector<bool> done_nodes(num_tasks, false);
-    for (uint tid = 0; tid < num_tasks; tid++){
-        sorted_nodes[tid] = tid;
-    }  
-    std::sort(sorted_nodes.begin(), sorted_nodes.end(), [&](uint tid1, uint tid2) {
-        return ranku[tid1] > ranku[tid2]; // reverse=True
-    });
-    // fast_print_iterator(sorted_nodes);
-
-    // for (auto node : sorted_nodes) {
-    //     auto& task = list_task[node];
-    //     // if(node == 6 || node == 7 || node == 8) continue;
-    //     bool find;
-    //     auto& imp = task.get_implementation(Launcher::DeviceTypeCpu, find);
-    //     if(!find){
-    //         fast_print_err("Not Find Implementation");
-    //     }
-    //     imp.launch_task({task.func_id, 0, task.num_threads, 256, 0, 0, true, false, true});
-    // }
-    // get_command_list().send_and_wait();
-
-
-    // std::vector<uint> rest_task_simu_cpu = {6, 15};
-    // get_command_list().start_new_list();
-    // for (auto node : rest_task_simu_cpu) {
-    //     auto& task = list_task[node];
-    //     bool find;
-    //     auto& imp = task.get_implementation(Launcher::DeviceTypeGpu, find);
-    //     imp.launch_task({task.func_id, 0, task.num_threads, 256, 0, 0, true, false, true});
-    // }
-    // get_command_list().make_fence(get_fence());
-    // get_command_list().send_list();
-
-
-    // get_shared_event(1).event->setSignaledValue(0);
-
-    // MTL::SharedEvent* event = get_device() -> newSharedEvent();
-    // scheduler_shared_event = get_device()->newSharedEvent();
-
-    // std::vector<uint> rest_task_gpu = {7, 8};
-    // auto command_buffer = get_command_list().start_new_list();
-    // // get_command_list().wait_cpu(get_shared_event(1), 1);
-    // command_buffer->encodeWait(scheduler_shared_event, 1);
-    // for (auto node : rest_task_gpu) {
-    //     auto& task = list_task[node];
-    //     bool find;
-    //     auto& imp = task.get_implementation(Launcher::DeviceTypeGpu, find);
-    //     imp.launch_task({task.func_id, 0, task.num_threads, 256, 0, 0, true, false, true});
-    // }
-    // // get_command_list().wait_fence(get_fence());
-    // // get_command_list().send_and_wait();
-    // get_command_list().send_list();
-
-    // std::vector<uint> rest_task_cpu = {6};
-    // for (auto node : rest_task_cpu) {
-    //     auto& task = list_task[node];
-    //     bool find;
-    //     auto& imp = task.get_implementation(Launcher::DeviceTypeCpu, find);
-    //     imp.launch_task({task.func_id, 0, task.num_threads, 256, 0, 0, true, false, true});
-    // }
-    // // get_shared_event(1).event->setSignaledValue(1);
-    // scheduler_shared_event->setSignaledValue(1);
-    // get_command_list().send_and_wait();
-
-
-    // get_command_list().wait_fence(get_fence(6));
-    // get_command_list().send_list();
-
-    // const bool print_schedule_event = false;
-    // /// Reset cmd
-    // std::vector< MTL::CommandBuffer* > list_cmd_buffer(launch_events[1].size() + 1);
-
-    get_shared_event().refresh();
-    
-    /// Launch GPU Commands : Async
-    const ListSchedule& gpu_schedules = proc_schedules[1];
-    std::vector<LaunchEvent>& gpu_event = launch_events[1];
-    const uint num_gpu_events = gpu_event.size();
-    std::vector<MTL::CommandBuffer*> list_cmd_buffer(num_gpu_events);
-
-    for (uint cmd_idx = 0; cmd_idx < stop_gpu_idx; cmd_idx++) {
-
-        LaunchEvent& event = gpu_event[cmd_idx];
-        get_command_list().start_new_list();
-
-        list_cmd_buffer[cmd_idx] = get_command_list().command_buffer;
-
-        if(event.wait != -1u) {
-            uint true_wait;
-            true_wait = event.wait;
-            // fast_print("Wait", true_wait);
-            get_command_list().wait_cpu(get_shared_event(), true_wait);  
-        }
-
-        /// Launch
-        for (uint i = event.start_idx; i <= event.end_idx; i++) {
-            auto& gpu_jobs = gpu_schedules[i];
-            uint tid = gpu_jobs.task_id;
-            auto& task = list_task[tid];
-            done_nodes[tid] = true;
-
-            bool find;
-            auto& imp = task.get_implementation(Launcher::DeviceTypeGpu, find);
-            if(find){
-                imp.launch_task({task.func_id, 0, task.num_threads, 256, 0, 0, true, false, true});
-            }   
-            else{
-                fast_print_err("Does NOT Have GPU Implementation, Wrong Dispatch Logic");
-                return;
-            }
-
-        }   
-        if(cmd_idx != 0) {
-            get_command_list().wait_fence(get_fence(cmd_idx - 1));
-        }
-        if(cmd_idx != num_gpu_events - 1) {
-            get_command_list().make_fence(get_fence(cmd_idx));
-        } 
-        get_command_list().send_list(); /// commit 即 signal     
-    }
-
-
-    ///
-    /// Launch CPU Commands : Immediate
-    ///
-    
-    const ListSchedule& cpu_schedules = proc_schedules[0];
-    const std::vector<LaunchEvent>& cpu_event = launch_events[0];
-    const uint num_cpu_events = cpu_event.size();
-    
-    for (uint cmd_idx = 0; cmd_idx < stop_cpu_idx; cmd_idx++) {
-        const LaunchEvent& event = cpu_event[cmd_idx];
-
-        if(event.wait != -1u){
-            list_cmd_buffer[event.wait]->waitUntilCompleted();
-        }
-
-        /// Launch
-        for (uint i = event.start_idx; i <= event.end_idx; i++) {
-            auto& cpu_jobs = cpu_schedules[i];
-            uint tid = cpu_jobs.task_id;
-            auto& task = list_task[tid];
-            done_nodes[tid] = true;
-            
-            bool find;
-            auto& imp = task.get_implementation(Launcher::DeviceTypeCpu, find);
-            if(find){
-                // Launcher::LaunchParam(task.func_id, 0, task.num_threads, 256, 0, 0, true, false).print();
-                imp.launch_task({task.func_id, 0, task.num_threads, 256, 0, 0, true, false, true});
-            }   
-            else{
-                fast_print_err("Does NOT Have CPU Implementation, Wrong Dispatch Logic");
-                return;
-            }
-        }   
-
-        if(event.signal != -1u){
-            uint make_signal = event.signal;
-            // if(cmd_idx == 4){
-            //     make_signal = 4;
-            // }
-            get_shared_event().event->setSignaledValue(make_signal);
-            // fast_print(" Make Signal", make_signal);
-            // if(cmd_idx == 4){
-            //     additioal_func();
-            // }
-        }
-    }
-
-    // list_cmd_buffer.back()->waitUntilCompleted();
-    get_command_list().send_and_wait();
-
-    // last_buffer->waitUntilCompleted();
-
-    for(uint i = 0; i < sorted_nodes.size(); i++){
-        uint node = sorted_nodes[i];
-        if(!done_nodes[node]){
-            
-            auto& task = list_task[node];
-            // fast_print("  additional job", node, Launcher::taskNames.at(task.func_id));
-            bool find;
-            auto& imp = task.get_implementation(Launcher::DeviceTypeGpu, find);
-            if(!find){
-                fast_print_err("Not Find Implementation");
-            }
-            imp.launch_task({task.func_id, 0, task.num_threads, 256, 0, 0, true, false, false});
-        }
-    }
-    get_command_list().send_and_wait();
-    #endif
-}
-
 /// Root node was not the first node in the sorted list. 
 /// Must be a zero-cost and zero-weight placeholder node. Rearranging it so it is scheduled first
 /// You need to provide a function that does nothing on each devices (for gpu, it is a empty kernel, for making commmand buffer not empty to be uploaded)
@@ -1820,23 +1570,24 @@ void Scheduler::standardizing_dag(const std::vector< std::function<void(const La
     }
     const bool print_root_terminal = false;
 
-    std::vector<Implementation> list_empty_imp = {};
-    const uint num_procs = communication_startup.size();
-    if (!input_list_fn_empty_func.empty()) {
-        for (uint proc = 0; proc < num_procs; proc++) {
-            list_empty_imp.push_back(Implementation(proc, input_list_fn_empty_func[proc]));
-        }
-    }
-    else {
-        for (uint proc = 0; proc < num_procs; proc++) {
-            list_empty_imp.push_back(Implementation(
-                proc, [proc](const Launcher::LaunchParam& param){ fast_format("I am additional task in proc {}", proc); }
-            ));
-        }
-    }
+    
     
     // if(list_root.size() > 1) 
     if (true) {
+        std::vector<Implementation> list_empty_imp = {};
+        const uint num_procs = communication_startup.size();
+        if (!input_list_fn_empty_func.empty()) {
+            for (uint proc = 0; proc < num_procs; proc++) {
+                list_empty_imp.push_back(Implementation(proc, input_list_fn_empty_func[proc]));
+            }
+        }
+        else {
+            for (uint proc = 0; proc < num_procs; proc++) {
+                list_empty_imp.push_back(Implementation(
+                    proc, [proc](const Launcher::LaunchParam& param){ fast_format("I am additional root in proc {}", proc); }
+                ));
+            }
+        }
         root_node = add_task(Task(id_additional_root, 0, false, true, 
             list_empty_imp));
             // { Implementation(DeviceTypeCpu, fn_empty_func, 0), Implementation(DeviceTypeGpu, fn_empty_func, 0) }));
@@ -1874,6 +1625,21 @@ void Scheduler::standardizing_dag(const std::vector< std::function<void(const La
 
     // if(list_terminal.size() > 1) 
     if (true) {
+        std::vector<Implementation> list_empty_imp = {};
+        const uint num_procs = communication_startup.size();
+        if (!input_list_fn_empty_func.empty()) {
+            for (uint proc = 0; proc < num_procs; proc++) {
+                list_empty_imp.push_back(Implementation(proc, input_list_fn_empty_func[proc]));
+            }
+        }
+        else {
+            for (uint proc = 0; proc < num_procs; proc++) {
+                list_empty_imp.push_back(Implementation(
+                    proc, [proc](const Launcher::LaunchParam& param){ fast_format("I am additional terminal in proc {}", proc); }
+                ));
+            }
+        }
+        
         terminal_node = add_task(Task(id_additional_terminal, 0, false, true, 
             list_empty_imp));
             // { Implementation(DeviceTypeCpu, fn_empty_func, 0), Implementation(DeviceTypeGpu, fn_empty_func, 0) }));
@@ -3158,7 +2924,7 @@ void Scheduler::scheduler_dag()
 #endif
 
     //
-    // Post processing: Add communication between iteractive tasks
+    // Post processing: Add communication between iteractive tasks for asynchronous iteration
     //
     // if constexpr (false)
     if (!constraint_task_orders.empty() && !communication_cost_matrix_uma.empty()) // For iteration tasks, make additional connections
@@ -3298,6 +3064,7 @@ void Scheduler::scheduler_dag()
                     const uint tid = self_schedule.task_id;
                     if (is_constraint_task[tid])
                     {
+                        list_task[tid].is_allocated_to_main_device = false;
                         auto& ins = list_in[tid];
                         if (ins.size() > 1)
                         {
@@ -3329,6 +3096,7 @@ void Scheduler::scheduler_dag()
                     auto& ins = list_in[tid];
                     if (ins.size() > 1)
                     {
+                        list_task[tid].is_allocated_to_main_device = true;
                         std::vector<uint> new_ins;
                         for (uint j = 0; j < ins.size() - 1; j++)
                         {
@@ -3931,7 +3699,7 @@ void Scheduler::print_costs(bool use_sort){
 
     }
 }
-void Scheduler::print_schedule(){
+void Scheduler::print_schedule() {
     const uint num_procs = proc_schedules.size();
     const uint num_tasks = list_task.size();;
     std::vector<double> sum_t(2, 0.0);
@@ -3945,7 +3713,7 @@ void Scheduler::print_schedule(){
         else                sum_t[0] += cost_cpu;
     }
     fast_print_single("Total Costs : "); fast_print("CPU", sum_t[0], "GPU", sum_t[1]);
-    fast_print("Task of each processor");
+    fast_print("Task of each processor (Copy me into python script) :");
     for (uint proc = 0; proc < num_procs; proc++) {
         fast_print("Processor", proc);
         const auto& proc_tasks = proc_schedules[proc];
@@ -4030,7 +3798,7 @@ void Scheduler::print_proc_schedules(){
 void Scheduler::print_schedule_to_graph_xpbd()
 {
 
-    if(proc_schedules.empty()) 
+    if (proc_schedules.empty()) 
     {
         fast_print_err("Does Not Make Schedule, So We Can Not Print...");
         return;
@@ -4132,7 +3900,7 @@ void Scheduler::print_schedule_to_graph_xpbd()
             uint reflection_color; 
             if (funcid_color_map.find(task.func_id) != funcid_color_map.end())
             {
-                reflection_color = funcid_color_map.at(task.func_id);// + task.cluster_idx;
+                reflection_color = funcid_color_map.at(task.func_id) + task.cluster_idx;
             }
             else 
             {
@@ -4230,6 +3998,7 @@ void Scheduler::print_schedule_to_graph_xpbd()
             std::cout << std::format("({}, {}) ", color, taskNames.at(FunctionID(task.first)));
         }
     }
+    fast_print();
     fast_print();
     
     // auto usages = get_proc_usage();
@@ -4507,12 +4276,9 @@ uint Scheduler::find_task_by_func_id(const Launcher::FunctionID id)
     return -1u;
 }
 
-// void set_root_task(const uint& task_id){ root_node = task_id; }
-// void set_terminal_task(const uint& task_id){ terminal_node = task_id; }
-
+// TODO: stream like: task1 << task2 << task3 << task4
 void Scheduler::set_connect(const uint& task_idx1, const uint& task_idx2, const float& weight)
 {
-    
     auto& task1 = list_task[task_idx1];
     auto& task2 = list_task[task_idx2];
 

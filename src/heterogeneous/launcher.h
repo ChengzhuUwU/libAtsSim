@@ -445,6 +445,7 @@ struct LaunchParam{
     bool launch_indirect = false;
     bool test_time = false;
     bool use_hetero = false;
+    bool is_allocated_to_main_device = true;
 
     uint left_buffer_idx = -1u;
     // uint input_buffer_idx = -1u;
@@ -460,9 +461,15 @@ struct LaunchParam{
 
     LaunchParam(){}
     LaunchParam(
-        const FunctionID& input_task_idx, const uint& input_start_idx, const uint& input_end_idx, 
-        const uint& input_blockDim, const uint& input_queue_id,  const uint& input_fence_id,
-        const bool& input_launch_indirect, const bool& input_test_time, const bool& input_use_hetero
+        const FunctionID& input_task_idx, 
+        const uint input_start_idx, 
+        const uint input_end_idx, 
+        const uint input_blockDim, 
+        const uint input_queue_id,  
+        const uint input_fence_id,
+        const bool input_launch_indirect, 
+        const bool input_test_time, 
+        const bool input_use_hetero
         // , const bool& input_make_fence, const bool& input_wait_fence
         ) : 
             function_id(input_task_idx), 
@@ -480,9 +487,9 @@ struct LaunchParam{
 
     LaunchParam(
         const FunctionID& input_task_idx, 
-        const uint& input_blockDim,
-        const uint& input_iter_idx,
-        const uint& input_cluster_idx
+        const uint input_blockDim,
+        const uint input_iter_idx,
+        const uint input_cluster_idx
         ) : 
             function_id(input_task_idx), 
             blockDim(input_blockDim),
@@ -492,13 +499,14 @@ struct LaunchParam{
 
     LaunchParam(
         const FunctionID& input_task_idx, 
-        const uint& input_blockDim,
-        const uint& input_iter_idx,
-        const uint& input_cluster_idx,
-        const uint& task_buffer_idx,
-        const uint& task_left_buffer_idx,
+        const uint input_blockDim,
+        const uint input_iter_idx,
+        const uint input_cluster_idx,
+        const uint task_buffer_idx,
+        const uint task_left_buffer_idx,
         const std::vector<uint>& task_input_buffer_idx,
-        const uint& task_output_buffer_idx
+        const uint task_output_buffer_idx,
+        const bool task_is_main_device
         ) : 
             function_id(input_task_idx), 
             blockDim(input_blockDim),
@@ -507,7 +515,8 @@ struct LaunchParam{
             buffer_idx(task_buffer_idx),
             left_buffer_idx(task_left_buffer_idx),
             input_buffer_idxs(task_input_buffer_idx),
-            output_buffer_idx(task_output_buffer_idx)
+            output_buffer_idx(task_output_buffer_idx),
+            is_allocated_to_main_device(task_is_main_device)
             {}
 
     
@@ -541,7 +550,7 @@ const DeviceType DeviceType2 = 2;
 //     DeviceType2 = 2,
 // };
 
-struct Implementation{
+struct Implementation {
     DeviceType device;
     // uint implementation_id; // seems unnecessary... maybe used for saperate different implementation for each task instead of using function interface
     std::function<void(const Launcher::LaunchParam&)> implementation;
@@ -566,7 +575,7 @@ struct Implementation{
     }
 };
 
-struct State{
+struct State {
     bool _has_done = false;
     void reset_state() { _has_done = false; }
     void mark_done() { _has_done = true; }
@@ -574,7 +583,7 @@ struct State{
     // State(const State& input_state) : ()
 };
 
-struct Task{
+struct Task {
     FunctionID func_id;
     uint num_threads = 0;
     uint start_idx = 0;
@@ -593,7 +602,7 @@ struct Task{
     uint buffer_left = -1u;  uint task_left = -1u;
     uint buffer_in = -1u;    uint task_in = -1u;
     uint buffer_out = -1u;   uint task_out = -1u;
-    uint buffer_idx = -1u;
+    uint buffer_idx = -1u;   bool is_allocated_to_main_device = true;
 
     std::vector<uint> buffer_lefts;
     std::vector<uint> buffer_ins;
@@ -654,6 +663,7 @@ struct Task{
         task_in(input_task.task_in), 
         task_out(input_task.task_out), 
         buffer_idx(input_task.buffer_idx), 
+        is_allocated_to_main_device(input_task.is_allocated_to_main_device), 
         
         buffer_ins(input_task.buffer_ins), 
         buffer_outs(input_task.buffer_outs), 
@@ -711,8 +721,8 @@ struct Task{
 
     // Implementation
     const Implementation& get_implementation(const DeviceType& type, bool& find_implement) const{
-        for(auto& imp : list_implementation){
-            if(imp.device == type){
+        for (auto& imp : list_implementation){
+            if (imp.device == type){
                 find_implement = true;
                 return imp;
             }
@@ -728,6 +738,24 @@ struct Task{
         }
         return false;
     }
+
+    // Task& operator<<(Task&& task2) {
+    //     uint offset = successors.size();
+    //     add_front(task_idx2);
+    //     list_weight.push_back(weight);
+    //     task2.add_back(task_idx1);
+    //     return *this;
+    // }
+
+    // bool launch(const DeviceType& type) const {
+    //     for (auto& imp : list_implementation){
+    //         if (imp.device == type){
+    //             imp.launch_task();
+    //             return true;
+    //         }
+    //     }
+    //     return false;
+    // }
 
 private:
     // State state;
@@ -909,7 +937,6 @@ public:
         LaunchModeSequeceHetero, // Run SCHEDULED tasks on the CPU, not eqaul to 'LaunchModeCpu'
     };
     void launch(LaunchMode mode, const std::function<LaunchParam(const Task&)> task_to_param, const bool fully_not_wait, const std::vector<std::function<void()>>& assemble_impl = {});
-    void launch_mixed(uint stop_cpu_idx, uint stop_gpu_idx, std::function<void()> additioal_func);
     
     void print_tasks();
     void print_costs(bool use_sort = true);
