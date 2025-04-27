@@ -15,7 +15,7 @@
 #include <set>
 #include <stack>
 
-const float inf = 99999.0;
+
 
 namespace Launcher {
 
@@ -659,7 +659,7 @@ void Scheduler::profile_from(
     };
 
     const uint num_tasks = list_task.size();
-    const uint num_procs = cost_total.size();
+    const uint num_procs = map_costs.back().size();
     std::vector<double> cost_sum(num_procs, 0.0);
 
     /// Compute Speed
@@ -691,6 +691,10 @@ void Scheduler::profile_from(
 
     orig_list_task = list_task;
     orig_computation_matrix = computation_matrix;
+    if (cost_total.empty())
+    {
+        cost_total = cost_sum;
+    }
     summary_of_costs_each_device = cost_total;
     
 }
@@ -1336,16 +1340,13 @@ void Scheduler::launch(LaunchMode mode, const std::function<LaunchParam(const Ta
             }
             fn_launch_gpu(gpu_new_begin, launch_events[1].size() - 1);
             get_command_list().send_and_wait();
-        }
-        
-
-        
+        }   
 
     }
     else if (mode == LaunchModeSequeceHetero) {
 
-        const bool print_schedule_event = false;
-        const bool print_task = false;
+        const bool print_schedule_event = true;
+        const bool print_task = true;
         
         const ListSchedule& gpu_schedules = proc_schedules[1];
         const std::vector<LaunchEvent>& gpu_event = launch_events[1];
@@ -1354,15 +1355,6 @@ void Scheduler::launch(LaunchMode mode, const std::function<LaunchParam(const Ta
         const ListSchedule& cpu_schedules = proc_schedules[0];
         const std::vector<LaunchEvent>& cpu_event = launch_events[0];
         const uint num_cpu_events = cpu_event.size();
-
-        /// Reset cmd
-        std::vector< MTL::CommandBuffer* > list_cmd_buffer(gpu_event.size() + 1);
-        // std::fill(list_cmd_buffer.begin(), list_cmd_buffer.end(), nullptr);
-        for (uint i = 0; i < list_cmd_buffer.size(); i++) {
-            get_shared_event(i).event->setSignaledValue(0);
-            get_shared_event(i).refresh();
-        }
-        
 
         auto fn_launch_gpu = [&](uint begin_cmd_idx, uint end_cmd_idx){
             for(uint gpu_cmd_idx = begin_cmd_idx; gpu_cmd_idx <= end_cmd_idx; gpu_cmd_idx++){
@@ -1392,7 +1384,7 @@ void Scheduler::launch(LaunchMode mode, const std::function<LaunchParam(const Ta
                 for (uint i = event.start_idx; i <= event.end_idx; i++) {
                     auto& gpu_jobs = gpu_schedules[i];
                     uint tid = gpu_jobs.task_id;
-                    auto& task = list_task[tid];
+                    auto& task = list_task[tid];  task.print_with_cluster(tid);
 
                     bool find;
                     auto& imp = task.get_implementation(Launcher::DeviceTypeCpu, find);
@@ -1412,7 +1404,7 @@ void Scheduler::launch(LaunchMode mode, const std::function<LaunchParam(const Ta
                 for (uint i = event.start_idx; i <= event.end_idx; i++) {
                     auto& cpu_jobs = cpu_schedules[i];
                     uint tid = cpu_jobs.task_id;
-                    auto& task = list_task[tid];
+                    auto& task = list_task[tid]; task.print_with_cluster(tid);
 
                     bool find;
                     auto& imp = task.get_implementation(Launcher::DeviceTypeCpu, find);
@@ -1434,13 +1426,13 @@ void Scheduler::launch(LaunchMode mode, const std::function<LaunchParam(const Ta
         for (uint cmd_idx = 0; cmd_idx < segment_point; cmd_idx++) {
             const LaunchEvent& event = cpu_event[cmd_idx];
             
-            /// Wait
+            /// Wait for GPU
             if (event.wait != -1u) {
                 fn_launch_gpu_by_cpu(gpu_new_begin, event.wait);
                 gpu_new_begin = event.wait + 1;
             }
 
-            /// Launch
+            /// Launch CPU
             for (uint i = event.start_idx; i <= event.end_idx; i++) {
                 auto& cpu_jobs = cpu_schedules[i];
                 uint tid = cpu_jobs.task_id;
@@ -1464,10 +1456,9 @@ void Scheduler::launch(LaunchMode mode, const std::function<LaunchParam(const Ta
             /// Wait
             if (event.wait != -1u) {
                 if (print_task) fast_format("====== GPU Begin ======");
-                fn_launch_gpu(gpu_new_begin, event.wait);
+                fn_launch_gpu_by_cpu(gpu_new_begin, event.wait);
                 gpu_new_begin = event.wait + 1;
 
-                get_command_list().send_and_wait();
                 if (print_task) fast_format("====== GPU End ======\n");
             }
 
@@ -1478,14 +1469,12 @@ void Scheduler::launch(LaunchMode mode, const std::function<LaunchParam(const Ta
                 uint tid = cpu_jobs.task_id;
                 auto& task = list_task[tid];
 
+                if (print_task) task.print_with_cluster(tid);
                 // fast_print("cpu", Launcher::taskNames.at(task.func_id));
                 
                 bool find;
                 auto& imp = task.get_implementation(Launcher::DeviceTypeCpu, find);
-                if(find) {
-                    // Launcher::LaunchParam(task.func_id, 0, task.num_threads, 256, 0, 0, true, false).print();
-                    // imp.launch_task({task.func_id, 0, task.num_threads, 256, 0, 0, true, false, true});
-                    if (print_task) task.print_with_cluster(tid);
+                if (find) {
                     imp.launch_task(task_to_param(task)); 
                 }   
                 else {
@@ -1495,11 +1484,7 @@ void Scheduler::launch(LaunchMode mode, const std::function<LaunchParam(const Ta
             }   
             if (print_task) fast_format("====== CPU End ======\n");
         }
-        if (print_task) fast_format("====== GPU Begin ======");
-        fn_launch_gpu(gpu_new_begin, launch_events[1].size() - 1);
-        get_command_list().send_and_wait();
-        if (print_task) fast_format("====== GPU End ======\n");
-
+        fn_launch_gpu_by_cpu(gpu_new_begin, launch_events[1].size() - 1);
     }
     else if (mode == LaunchModePartialCPU) {
         ///
@@ -1836,9 +1821,17 @@ void Scheduler::standardizing_dag(const std::vector< std::function<void(const La
     const bool print_root_terminal = false;
 
     std::vector<Implementation> list_empty_imp = {};
+    const uint num_procs = communication_startup.size();
     if (!input_list_fn_empty_func.empty()) {
-        for (uint proc = 0; proc < input_list_fn_empty_func.size(); proc++) {
+        for (uint proc = 0; proc < num_procs; proc++) {
             list_empty_imp.push_back(Implementation(proc, input_list_fn_empty_func[proc]));
+        }
+    }
+    else {
+        for (uint proc = 0; proc < num_procs; proc++) {
+            list_empty_imp.push_back(Implementation(
+                proc, [proc](const Launcher::LaunchParam& param){ fast_format("I am additional task in proc {}", proc); }
+            ));
         }
     }
     
@@ -1848,7 +1841,7 @@ void Scheduler::standardizing_dag(const std::vector< std::function<void(const La
             list_empty_imp));
             // { Implementation(DeviceTypeCpu, fn_empty_func, 0), Implementation(DeviceTypeGpu, fn_empty_func, 0) }));
 
-        computation_matrix.push_back({0.f, 0.f});
+        computation_matrix.push_back(ListCost(num_procs, 0.0f));
         list_order.insert(list_order.begin(), root_node);
 
         if(print_root_terminal) fast_print("   Expected a Single Root Node, Switch to", 
@@ -1856,8 +1849,8 @@ void Scheduler::standardizing_dag(const std::vector< std::function<void(const La
                     // Launcher::taskNames.at(list_task[root_node].func_id), "Change the Following Nodes Linking to the Root");
         
         // fast_print(" Node Connect To Root Node is :");
-        for(auto tid : list_root) {
-            if(tid != root_node) {
+        for (auto tid : list_root) {
+            if (tid != root_node) {
                 // std::cout << "   " << tid << " : " << Launcher::taskNames.at(list_task[tid].func_id) << std::endl;
                 set_connect(root_node, tid, 0.0f);
             }
@@ -1865,8 +1858,8 @@ void Scheduler::standardizing_dag(const std::vector< std::function<void(const La
     }
     else {
         root_node = list_root[0];
-        if(print_root_terminal) fast_print("   Root Node", Launcher::taskNames.at(list_task[root_node].func_id));
-        if(!list_task[root_node].predecessors.empty()){
+        if (print_root_terminal) fast_print("   Root Node", Launcher::taskNames.at(list_task[root_node].func_id));
+        if (!list_task[root_node].predecessors.empty()){
             fast_print_err(" ======= Root Node HAS Predecessors ======= ");
         }
     }
@@ -1884,15 +1877,15 @@ void Scheduler::standardizing_dag(const std::vector< std::function<void(const La
         terminal_node = add_task(Task(id_additional_terminal, 0, false, true, 
             list_empty_imp));
             // { Implementation(DeviceTypeCpu, fn_empty_func, 0), Implementation(DeviceTypeGpu, fn_empty_func, 0) }));
-        computation_matrix.push_back({0.f, 0.f});
+        computation_matrix.push_back(ListCost(num_procs, 0.0f));
         list_order.push_back(terminal_node);
 
         
-        if(print_root_terminal) fast_print("   Expected a Terminal Root Node, Switch to", Launcher::taskNames.at(list_task[terminal_node].func_id));
+        if (print_root_terminal) fast_print("   Expected a Terminal Root Node, Switch to", Launcher::taskNames.at(list_task[terminal_node].func_id));
         // if(print_root_terminal) fast_print("   Expected a Terminal Root Node, Switch to", Launcher::taskNames.at(list_task[terminal_node].func_id), "Change the Following Nodes Linking to the Terminal");
 
         // fast_print(" Node Connect To Terminal Node is");
-        for(auto tid : list_terminal){
+        for (auto tid : list_terminal){
             if(tid != terminal_node){
                 // std::cout << "   " << tid << " : " << Launcher::taskNames.at(list_task[tid].func_id) << std::endl;
                 set_connect(tid, terminal_node, 0.f);
@@ -3037,7 +3030,7 @@ void Scheduler::scheduler_dag()
     /// node : 7 , ranku = 35.666666666666664
     /// node : 9 , ranku = 14.666666666666666
 
-    const bool print_ranku = true;
+    const bool print_ranku = bool_print_scheduling_datail;
     if (print_ranku) {
         // fast_print("Sort by Topology Sort");
         // for (auto tid : list_order) {
@@ -3085,7 +3078,7 @@ void Scheduler::scheduler_dag()
                 /// For node 0 on processor 0, the EFT is ScheduleEvent(task=0, start=0, end=14, proc=0)
                 /// For node 0 on processor 1, the EFT is ScheduleEvent(task=0, start=0, end=16, proc=1)
                 /// For node 0 on processor 2, the EFT is ScheduleEvent(task=0, start=0, end=9, proc=2)
-                taskschedule.print();
+                if (bool_print_scheduling_datail) taskschedule.print();
                 if (taskschedule.start >= inf) {
                     fast_print_err("Make Inf...");
                     return;
@@ -3938,7 +3931,6 @@ void Scheduler::print_costs(bool use_sort){
 
     }
 }
-
 void Scheduler::print_schedule(){
     const uint num_procs = proc_schedules.size();
     const uint num_tasks = list_task.size();;
@@ -3965,7 +3957,6 @@ void Scheduler::print_schedule(){
         }
     }
 }
-
 void Scheduler::print_scheduling_with_waiting_events(){
 
     const uint num_procs = proc_schedules.size();
@@ -4017,7 +4008,6 @@ void Scheduler::print_scheduling_with_waiting_events(){
     }
     
 }
-
 void Scheduler::print_proc_schedules(){
     fast_print("Task of each processor");
     const uint num_procs = proc_schedules.size();
@@ -4248,6 +4238,31 @@ void Scheduler::print_schedule_to_graph_xpbd()
  
     // fast_print();
 }
+void Scheduler::print_tasks(){
+    fast_print("List Tasks : ");
+    for (uint tid = 0; tid < list_task.size(); tid++) {
+        const auto& task = list_task[tid];
+        task.print_with_cluster(tid);
+    }
+}
+void Scheduler::print_dag() {
+    fast_print("nodes = [");
+    for (size_t i = 0; i < list_task.size(); ++i) 
+    {
+        fast_format("    ({}, {}),", i, int(list_task[i].func_id));
+    }
+    fast_print("]");
+    fast_print("edges = [");
+    for (size_t i = 0; i < list_task.size(); ++i) 
+    {
+        for (uint succ : list_task[i].successors) 
+        {
+            fast_format("    ({}, {}),", i, succ);
+            std::cout << "    (" << i << ", " << succ << "),\n";
+        }
+    }
+    fast_print("]");
+}
 
 float Scheduler::get_theoretical_time()
 {
@@ -4304,17 +4319,6 @@ std::vector<float> Scheduler::get_scheduled_speedups()
     }
     return speedups;
 }
-void Scheduler::print_speedups_to_each_device()
-{
-    float end_time = get_scheduled_end_time();
-    uint num_proc = proc_schedules.size();
-    std::vector<float> speedups(num_proc, 0.f);
-    for (uint proc = 0; proc < num_proc; proc++)
-    {
-        float speedup = (summary_of_costs_each_device[proc] - end_time) / end_time;
-        fast_format("Speedup to proc {} = {:4.2f}\% (From {:4.2f} to {:4.2f} ) ", proc, speedup * 100, summary_of_costs_each_device[proc], end_time);
-    }
-}
 std::vector<float> Scheduler::get_proc_usage()
 {
     float end_time = get_scheduled_end_time();
@@ -4333,30 +4337,16 @@ std::vector<float> Scheduler::get_proc_usage()
     }
     return proc_usage;
 }
-void Scheduler::print_tasks(){
-    fast_print("List Tasks : ");
-    for (uint tid = 0; tid < list_task.size(); tid++) {
-        const auto& task = list_task[tid];
-        task.print_with_cluster(tid);
-    }
-}
-void Scheduler::print_dag() {
-    fast_print("nodes = [");
-    for (size_t i = 0; i < list_task.size(); ++i) 
+void Scheduler::print_speedups_to_each_device()
+{
+    float end_time = get_scheduled_end_time();
+    uint num_proc = proc_schedules.size();
+    std::vector<float> speedups(num_proc, 0.f);
+    for (uint proc = 0; proc < num_proc; proc++)
     {
-        fast_format("    ({}, {}),", i, int(list_task[i].func_id));
+        float speedup = (summary_of_costs_each_device[proc] - end_time) / end_time;
+        fast_format("Speedup to proc {} = {:4.2f}\% (From {:4.2f} to {:4.2f} ) ", proc, speedup * 100, summary_of_costs_each_device[proc], end_time);
     }
-    fast_print("]");
-    fast_print("edges = [");
-    for (size_t i = 0; i < list_task.size(); ++i) 
-    {
-        for (uint succ : list_task[i].successors) 
-        {
-            fast_format("    ({}, {}),", i, succ);
-            std::cout << "    (" << i << ", " << succ << "),\n";
-        }
-    }
-    fast_print("]");
 }
 
 
@@ -4499,7 +4489,6 @@ uint Scheduler::add_task(const Task& task)
     return task_id;
 
 }
-
 Task& Scheduler::get_task_by_tid(const uint& task_id)
 {
     return list_task[task_id];

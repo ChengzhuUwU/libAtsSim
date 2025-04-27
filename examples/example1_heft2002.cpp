@@ -15,9 +15,9 @@ int main()
     const uint num_tasks = 10;
     const uint num_edges = 15;
     
-    Launcher::Implementation ipm_xpbd_0(0, [&](const Launcher::LaunchParam& param){ fast_format(" Runtask {} in processor 1", param.cluster_idx); });
-    Launcher::Implementation imp_xpbd_1(1, [&](const Launcher::LaunchParam& param){ fast_format(" Runtask {} in processor 2", param.cluster_idx); });
-    Launcher::Implementation imp_xpbd_2(2, [&](const Launcher::LaunchParam& param){ fast_format(" Runtask {} in processor 3", param.cluster_idx); });
+    Launcher::Implementation ipm_xpbd_0(0, [&](const Launcher::LaunchParam& param){ fast_format(" Run task {} in processor 1", param.cluster_idx); });
+    Launcher::Implementation imp_xpbd_1(1, [&](const Launcher::LaunchParam& param){ fast_format(" Run task {} in processor 2", param.cluster_idx); });
+    Launcher::Implementation imp_xpbd_2(2, [&](const Launcher::LaunchParam& param){ fast_format(" Run task {} in processor 3", param.cluster_idx); });
 
     auto fn_add_task_template = [&scheduler, &ipm_xpbd_0, &imp_xpbd_1, &imp_xpbd_2](const uint id)
     {
@@ -113,6 +113,7 @@ int main()
 
         scheduler.standardizing_dag(); // Add additional root and terminal node 
 
+        scheduler.set_print_scheduling_datail(true);
         scheduler.scheduler_dag();
         
         scheduler.print_proc_schedules();
@@ -123,7 +124,6 @@ int main()
 
         // scheduler.print_schedule_to_graph_xpbd();
     }
-    
 
     return 0;
 }
