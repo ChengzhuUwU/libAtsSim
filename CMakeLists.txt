@@ -54,3 +54,15 @@ if(APPLE)
 # add_executable(Simulation ${SRC_PATH}/simulation.cpp)
 endif()
 
+
+
+
+if(APPLE)
+add_custom_target(MetalShader 
+                  COMMAND  python3 ${CMAKE_CURRENT_SOURCE_DIR}/compile_shader_and_make_proj.py
+                  WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+                 )
+add_dependencies(Example3 MetalShader)
+endif()
+
+# For xcode: cmake -G Xcode ..

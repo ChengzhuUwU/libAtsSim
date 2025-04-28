@@ -113,12 +113,3 @@ endif()
 
 
 
-# if(APPLE)
-# add_custom_target(MetalShader 
-#                   COMMAND  python3 ${CMAKE_CURRENT_SOURCE_DIR}/compile_shader_and_make_proj.py
-#                   WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-#                  )
-# add_dependencies(HeteroScheduler MetalShader)
-# endif()
-
-# For xcode: cmake -G Xcode ..

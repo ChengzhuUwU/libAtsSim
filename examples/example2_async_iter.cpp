@@ -397,7 +397,7 @@ public:
         mesh_data = mesh_ptr;
     }
     void init_xpbd_system();
-    void init_simulation_params();
+    static void init_simulation_params();
 
 public:    
     void physics_step_vbd();
@@ -425,7 +425,6 @@ private:
     void vbd_evaluate_stretch_spring(Buffer<Float3>& curr_cloth_position, const uint cluster_idx);
     void vbd_evaluate_bending(Buffer<Float3>& curr_cloth_position, const uint cluster_idx);
     void vbd_step(Buffer<Float3>& curr_cloth_position, const uint cluster_idx);
-    void vbd_solve(Buffer<Float3>& curr_cloth_position, const uint cluster_idx);
 
 private:
     XpbdData* xpbd_data;
@@ -691,14 +690,16 @@ void CpuSolver::init_xpbd_system()
 }
 void CpuSolver::reset_constrains()
 {
-    parallel_set(
-        xpbd_data->sa_lambda_stretch_mass_spring.data(), 
-        xpbd_data->sa_lambda_stretch_mass_spring.size(), 
-        0.0f);
-    parallel_set(
-        xpbd_data->sa_lambda_bending.data(), 
-        xpbd_data->sa_lambda_bending.size(), 
-        0.0f);
+    auto fn_reset_template = [&](Buffer<float>& buffer)
+    {
+        parallel_set(
+            buffer.data(), 
+            buffer.size(), 
+            0.0f);
+    };
+
+    fn_reset_template(xpbd_data->sa_lambda_stretch_mass_spring);
+    fn_reset_template(xpbd_data->sa_lambda_bending);
 }
 void CpuSolver::reset_collision_constrains()
 {
@@ -745,7 +746,7 @@ void CpuSolver::collision_detection()
 }
 void CpuSolver::predict_position()
 {
-    parallel_for(0, xpbd_data->sa_x.size(), [&](const uint vid)
+    parallel_for(0, mesh_data->num_verts, [&](const uint vid)
     {
         Constrains::Core::predict_position(vid, 
             xpbd_data->sa_x.data(), 
@@ -761,7 +762,7 @@ void CpuSolver::predict_position()
 }
 void CpuSolver::update_velocity()
 {
-    parallel_for(0, xpbd_data->sa_x.size(), [&](const uint vid)
+    parallel_for(0, mesh_data->num_verts, [&](const uint vid)
     {
         Constrains::Core::update_velocity(vid, 
             xpbd_data->sa_v.data(), 
@@ -787,8 +788,12 @@ void CpuSolver::compute_energy(const Buffer<Float3>& curr_position)
         energy_inertia = parallel_for_and_reduce_sum<double>(0, mesh_data->num_verts, [&](const uint vid)
         {
             return Constrains::Energy::compute_energy_inertia(vid, 
-                curr_position.data(), &get_scene_params(), mesh_data->sa_is_fixed.data(), mesh_data->sa_vert_mass.data(), 
-                xpbd_data->sa_x_start.data(), xpbd_data->sa_v_start.data());
+                curr_position.data(), 
+                &get_scene_params(), 
+                mesh_data->sa_is_fixed.data(), 
+                mesh_data->sa_vert_mass.data(), 
+                xpbd_data->sa_x_start.data(), 
+                xpbd_data->sa_v_start.data());
         });
     }
     
@@ -799,18 +804,21 @@ void CpuSolver::compute_energy(const Buffer<Float3>& curr_position)
         {
             return Constrains::Energy::compute_energy_stretch_mass_spring(
                 eid, curr_position.data(), 
-                xpbd_data->sa_merged_edges.data(), xpbd_data->sa_merged_edges_rest_length.data(), stiffness);
+                xpbd_data->sa_merged_edges.data(), 
+                xpbd_data->sa_merged_edges_rest_length.data(), 
+                stiffness);
         });
     }
 
     // Bending
-    const auto bending_type = 
-        (get_scene_params().use_vbd_solver // Our VBD solver only add quadratic bending implementation
-        || get_scene_params().use_quadratic_bending_model) ?  
-        Constrains::BendingTypeQuadratic : Constrains::BendingTypeDAB;
-    const bool use_xpbd_solver = true;
     if (get_scene_params().use_bending)
     {   
+        const auto bending_type = 
+            (get_scene_params().use_vbd_solver // Our VBD solver only add quadratic bending implementation
+            || get_scene_params().use_quadratic_bending_model) ?  
+            Constrains::BendingTypeQuadratic : Constrains::BendingTypeDAB;
+        const bool use_xpbd_solver = get_scene_params().use_xpbd_solver;
+
         const float stiffness_bending_quadratic = get_scene_params().get_stiffness_quadratic_bending();
         const float stiffness_bending_DAB = get_scene_params().get_stiffness_DAB_bending();
 
@@ -818,10 +826,14 @@ void CpuSolver::compute_energy(const Buffer<Float3>& curr_position)
         {
             float energy = 0.f;
             Constrains::Energy::compute_energy_bending(bending_type, eid, curr_position.data(), 
-                xpbd_data->sa_merged_bending_edges.data(), nullptr,
-                nullptr, xpbd_data->sa_merged_bending_edges_Q.data(),
+                xpbd_data->sa_merged_bending_edges.data(), 
+                nullptr,
+                nullptr, 
+                xpbd_data->sa_merged_bending_edges_Q.data(),
                 xpbd_data->sa_merged_bending_edges_angle.data(), 
-                stiffness_bending_DAB, stiffness_bending_quadratic, use_xpbd_solver
+                stiffness_bending_DAB, 
+                stiffness_bending_quadratic, 
+                use_xpbd_solver
             );
             return energy;
         });
@@ -1518,8 +1530,8 @@ void CpuSolver::solve_constraints_XPBD()
 enum SolverType
 {
     SolverTypeGaussNewton,
-    SolverTypeXPBD,
-    SolverTypeVBD,
+    SolverTypeXPBD_CPU,
+    SolverTypeVBD_CPU,
     SolverTypeVBD_async,
 };
 
@@ -1535,24 +1547,16 @@ public:
     }
     void register_solver_type(SolverType type)
     {        
-        switch (type) 
+        if (type == SolverTypeGaussNewton)
         {
-            case SolverTypeVBD : case SolverTypeVBD_async : case SolverTypeXPBD: 
-            {
-                xpbd_solver.get_data_pointer(&xpbd_data, mesh_data);
-                xpbd_solver.init_xpbd_system();
-                xpbd_solver.init_simulation_params();
-                break;
-            }
-            case SolverTypeGaussNewton:
-            {
-                break;
-            }
-            default:
-            {
-                fast_format_err("Empty solver");
-                break;
-            }
+            fast_format_err("Empty NewtonSolver implementation");
+        }
+        else 
+        {
+            cpu_solver.get_data_pointer(&xpbd_data, mesh_data);
+            cpu_solver.init_xpbd_system();
+
+            CpuSolver::init_simulation_params();
         }
     }
 
@@ -1566,7 +1570,7 @@ private:
 
 private:
     XpbdData xpbd_data;
-    CpuSolver xpbd_solver;
+    CpuSolver cpu_solver;
 };
 
 void SolverInterface::restart_system()
@@ -1589,19 +1593,19 @@ void SolverInterface::physics_step(SolverType type)
 
     switch (type) 
     {
-        case SolverTypeXPBD:
+        case SolverTypeXPBD_CPU:
         {
-            xpbd_solver.physics_step_xpbd(); /////////////
+            cpu_solver.physics_step_xpbd(); /////////////
             break;
         }
-        case SolverTypeVBD:
+        case SolverTypeVBD_CPU:
         {
-            xpbd_solver.physics_step_vbd(); /////////////
+            cpu_solver.physics_step_vbd(); /////////////
             break;
         }
         case SolverTypeVBD_async:
         {
-            xpbd_solver.physics_step_vbd_async(); /////////////
+            cpu_solver.physics_step_vbd_async(); /////////////
             break;
         }
         default:
@@ -1704,7 +1708,7 @@ int main()
     {
         solver.set_data_pointer(&mesh_data);
 
-        solver.register_solver_type(SolverTypeVBD);
+        solver.register_solver_type(SolverTypeVBD_CPU);
     }
 
     // Some params
@@ -1735,7 +1739,7 @@ int main()
 
             if (frame != 9) get_scene_params().print_xpbd_convergence = false;
             if (frame == 9) get_scene_params().print_xpbd_convergence = true; // Print the energy convergence in frame 10
-            solver.physics_step(SolverTypeVBD);
+            solver.physics_step(SolverTypeVBD_CPU);
         }
     }
     {
