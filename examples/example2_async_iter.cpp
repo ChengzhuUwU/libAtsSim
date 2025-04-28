@@ -829,10 +829,15 @@ void XpbdSolver::physics_step_async()
                 if constexpr (print_buffer_idx) fast_format("Copy left  : from {} to {}", param.input_buffer_idxs.back(), param.buffer_idx);
                 fn_copy_to_start_and_iter(fn_get_iter_buffer(param.input_buffer_idxs.back()), param.buffer_idx);
             }
-            else if (param.left_buffer_idx != -1u) // Copy from left
+            else if (param.left_buffer_idx != -1u && param.left_buffer_idx != Launcher::input_buffer_mask) // Copy from left
             {
                 if constexpr (print_buffer_idx) fast_format("Copy input: from {} to {}", param.left_buffer_idx, param.buffer_idx);
                 fn_copy_to_start_and_iter(fn_get_iter_buffer(param.left_buffer_idx), param.buffer_idx);
+            }
+            else if (param.left_buffer_idx == Launcher::input_buffer_mask) 
+            {
+                if constexpr (print_buffer_idx) fast_format("Copy input: from sa_x to {}", param.buffer_idx);
+                fn_copy_to_start_and_iter(xpbd_data->sa_x, param.buffer_idx);
             }
 
             if (get_scene_params().print_xpbd_convergence)
@@ -1058,7 +1063,8 @@ void XpbdSolver::physics_step_async()
         return Launcher::LaunchParam(
             task.func_id, task.block_dim, 
             task.iter_idx, task.cluster_idx, 
-            task.buffer_idx, task.buffer_left, task.buffer_ins, task.buffer_out, task.is_allocated_to_main_device
+            task.buffer_idx, task.buffer_left, task.buffer_ins, task.buffer_out, 
+            task.is_allocated_to_main_device
         ); 
     };
     

@@ -2984,6 +2984,7 @@ void Scheduler::scheduler_dag()
         std::vector<bool> is_producer_task(num_tasks, false);
         std::vector<bool> is_cloth_constraint_task(num_tasks, false);
         std::vector<bool> is_tet_constraint_task(num_tasks, false);
+        uint predict_position_tid = -1u;
 
         std::vector<uint> constraint_tasks;
         for (uint tid = 0; tid < num_tasks; tid++)
@@ -3007,6 +3008,7 @@ void Scheduler::scheduler_dag()
             }
             if (fn_is_cloth_task(task)) is_cloth_constraint_task[tid] = true;
             if (fn_is_tet_task(task))   is_tet_constraint_task[tid] = true;
+            if (task.func_id == id_xpbd_predict_position) predict_position_tid = tid;
         }
 
         // Find The Shortest Connection Between Devices
@@ -3053,7 +3055,7 @@ void Scheduler::scheduler_dag()
         // Merge Redundant Connection
     #if USE_MAIN_DEVICE
         {
-            // NOT The Main Device: Only Keep The Last Waiting
+            // NOT The Main Device: Only Keep The Last Input
             for (uint proc = 0; proc < num_procs; proc++)
             {
                 if (proc == MAIN_DEVICE_ID) continue;
@@ -3069,7 +3071,7 @@ void Scheduler::scheduler_dag()
                         if (ins.size() > 1)
                         {
                             const uint last_in = ins.back();
-                            for (uint j = 0; j < ins.size() - 1; j++)
+                            for (uint j = 0; j < ins.size() - 1; j++) // Drop the connection to previous tasks
                             {
                                 const uint input_node = ins[j];
                                 auto& outs = list_out[input_node];
@@ -3084,7 +3086,7 @@ void Scheduler::scheduler_dag()
                     }
                 }
             }
-            // For Main Device: Keep The Input With
+            // For Main Device: Keep All Inputs
             const uint main_proc = MAIN_DEVICE_ID;
             const auto& main_proc_schedule = proc_schedules[main_proc];
             for (uint i = 0; i < main_proc_schedule.size(); i++)
@@ -3162,6 +3164,9 @@ void Scheduler::scheduler_dag()
             const auto& cpu_schedule = proc_schedules[0];
             const auto& gpu_schedule = proc_schedules[1];
 
+            if (!cpu_schedule.empty()) list_task[cpu_schedule.front().task_id].is_first_iterative_task = true;
+            if (!gpu_schedule.empty()) list_task[gpu_schedule.front().task_id].is_first_iterative_task = true;
+            
             while (index_cpu < cpu_schedule.size() || index_gpu < gpu_schedule.size()) 
             {
                 const ScheduleEvent* next_task = nullptr;
@@ -3242,20 +3247,29 @@ void Scheduler::scheduler_dag()
                             const uint left_task_idx = left_constraint_tid[min_proc];
                             if (left_task_idx != -1u && list_out[left_task_idx].empty())
                             {
+                                // Directly get from left (no copy/weight)
                                 selected_buffer_idx = task_buffers[left_task_idx];
                             }
                             else 
                             {
+                                // Neet to copy from left, and there is no buffer that we can use
+                                // So we need to allocate a new buffer
+                                // TODO: Buffer pool
                                 selected_buffer_idx = fn_update_buffer_idx();
-                                if (left_task_idx != -1u)
-                                {
+                                if (left_task_idx != -1u) 
+                                {   
+                                    // Copy from left and 
                                     task.buffer_left = task_buffers[left_task_idx];
                                     task.task_left = left_task_idx;
                                 }
+                                else 
+                                {
+                                    // First iterative task in current processor
+                                    task.buffer_left = input_buffer_mask;
+                                    task.task_left = predict_position_tid;
+                                }
                             }
                         }
-
-                        uint aa = -1u;
 
                         task_buffers[tid] = selected_buffer_idx;
                         task.buffer_idx = selected_buffer_idx;

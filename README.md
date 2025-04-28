@@ -22,7 +22,7 @@ We use mass-spring streching and quadratic bending model, this can also extended
 
 ## Example 3: Asychronous iteration with CPU-GPU implementation
 
-This example shows how do we use our heterogenous framework in a simulation application. After we register the implementation and specify DAG, the our scheduler will automatically make scheuling including calculating the communication matrix, allocating the tasks into devices, specifying the data tranfers.
+This example shows how do we use our heterogenous framework in a simulation application. After we register the implementation and specify DAG, the our scheduler will automatically make scheuling including: calculating the communication matrix, allocating the tasks into devices, specifying the data tranfers, and update communication matrix each frame.
 
 We use Metal-shading-language for GPU implementation, so this example is only supported on MacOS.
 

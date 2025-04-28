@@ -602,13 +602,11 @@ struct Task {
     uint buffer_left = -1u;  uint task_left = -1u;
     uint buffer_in = -1u;    uint task_in = -1u;
     uint buffer_out = -1u;   uint task_out = -1u;
-    uint buffer_idx = -1u;   bool is_allocated_to_main_device = true;
+    uint buffer_idx = -1u;   bool is_allocated_to_main_device = true; bool is_first_iterative_task = false;
 
-    std::vector<uint> buffer_lefts;
     std::vector<uint> buffer_ins;
     std::vector<uint> buffer_outs;
     std::vector<uint> buffer_idxs;
-    std::vector<uint> task_lefts;
     std::vector<uint> task_ins;
     std::vector<uint> task_outs;
     std::vector<uint> task_idxs;
@@ -664,12 +662,11 @@ struct Task {
         task_out(input_task.task_out), 
         buffer_idx(input_task.buffer_idx), 
         is_allocated_to_main_device(input_task.is_allocated_to_main_device), 
+        is_first_iterative_task(input_task.is_first_iterative_task), 
         
         buffer_ins(input_task.buffer_ins), 
         buffer_outs(input_task.buffer_outs), 
-        buffer_lefts(input_task.buffer_lefts), 
         buffer_idxs(input_task.buffer_idxs), 
-        task_lefts(input_task.task_lefts), 
         task_ins(input_task.task_ins), 
         task_outs(input_task.task_outs), 
         resources(input_task.resources), 
@@ -830,6 +827,7 @@ struct LaunchEvent{
 
 #define BROTHER_CONNECTION_RALATIONSHIP 3
 const float inf = 99999.0;
+const uint input_buffer_mask = 0x0FFFFFFF;
 
 class Scheduler{
 
