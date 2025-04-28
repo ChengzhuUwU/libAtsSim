@@ -20,7 +20,7 @@ def proc_redual_list(list_residual, name):
     print(f'{name:10} : After {len(list_residual) - 1 : 5} Iterations, Final Residual = {list_residual[-1]}')
     plt.plot(list_residual, label=name, color=get_color())
 
-def draw_all(fig, name, xlable, ylable):
+def draw_all(fig, name, xlable, ylable, figure_name = ""):
 
     def call_back(event):
         axtemp=event.inaxes
@@ -35,13 +35,21 @@ def draw_all(fig, name, xlable, ylable):
     fig.canvas.mpl_connect('scroll_event', call_back)
     fig.canvas.mpl_connect('button_press_event', call_back)
 
+
     plt.title(name)
     plt.xlabel(xlable)
     plt.ylabel(ylable)
     plt.legend()
 
+    if figure_name != "":
+        plt.savefig(f"documents/{figure_name}.png", format="png", dpi=300, bbox_inches="tight")
+
     plt.grid(True)
     plt.show()
+
+    
+
+    
 
 # energy_optimal = np.min(energy_weighted_delta_with_main_device)
 # energy_max = np.max(energy_weighted_delta_with_main_device)
@@ -80,4 +88,4 @@ proc_energy_list(list_sync, "Sync")
 
 
 
-draw_all(fig, "Iterative Solver Residuals", "Iteration", "Relative Energy")
+draw_all(fig, "Iterations", "Iteration", "Relative Energy", "iter_100_convergence")
