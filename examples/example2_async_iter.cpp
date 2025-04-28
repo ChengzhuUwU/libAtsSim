@@ -384,11 +384,11 @@ void init_mesh(BasicMeshData* mesh_data)
     
 }
 
-class XpbdSolver
+class CpuSolver
 {
 public:
-    XpbdSolver() {}
-    ~XpbdSolver() {}
+    CpuSolver() {}
+    ~CpuSolver() {}
 
     // TODO: Replace to shared_ptr
     void get_data_pointer(XpbdData* xpbd_ptr, BasicMeshData* mesh_ptr) 
@@ -400,8 +400,9 @@ public:
     void init_simulation_params();
 
 public:    
-    void physics_step();
-    void physics_step_async();
+    void physics_step_vbd();
+    void physics_step_xpbd();
+    void physics_step_vbd_async();
     void fn_dispatch(const Launcher::LaunchParam& param);
     void compute_energy(const Buffer<Float3>& curr_cloth_position);
 
@@ -432,7 +433,7 @@ private:
 };
 static uint energy_idx = 0; 
 
-void XpbdSolver::init_xpbd_system()
+void CpuSolver::init_xpbd_system()
 {
     xpbd_data->sa_x_tilde.resize(mesh_data->num_verts); 
     xpbd_data->sa_x.resize(mesh_data->num_verts);
@@ -688,7 +689,7 @@ void XpbdSolver::init_xpbd_system()
     }
 
 }
-void XpbdSolver::reset_constrains()
+void CpuSolver::reset_constrains()
 {
     parallel_set(
         xpbd_data->sa_lambda_stretch_mass_spring.data(), 
@@ -699,11 +700,11 @@ void XpbdSolver::reset_constrains()
         xpbd_data->sa_lambda_bending.size(), 
         0.0f);
 }
-void XpbdSolver::reset_collision_constrains()
+void CpuSolver::reset_collision_constrains()
 {
 
 }
-void XpbdSolver::init_simulation_params()
+void CpuSolver::init_simulation_params()
 {
     get_scene_params().print_cost_detail = true;
     get_scene_params().print_xpbd_convergence = false; // false true
@@ -738,11 +739,11 @@ void XpbdSolver::init_simulation_params()
     }
 
 }
-void XpbdSolver::collision_detection()
+void CpuSolver::collision_detection()
 {
     // TODO
 }
-void XpbdSolver::predict_position()
+void CpuSolver::predict_position()
 {
     parallel_for(0, xpbd_data->sa_x.size(), [&](const uint vid)
     {
@@ -758,7 +759,7 @@ void XpbdSolver::predict_position()
             false);
     });
 }
-void XpbdSolver::update_velocity()
+void CpuSolver::update_velocity()
 {
     parallel_for(0, xpbd_data->sa_x.size(), [&](const uint vid)
     {
@@ -773,7 +774,7 @@ void XpbdSolver::update_velocity()
             false);
     });
 }
-void XpbdSolver::compute_energy(const Buffer<Float3>& curr_position)
+void CpuSolver::compute_energy(const Buffer<Float3>& curr_position)
 {
     if (!get_scene_params().print_xpbd_convergence) return;
     // fast_format("buffer size = {}", curr_position.size());
@@ -861,7 +862,7 @@ void XpbdSolver::compute_energy(const Buffer<Float3>& curr_position)
 
 
 // XPBD constraints
-void XpbdSolver::solve_constraint_stretch_spring(Buffer<Float3>& curr_cloth_position, const uint cluster_idx)
+void CpuSolver::solve_constraint_stretch_spring(Buffer<Float3>& curr_cloth_position, const uint cluster_idx)
 {
     const uint curr_prefix = xpbd_data->prefix_stretch_mass_spring[cluster_idx];
     const uint next_prefix = xpbd_data->prefix_stretch_mass_spring[cluster_idx + 1];
@@ -879,7 +880,7 @@ void XpbdSolver::solve_constraint_stretch_spring(Buffer<Float3>& curr_cloth_posi
             get_scene_params().stiffness_stretch_spring, get_scene_params().get_substep_dt(), false);
     }, 32);
 }
-void XpbdSolver::solve_constraint_bending(Buffer<Float3>& curr_cloth_position, const uint cluster_idx)
+void CpuSolver::solve_constraint_bending(Buffer<Float3>& curr_cloth_position, const uint cluster_idx)
 {
     if (!get_scene_params().use_bending) return;
 
@@ -912,11 +913,11 @@ void XpbdSolver::solve_constraint_bending(Buffer<Float3>& curr_cloth_position, c
 }
 
 // VBD constraints (energy)
-Buffer<Float4x3>& XpbdSolver::get_Hf()
+Buffer<Float4x3>& CpuSolver::get_Hf()
 {
     return xpbd_data->sa_Hf;
 }
-void XpbdSolver::vbd_evaluate_inertia(Buffer<Float3>& sa_iter_position, const uint cluster_idx)
+void CpuSolver::vbd_evaluate_inertia(Buffer<Float3>& sa_iter_position, const uint cluster_idx)
 {
     auto& clusters = xpbd_data->clusterd_per_vertex_bending;
     const uint next_prefix = clusters[cluster_idx + 1];
@@ -934,7 +935,7 @@ void XpbdSolver::vbd_evaluate_inertia(Buffer<Float3>& sa_iter_position, const ui
         get_Hf()[vid] = Hf;
     });
 }
-void XpbdSolver::vbd_evaluate_stretch_spring(Buffer<Float3>& sa_iter_position, const uint cluster_idx)
+void CpuSolver::vbd_evaluate_stretch_spring(Buffer<Float3>& sa_iter_position, const uint cluster_idx)
 {
     auto& clusters = xpbd_data->clusterd_per_vertex_bending;
     const uint next_prefix = clusters[cluster_idx + 1];
@@ -952,7 +953,7 @@ void XpbdSolver::vbd_evaluate_stretch_spring(Buffer<Float3>& sa_iter_position, c
         get_Hf()[vid] += Hf;
     }, 32);
 }
-void XpbdSolver::vbd_evaluate_bending(Buffer<Float3>& sa_iter_position, const uint cluster_idx)
+void CpuSolver::vbd_evaluate_bending(Buffer<Float3>& sa_iter_position, const uint cluster_idx)
 {
     auto& clusters = xpbd_data->clusterd_per_vertex_bending;
     const uint next_prefix = clusters[cluster_idx + 1];
@@ -970,7 +971,7 @@ void XpbdSolver::vbd_evaluate_bending(Buffer<Float3>& sa_iter_position, const ui
         get_Hf()[vid] += Hf;
     }, 32);
 }
-void XpbdSolver::vbd_step(Buffer<Float3>& sa_iter_position, const uint cluster_idx)
+void CpuSolver::vbd_step(Buffer<Float3>& sa_iter_position, const uint cluster_idx)
 {
     auto& clusters = xpbd_data->clusterd_per_vertex_bending;
     const uint next_prefix = clusters[cluster_idx + 1];
@@ -993,7 +994,8 @@ void XpbdSolver::vbd_step(Buffer<Float3>& sa_iter_position, const uint cluster_i
     }, 32);
 }
 
-void XpbdSolver::physics_step()
+
+void CpuSolver::physics_step_xpbd()
 {
     xpbd_data->sa_x_start = mesh_data->sa_x_frame_start;
     xpbd_data->sa_v_start = mesh_data->sa_v_frame_start;
@@ -1028,7 +1030,6 @@ void XpbdSolver::physics_step()
                 {   
                     { get_scene_params().current_it = iter; }
                     if (get_scene_params().use_xpbd_solver)     { solve_constraints_XPBD(); }
-                    else if (get_scene_params().use_vbd_solver) { solve_constraints_VBD(); }
                     else { fast_format_err("empty solver"); }
                 }
             }
@@ -1059,7 +1060,69 @@ void XpbdSolver::physics_step()
     mesh_data->sa_x_frame_end = xpbd_data->sa_x;
     mesh_data->sa_v_frame_end = xpbd_data->sa_v;
 }
-void XpbdSolver::fn_dispatch(const Launcher::LaunchParam& param)
+void CpuSolver::physics_step_vbd()
+{
+    xpbd_data->sa_x_start = mesh_data->sa_x_frame_start;
+    xpbd_data->sa_v_start = mesh_data->sa_v_frame_start;
+    xpbd_data->sa_x = mesh_data->sa_x_frame_start;
+    xpbd_data->sa_v = mesh_data->sa_v_frame_start;
+
+
+    
+    const uint num_substep = get_scene_params().print_xpbd_convergence ? 1 : get_scene_params().num_substep;
+    const uint constraint_iter_count = get_scene_params().constraint_iter_count;
+
+    std::memset(mesh_data->sa_system_energy.data(), 0, mesh_data->sa_system_energy.size() * sizeof(float));
+    energy_idx = 0;
+    
+    SimClock clock; clock.start_clock();
+
+    for (uint substep = 0; substep < num_substep; substep++) // 1 or 50 ?
+    {   { get_scene_params().current_substep = substep; }
+        
+        // SimClock substep_clock; substep_clock.start_clock();
+        {   
+            predict_position(); 
+
+            collision_detection();
+
+            // Constraint iteration part
+            {
+                for (uint iter = 0; iter < constraint_iter_count; iter++) // 200 or 1 ?
+                {   
+                    { get_scene_params().current_it = iter; }
+                    if (get_scene_params().use_vbd_solver) { solve_constraints_VBD(); }
+                    else { fast_format_err("empty solver"); }
+                }
+            }
+
+            update_velocity(); 
+        }
+        // substep_clock.end_clock();
+    }
+    float frame_cost = clock.end_clock();
+    // fast_format("Frame {:3} : cost = {:6.3f}", get_scene_params().current_frame, frame_cost);
+    
+
+    {
+        if (get_scene_params().print_xpbd_convergence)
+        {
+            std::vector<double> list_energy(energy_idx);
+            for(uint it = 0; it < list_energy.size(); it++)
+            {
+                list_energy[it] = mesh_data->sa_system_energy[it];
+            }
+            fast_print_iterator(list_energy, "Energy Convergence"); energy_idx = 0;
+        }
+    }
+
+
+
+
+    mesh_data->sa_x_frame_end = xpbd_data->sa_x;
+    mesh_data->sa_v_frame_end = xpbd_data->sa_v;
+}
+void CpuSolver::fn_dispatch(const Launcher::LaunchParam& param)
 {
     //
     // Asynchronous iteration part
@@ -1217,7 +1280,7 @@ void XpbdSolver::fn_dispatch(const Launcher::LaunchParam& param)
         }
     };
 }
-void XpbdSolver::physics_step_async()
+void CpuSolver::physics_step_vbd_async()
 {
     xpbd_data->sa_x_start = mesh_data->sa_x_frame_start;
     xpbd_data->sa_v_start = mesh_data->sa_v_frame_start;
@@ -1397,7 +1460,7 @@ void XpbdSolver::physics_step_async()
     mesh_data->sa_x_frame_end = xpbd_data->sa_x;
     mesh_data->sa_v_frame_end = xpbd_data->sa_v;
 }
-void XpbdSolver::solve_constraints_VBD()
+void CpuSolver::solve_constraints_VBD()
 {
     auto& iter_position = xpbd_data->sa_x;
 
@@ -1426,7 +1489,7 @@ void XpbdSolver::solve_constraints_VBD()
         compute_energy(iter_position); 
     }
 }
-void XpbdSolver::solve_constraints_XPBD()
+void CpuSolver::solve_constraints_XPBD()
 {
     auto& iter_position_cloth = xpbd_data->sa_x;
 
@@ -1456,7 +1519,8 @@ enum SolverType
 {
     SolverTypeGaussNewton,
     SolverTypeXPBD,
-    SolverTypeXPBD_async,
+    SolverTypeVBD,
+    SolverTypeVBD_async,
 };
 
 class SolverInterface
@@ -1473,7 +1537,7 @@ public:
     {        
         switch (type) 
         {
-            case SolverTypeXPBD : case SolverTypeXPBD_async: // case SolverTypeXPBD or SolverTypeXPBD_async
+            case SolverTypeVBD : case SolverTypeVBD_async : case SolverTypeXPBD: 
             {
                 xpbd_solver.get_data_pointer(&xpbd_data, mesh_data);
                 xpbd_solver.init_xpbd_system();
@@ -1502,7 +1566,7 @@ private:
 
 private:
     XpbdData xpbd_data;
-    XpbdSolver xpbd_solver;
+    CpuSolver xpbd_solver;
 };
 
 void SolverInterface::restart_system()
@@ -1527,12 +1591,17 @@ void SolverInterface::physics_step(SolverType type)
     {
         case SolverTypeXPBD:
         {
-            xpbd_solver.physics_step(); /////////////
+            xpbd_solver.physics_step_xpbd(); /////////////
             break;
         }
-        case SolverTypeXPBD_async:
+        case SolverTypeVBD:
         {
-            xpbd_solver.physics_step_async(); /////////////
+            xpbd_solver.physics_step_vbd(); /////////////
+            break;
+        }
+        case SolverTypeVBD_async:
+        {
+            xpbd_solver.physics_step_vbd_async(); /////////////
             break;
         }
         default:
@@ -1635,14 +1704,14 @@ int main()
     {
         solver.set_data_pointer(&mesh_data);
 
-        solver.register_solver_type(SolverTypeXPBD);
+        solver.register_solver_type(SolverTypeVBD);
     }
 
     // Some params
     {
         get_scene_params().use_substep = false;
         get_scene_params().num_substep = 1;
-        get_scene_params().constraint_iter_count = 10; // 
+        get_scene_params().constraint_iter_count = 100; // 
         get_scene_params().use_bending = true;
         get_scene_params().use_quadratic_bending_model = true;
         get_scene_params().print_xpbd_convergence = true;
@@ -1666,7 +1735,7 @@ int main()
 
             if (frame != 9) get_scene_params().print_xpbd_convergence = false;
             if (frame == 9) get_scene_params().print_xpbd_convergence = true; // Print the energy convergence in frame 10
-            solver.physics_step(SolverTypeXPBD);
+            solver.physics_step(SolverTypeVBD);
         }
     }
     {
@@ -1685,7 +1754,7 @@ int main()
             
             if (frame != 9) get_scene_params().print_xpbd_convergence = false;
             if (frame == 9) get_scene_params().print_xpbd_convergence = true;
-            solver.physics_step(SolverTypeXPBD_async);
+            solver.physics_step(SolverTypeVBD_async);
         }
     }
     {
