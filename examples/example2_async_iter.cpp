@@ -402,6 +402,7 @@ public:
 public:    
     void physics_step();
     void physics_step_async();
+    void fn_dispatch(const Launcher::LaunchParam& param);
     void compute_energy(const Buffer<Float3>& curr_cloth_position);
 
 private:
@@ -754,6 +755,166 @@ void XpbdSolver::physics_step()
     mesh_data->sa_x_frame_end = xpbd_data->sa_x;
     mesh_data->sa_v_frame_end = xpbd_data->sa_v;
 }
+
+void XpbdSolver::fn_dispatch(const Launcher::LaunchParam& param)
+{
+    //
+    // Asynchronous iteration part
+    //
+    constexpr uint max_buffer_count = 32; 
+    constexpr bool print_buffer_idx = false;
+    auto fn_get_iter_buffer = [&](const uint buffer_idx) -> Buffer<Float3>& 
+    { 
+        // if constexpr (print_buffer_idx) fast_format("Iter buffer {} ({}) size = {}", buffer_idx, buffer_idx % max_buffer_count, xpbd_data->sa_async_iter_positions_cloth[buffer_idx % max_buffer_count].size());
+        return xpbd_data->sa_async_iter_positions_cloth[buffer_idx % max_buffer_count];
+    };
+    auto fn_get_begin_buffer = [&](const uint buffer_idx) -> Buffer<Float3>& 
+    { 
+        // if constexpr (print_buffer_idx) fast_format("Begin buffer {} ({}) size = {}", buffer_idx, buffer_idx % max_buffer_count, xpbd_data->sa_async_begin_positions_cloth[buffer_idx % max_buffer_count].size());
+        return xpbd_data->sa_async_begin_positions_cloth[buffer_idx % max_buffer_count];
+    };
+    auto fn_copy_to_start_and_iter = [&](const Buffer<Float3>& input_array, const uint output_buffer_idx)
+    {
+        Buffer<Float3>& out1 = fn_get_begin_buffer(output_buffer_idx);
+        Buffer<Float3>& out2 = fn_get_iter_buffer(output_buffer_idx);
+        if constexpr (print_buffer_idx) fast_format("fn_copy_to_start_and_iter from {} to {}/{}", input_array.size(), out1.size(), out2.size());
+        parallel_for(0, input_array.size(), [&](const uint vid)
+        {   
+            Float3 input_vec = input_array[vid];
+            out1[vid] = input_vec;
+            out2[vid] = input_vec;
+        });
+    };
+    auto fn_cloth_constraint_prev_func = [&](const Launcher::LaunchParam& param)
+    {
+        if constexpr (print_buffer_idx) fast_format("Prev get Buffer {}", param.buffer_idx);
+        // const float weight = 0.5f;
+        const float weight = 0.5f;
+        
+        if (!param.input_buffer_idxs.empty() && param.left_buffer_idx != -1u) // Weight from left and input
+        {
+            for (const uint input_buffer_idx : param.input_buffer_idxs)
+            {
+                if constexpr (print_buffer_idx) fast_format("Weight : from {} and {}", input_buffer_idx, param.left_buffer_idx);
+                auto& begin_buffer = param.is_allocated_to_main_device ? fn_get_begin_buffer(input_buffer_idx) : fn_get_begin_buffer(param.left_buffer_idx);
+                parallel_for(0, mesh_data->num_verts, [&](const uint vid)
+                {
+                    Constrains::Core::read_and_solve_conflict(vid, 
+                        begin_buffer.data(), 
+                        begin_buffer.data(), 
+                        fn_get_iter_buffer(input_buffer_idx).data(), 
+                        fn_get_iter_buffer(param.left_buffer_idx).data(), 
+                        weight);
+                });
+            }
+        }
+        else if (!param.input_buffer_idxs.empty()) // Copy from input
+        {
+            if constexpr (print_buffer_idx) fast_format("Copy left  : from {} to {}", param.input_buffer_idxs.back(), param.buffer_idx);
+            fn_copy_to_start_and_iter(fn_get_iter_buffer(param.input_buffer_idxs.back()), param.buffer_idx);
+        }
+        else if (param.left_buffer_idx != -1u && param.left_buffer_idx != Launcher::input_buffer_mask) // Copy from left
+        {
+            if constexpr (print_buffer_idx) fast_format("Copy input: from {} to {}", param.left_buffer_idx, param.buffer_idx);
+            fn_copy_to_start_and_iter(fn_get_iter_buffer(param.left_buffer_idx), param.buffer_idx);
+        }
+        else if (param.left_buffer_idx == Launcher::input_buffer_mask) 
+        {
+            if constexpr (print_buffer_idx) fast_format("Copy input: from sa_x to {}", param.buffer_idx);
+            fn_copy_to_start_and_iter(xpbd_data->sa_x, param.buffer_idx);
+        }
+
+        if (get_scene_params().print_xpbd_convergence)
+        { 
+            compute_energy(fn_get_iter_buffer(param.buffer_idx)); 
+        }
+    };
+    auto fn_cloth_constraint_post_func = [&](const Launcher::LaunchParam& param)
+    {
+        if constexpr (print_buffer_idx) fast_format("Post get Buffer {}", param.buffer_idx);
+
+        if (get_scene_params().print_xpbd_convergence) 
+        {
+            if (
+                param.function_id == Launcher::id_xpbd_constraint_self_collision_vv_half_cloth // Last task of XPBD (collision)
+                || (param.cluster_idx == xpbd_data->num_clusters_per_vertex_bending - 1 && param.function_id == Launcher::id_vbd_all_in_one)
+                || param.function_id == Launcher::id_xpbd_constraint_last_node
+                ) 
+            {
+                compute_energy(fn_get_iter_buffer(param.buffer_idx)); 
+            }
+        }
+    };
+    
+    //
+    // Register Implementation
+    //
+    // auto fn_launch = [&](const Launcher::LaunchParam& param) // Why cant i use it in lambda ???
+    {
+        switch (param.function_id) 
+        {
+            case Launcher::id_xpbd_predict_position : 
+            { 
+                predict_position() ; break; 
+            }
+            case Launcher::id_xpbd_update_velocity : 
+            { 
+                update_velocity(); break; 
+            }
+            case Launcher::id_xpbd_reset_constrains :  
+            { 
+                reset_constrains() ; break; 
+            }
+            case Launcher::id_xpbd_reset_collision_constrains : 
+            { 
+                reset_collision_constrains() ; break; 
+            }
+            case Launcher::id_xpbd_constraint_last_node :
+            {
+                fn_cloth_constraint_prev_func(param);
+                { 
+
+                }
+                fn_cloth_constraint_post_func(param);
+                parallel_copy(fn_get_iter_buffer(param.buffer_idx).data(), xpbd_data->sa_x.data(), xpbd_data->sa_x.size());
+                break;
+            }
+            case Launcher::id_xpbd_copy_to_cpu_gpu:
+            {
+                fn_copy_to_start_and_iter(xpbd_data->sa_x, 0);
+                fn_copy_to_start_and_iter(xpbd_data->sa_x, 1);
+                break;
+            }
+            case Launcher::id_vbd_all_in_one:
+            {
+                auto& iter_position = fn_get_iter_buffer(param.buffer_idx); 
+                
+                const uint cluster = param.cluster_idx;
+                
+                fn_cloth_constraint_prev_func(param);
+                {
+                    vbd_evaluate_inertia(iter_position, cluster);
+
+                    vbd_evaluate_stretch_spring(iter_position, cluster);
+                    
+                    vbd_evaluate_bending(iter_position, cluster);
+                    
+                    vbd_step(iter_position, cluster);
+                }
+                // const uint iter = param.iter_idx;
+                // if (cluster == xpbd_data->num_clusters_per_vertex_bending - 1) 
+                //     chebyshev_step(iter_position, iter); // chebyshev acceleration is not supported, which may be future work
+                fn_cloth_constraint_post_func(param);
+                break;
+            }
+            default:
+            {
+                fast_print_err("Illigal Input", Launcher::taskNames.at(param.function_id));
+                break;
+            }
+        }
+    };
+}
 void XpbdSolver::physics_step_async()
 {
     xpbd_data->sa_x_start = mesh_data->sa_x_frame_start;
@@ -775,163 +936,8 @@ void XpbdSolver::physics_step_async()
     // Register DAG and implementation
     //
     {
-        //
-        // Asynchronous iteration part
-        //
-        constexpr uint max_buffer_count = 32; 
-        constexpr bool print_buffer_idx = false;
-        auto fn_get_iter_buffer = [&](const uint buffer_idx) -> Buffer<Float3>& 
-        { 
-            if constexpr (print_buffer_idx) fast_format("Iter buffer {} ({}) size = {}", buffer_idx, buffer_idx % max_buffer_count, xpbd_data->sa_async_iter_positions_cloth[buffer_idx % max_buffer_count].size());
-            return xpbd_data->sa_async_iter_positions_cloth[buffer_idx % max_buffer_count];
-        };
-        auto fn_get_begin_buffer = [&](const uint buffer_idx) -> Buffer<Float3>& 
-        { 
-            if constexpr (print_buffer_idx) fast_format("Begin buffer {} ({}) size = {}", buffer_idx, buffer_idx % max_buffer_count, xpbd_data->sa_async_begin_positions_cloth[buffer_idx % max_buffer_count].size());
-            return xpbd_data->sa_async_begin_positions_cloth[buffer_idx % max_buffer_count];
-        };
-        auto fn_copy_to_start_and_iter = [&](const Buffer<Float3>& input_array, const uint output_buffer_idx)
-        {
-            Buffer<Float3>& out1 = fn_get_begin_buffer(output_buffer_idx);
-            Buffer<Float3>& out2 = fn_get_iter_buffer(output_buffer_idx);
-            if constexpr (print_buffer_idx) fast_format("fn_copy_to_start_and_iter from {} to {}/{}", input_array.size(), out1.size(), out2.size());
-            parallel_for(0, input_array.size(), [&](const uint vid)
-            {   
-                Float3 input_vec = input_array[vid];
-                out1[vid] = input_vec;
-                out2[vid] = input_vec;
-            });
-        };
-        auto fn_cloth_constraint_prev_func = [&](const Launcher::LaunchParam& param)
-        {
-            if constexpr (print_buffer_idx) fast_format("Prev get Buffer {}", param.buffer_idx);
-            const float weight = 0.5f;
-            
-            if (!param.input_buffer_idxs.empty() && param.left_buffer_idx != -1u) // Weight from left and input
-            {
-                for (const uint input_buffer_idx : param.input_buffer_idxs)
-                {
-                    if constexpr (print_buffer_idx) fast_format("Weight : from {} and {}", input_buffer_idx, param.left_buffer_idx);
-                    auto& begin_buffer = param.is_allocated_to_main_device ? fn_get_begin_buffer(input_buffer_idx) : fn_get_begin_buffer(param.left_buffer_idx);
-                    parallel_for(0, mesh_data->num_verts, [&](const uint vid)
-                    {
-                        Constrains::Core::read_and_solve_conflict(vid, 
-                            begin_buffer.data(), 
-                            begin_buffer.data(), 
-                            fn_get_iter_buffer(input_buffer_idx).data(), 
-                            fn_get_iter_buffer(param.left_buffer_idx).data(), 
-                            weight);
-                    });
-                }
-            }
-            else if (!param.input_buffer_idxs.empty()) // Copy from input
-            {
-                if constexpr (print_buffer_idx) fast_format("Copy left  : from {} to {}", param.input_buffer_idxs.back(), param.buffer_idx);
-                fn_copy_to_start_and_iter(fn_get_iter_buffer(param.input_buffer_idxs.back()), param.buffer_idx);
-            }
-            else if (param.left_buffer_idx != -1u && param.left_buffer_idx != Launcher::input_buffer_mask) // Copy from left
-            {
-                if constexpr (print_buffer_idx) fast_format("Copy input: from {} to {}", param.left_buffer_idx, param.buffer_idx);
-                fn_copy_to_start_and_iter(fn_get_iter_buffer(param.left_buffer_idx), param.buffer_idx);
-            }
-            else if (param.left_buffer_idx == Launcher::input_buffer_mask) 
-            {
-                if constexpr (print_buffer_idx) fast_format("Copy input: from sa_x to {}", param.buffer_idx);
-                fn_copy_to_start_and_iter(xpbd_data->sa_x, param.buffer_idx);
-            }
-
-            if (get_scene_params().print_xpbd_convergence)
-            { 
-                compute_energy(fn_get_iter_buffer(param.buffer_idx)); 
-            }
-        };
-        auto fn_cloth_constraint_post_func = [&](const Launcher::LaunchParam& param)
-        {
-            if constexpr (print_buffer_idx) fast_format("Post get Buffer {}", param.buffer_idx);
-
-            if (get_scene_params().print_xpbd_convergence) 
-            {
-                if (
-                    param.function_id == Launcher::id_xpbd_constraint_self_collision_vv_half_cloth // Last task of XPBD (collision)
-                    || (param.cluster_idx == xpbd_data->num_clusters_per_vertex_bending - 1 && param.function_id == Launcher::id_vbd_all_in_one)
-                    || param.function_id == Launcher::id_xpbd_constraint_last_node
-                    ) 
-                {
-                    compute_energy(fn_get_iter_buffer(param.buffer_idx)); 
-                }
-            }
-        };
-        
-        //
-        // Register Implementation
-        //
-        auto fn_launch = [&](const Launcher::LaunchParam& param)
-        {
-            switch (param.function_id) 
-            {
-                case Launcher::id_xpbd_predict_position : 
-                { 
-                    predict_position() ; break; 
-                }
-                case Launcher::id_xpbd_update_velocity : 
-                { 
-                    update_velocity(); break; 
-                }
-                case Launcher::id_xpbd_reset_constrains :  
-                { 
-                    reset_constrains() ; break; 
-                }
-                case Launcher::id_xpbd_reset_collision_constrains : 
-                { 
-                    reset_collision_constrains() ; break; 
-                }
-                case Launcher::id_xpbd_constraint_last_node :
-                {
-                    fn_cloth_constraint_prev_func(param);
-                    { 
-
-                    }
-                    fn_cloth_constraint_post_func(param);
-                    parallel_copy(fn_get_iter_buffer(param.buffer_idx).data(), xpbd_data->sa_x.data(), xpbd_data->sa_x.size());
-                    break;
-                }
-                case Launcher::id_xpbd_copy_to_cpu_gpu:
-                {
-                    fn_copy_to_start_and_iter(xpbd_data->sa_x, 0);
-                    fn_copy_to_start_and_iter(xpbd_data->sa_x, 1);
-                    break;
-                }
-                case Launcher::id_vbd_all_in_one:
-                {
-                    auto& iter_position = fn_get_iter_buffer(param.buffer_idx); 
-                    
-                    const uint cluster = param.cluster_idx;
-                    
-                    fn_cloth_constraint_prev_func(param);
-                    {
-                        vbd_evaluate_inertia(iter_position, cluster);
-
-                        vbd_evaluate_stretch_spring(iter_position, cluster);
-                        
-                        vbd_evaluate_bending(iter_position, cluster);
-                        
-                        vbd_step(iter_position, cluster);
-                    }
-                    // const uint iter = param.iter_idx;
-                    // if (cluster == xpbd_data->num_clusters_per_vertex_bending - 1) 
-                    //     chebyshev_step(iter_position, iter); // chebyshev acceleration is not supported, which may be future work
-                    fn_cloth_constraint_post_func(param);
-                    break;
-                }
-                default:
-                {
-                    fast_print_err("Illigal Input", Launcher::taskNames.at(param.function_id));
-                    break;
-                }
-            }
-        };
-        Launcher::Implementation ipm_xpbd_cpu(Launcher::DeviceTypeCpu, fn_launch);
-        Launcher::Implementation imp_xpbd_gpu(Launcher::DeviceTypeGpu, fn_launch); // Actually is CPU-implementation, you can replace it to your GPU-implementation's interface
+        Launcher::Implementation ipm_xpbd_cpu(Launcher::DeviceTypeCpu, [&](const Launcher::LaunchParam& param) { fn_dispatch(param); });
+        Launcher::Implementation imp_xpbd_gpu(Launcher::DeviceTypeGpu, [&](const Launcher::LaunchParam& param) { fn_dispatch(param); }); // Actually is CPU-implementation, you can replace it to your GPU-implementation's interface
 
         //
         // Register DAG
@@ -1059,7 +1065,7 @@ void XpbdSolver::physics_step_async()
     
     auto fn_task_to_param = [](const Launcher::Task& task) 
     { 
-        task.print_with_cluster(0);
+        // task.print_with_cluster(0);
         return Launcher::LaunchParam(
             task.func_id, task.block_dim, 
             task.iter_idx, task.cluster_idx, 
