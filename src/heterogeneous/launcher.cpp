@@ -1570,24 +1570,24 @@ void Scheduler::standardizing_dag(const std::vector< std::function<void(const La
     }
     const bool print_root_terminal = false;
 
-    
+    const uint num_procs = communication_startup.size();
+    std::vector<Implementation> list_empty_imp = {};
+    if (!input_list_fn_empty_func.empty()) {
+        for (uint proc = 0; proc < num_procs; proc++) {
+            list_empty_imp.push_back(Implementation(proc, input_list_fn_empty_func[proc]));
+        }
+    }
+    else {
+        for (uint proc = 0; proc < num_procs; proc++) {
+            list_empty_imp.push_back(Implementation(
+                // proc, [proc](const Launcher::LaunchParam& param){ fast_format("I am additional root or terminal node in proc {}", proc); }
+                proc, [](const Launcher::LaunchParam& param){}
+            ));
+        }
+    }
     
     // if(list_root.size() > 1) 
     if (true) {
-        std::vector<Implementation> list_empty_imp = {};
-        const uint num_procs = communication_startup.size();
-        if (!input_list_fn_empty_func.empty()) {
-            for (uint proc = 0; proc < num_procs; proc++) {
-                list_empty_imp.push_back(Implementation(proc, input_list_fn_empty_func[proc]));
-            }
-        }
-        else {
-            for (uint proc = 0; proc < num_procs; proc++) {
-                list_empty_imp.push_back(Implementation(
-                    proc, [proc](const Launcher::LaunchParam& param){ fast_format("I am additional root in proc {}", proc); }
-                ));
-            }
-        }
         root_node = add_task(Task(id_additional_root, 0, false, true, 
             list_empty_imp));
             // { Implementation(DeviceTypeCpu, fn_empty_func, 0), Implementation(DeviceTypeGpu, fn_empty_func, 0) }));
@@ -1625,21 +1625,6 @@ void Scheduler::standardizing_dag(const std::vector< std::function<void(const La
 
     // if(list_terminal.size() > 1) 
     if (true) {
-        std::vector<Implementation> list_empty_imp = {};
-        const uint num_procs = communication_startup.size();
-        if (!input_list_fn_empty_func.empty()) {
-            for (uint proc = 0; proc < num_procs; proc++) {
-                list_empty_imp.push_back(Implementation(proc, input_list_fn_empty_func[proc]));
-            }
-        }
-        else {
-            for (uint proc = 0; proc < num_procs; proc++) {
-                list_empty_imp.push_back(Implementation(
-                    proc, [proc](const Launcher::LaunchParam& param){ fast_format("I am additional terminal in proc {}", proc); }
-                ));
-            }
-        }
-        
         terminal_node = add_task(Task(id_additional_terminal, 0, false, true, 
             list_empty_imp));
             // { Implementation(DeviceTypeCpu, fn_empty_func, 0), Implementation(DeviceTypeGpu, fn_empty_func, 0) }));

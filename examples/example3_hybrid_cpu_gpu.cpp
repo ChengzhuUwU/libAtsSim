@@ -3,7 +3,7 @@
 
 int main()
 {
-    std::cout << "Hello, Asynchronous Simulation!" << std::endl;
+    std::cout << "Hello, Hybrid Computing!" << std::endl;
     
 
     

@@ -788,7 +788,6 @@ void XpbdSolver::fn_dispatch(const Launcher::LaunchParam& param)
     auto fn_cloth_constraint_prev_func = [&](const Launcher::LaunchParam& param)
     {
         if constexpr (print_buffer_idx) fast_format("Prev get Buffer {}", param.buffer_idx);
-        // const float weight = 0.5f;
         const float weight = 0.5f;
         
         if (!param.input_buffer_idxs.empty() && param.left_buffer_idx != -1u) // Weight from left and input
@@ -824,7 +823,7 @@ void XpbdSolver::fn_dispatch(const Launcher::LaunchParam& param)
             fn_copy_to_start_and_iter(xpbd_data->sa_x, param.buffer_idx);
         }
 
-        if (get_scene_params().print_xpbd_convergence)
+        if (get_scene_params().print_xpbd_convergence && param.iter_idx == 0 &&param.cluster_idx == 0)
         { 
             compute_energy(fn_get_iter_buffer(param.buffer_idx)); 
         }
@@ -876,7 +875,7 @@ void XpbdSolver::fn_dispatch(const Launcher::LaunchParam& param)
 
                 }
                 fn_cloth_constraint_post_func(param);
-                parallel_copy(fn_get_iter_buffer(param.buffer_idx).data(), xpbd_data->sa_x.data(), xpbd_data->sa_x.size());
+                parallel_copy(xpbd_data->sa_x.data(), fn_get_iter_buffer(param.buffer_idx).data(), xpbd_data->sa_x.size());
                 break;
             }
             case Launcher::id_xpbd_copy_to_cpu_gpu:
@@ -928,7 +927,6 @@ void XpbdSolver::physics_step_async()
     const float substep_dt = get_scene_params().get_substep_dt();
 
     std::memset(mesh_data->sa_system_energy.data(), 0, mesh_data->sa_system_energy.size() * sizeof(float)); energy_idx = 0;
-
 
     Launcher::Scheduler scheduler;
 
@@ -1054,10 +1052,8 @@ void XpbdSolver::physics_step_async()
 
         scheduler.scheduler_dag();
         
-        // scheduler.print_proc_schedules();
-        scheduler.print_schedule_to_graph_xpbd();
-
-        scheduler.print_speedups_to_each_device();
+        // if (get_scene_params().current_frame == 0) scheduler.print_schedule_to_graph_xpbd();
+        if (get_scene_params().current_frame == 0) scheduler.print_speedups_to_each_device();
 
         scheduler.make_wait_events();
     }
@@ -1633,46 +1629,55 @@ int main()
     {
         get_scene_params().use_substep = false;
         get_scene_params().num_substep = 1;
-        get_scene_params().constraint_iter_count = 1;
+        get_scene_params().constraint_iter_count = 100;
         get_scene_params().use_bending = true;
         get_scene_params().use_quadratic_bending_model = true;
-    }
-    
-    // Synchronous Implementation
-    solver.restart_system();
-    solver.save_mesh_to_obj("");
-    {
-        get_scene_params().use_bending = false;
         get_scene_params().print_xpbd_convergence = true;
         get_scene_params().use_xpbd_solver = false;
         get_scene_params().use_vbd_solver = true;
     }
+
+
+    
+    // Synchronous Implementation
+    {
+        solver.restart_system();
+        solver.save_mesh_to_obj(""); 
+        fast_format("");
+        fast_format("");
+        fast_format("Sync part");
+    }
     {   
-        for (uint frame = 0; frame < 1; frame++)
+        for (uint frame = 0; frame < 10; frame++)
         {   get_scene_params().current_frame = frame;    
 
-            // solver.physics_step(SolverTypeXPBD);
-            solver.physics_step(SolverTypeXPBD_async);
-
+            if (frame != 9) get_scene_params().print_xpbd_convergence = false;
+            if (frame == 9) get_scene_params().print_xpbd_convergence = true; // Print the energy convergence in frame 10
+            solver.physics_step(SolverTypeXPBD);
         }
-        solver.save_mesh_to_obj("");        
     }
+    {
+        solver.save_mesh_to_obj("_sync"); 
+    }       
+
 
     // Asynchronous Implementation
     {
-        
+        solver.restart_system();
+        fast_format("Async part");
     }
-    // solver.restart_system();
-    // {
-    //     get_scene_params().use_bending = false;
-    // }
-    // {
-    //     for (uint frame = 0; frame < 20; frame++)
-    //     {   get_scene_params().current_frame = frame;    
-    //         solver.physics_step(SolverTypeXPBD);
-    //     }
-    //     solver.save_mesh_to_obj("_no_bending");
-    // }
+    {
+        for (uint frame = 0; frame < 10; frame++)
+        {   get_scene_params().current_frame = frame;  
+            
+            if (frame != 9) get_scene_params().print_xpbd_convergence = false;
+            if (frame == 9) get_scene_params().print_xpbd_convergence = true;
+            solver.physics_step(SolverTypeXPBD_async);
+        }
+    }
+    {
+        solver.save_mesh_to_obj("_async");
+    }
     
 
     return 0;
