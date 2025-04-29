@@ -14,6 +14,19 @@ kernel void empty()
     
 }
 
+kernel void test_add_1(
+    PTR(uint) input_ptr,
+    CONSTANT(uint) desire_value,
+    uint index [[thread_position_in_grid]]
+)
+{
+    const uint input_value = input_ptr[0];
+    if (input_value == desire_value)
+    {
+        input_ptr[0] += 1;
+    }
+}
+
 kernel void reset_float(
     PTR(float) lambda_aaa, 
     uint index [[thread_position_in_grid]]
