@@ -944,11 +944,14 @@ public:
     void print_proc_schedules();
     void print_schedule_to_graph_xpbd();
     void print_speedups_to_each_device();
+    void update_costs_from_computation_matrix();
     void set_print_scheduling_datail(const bool b) { bool_print_scheduling_datail = b; };
+    void set_safety_check(const bool b) { bool_use_check = b; };
     
     float get_scheduled_end_time();
     float get_theoretical_time();
     std::vector<float> get_proc_usage();
+    std::vector<float> get_proc_costs();
     std::vector<float> get_scheduled_speedups();
     void reset_scheduler_system();
     void set_communication_matrix(const float cpu_to_gpu, const float gpu_to_cpu) 
@@ -979,6 +982,7 @@ private:
     
 private:
     bool bool_print_scheduling_datail = false;
+    bool bool_use_check = true;
     std::vector< ScheduleEvent > task_schedules;
     std::vector< double > ranku;
     std::vector< std::vector<double> > oct; // Optimisic Cost Table

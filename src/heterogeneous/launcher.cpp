@@ -329,7 +329,7 @@ void Scheduler::profile(const std::function<void()>& restart_system, const std::
     //     cost_map.push_back(cost);
     // };
 
-    if(profiled_comp_matrix.empty()){
+    if (profiled_comp_matrix.empty()){
 
         fast_print("Begin Profile CPU");
 
@@ -702,11 +702,94 @@ void Scheduler::profile_from(
 // If use 'LaunchModeHetero', we do not need do sync after this function
 void Scheduler::launch(LaunchMode mode, const std::function<LaunchParam(const Task&)> task_to_param, const bool fully_not_wait, const std::vector<std::function<void()>>& assemble_impl)
 {
-
     #if __APPLE__
-    //
-    // 简单串行
-    //
+    
+
+    auto fn_refit_runtime_cost = [&](const std::vector<float>& runtime_cost_cpu, const std::vector<float>& runtime_cost_gpu)
+    {
+        const ListSchedule& cpu_schedules = proc_schedules[0];
+        const ListSchedule& gpu_schedules = proc_schedules[1];
+        const std::vector<LaunchEvent>& cpu_event = launch_events[0];
+        const std::vector<LaunchEvent>& gpu_event = launch_events[1];
+        const uint num_cpu_events = cpu_event.size();
+        const uint num_gpu_events = gpu_event.size();
+        
+        // Refit CPU
+        for (uint cmd_idx = 0; cmd_idx < num_cpu_events; cmd_idx++)
+        {
+            const LaunchEvent& event = cpu_event[cmd_idx];
+            auto dt = runtime_cost_cpu[cmd_idx];
+
+            float profile_sum = 0.0f; uint un_fixed_count = 0;
+            for (uint i = event.start_idx; i <= event.end_idx; i++) {
+                auto& cpu_jobs = cpu_schedules[i];
+                uint tid = cpu_jobs.task_id;
+                if (!list_task[tid].is_computation_time_constant) un_fixed_count++;
+                profile_sum += computation_matrix[tid][0];
+                if (i != event.end_idx) profile_sum += communication_cost_matrix_uma[0][0];
+            } 
+            float delta_sum = dt - profile_sum;
+            float average_delta = delta_sum / float(un_fixed_count);
+            for (uint i = event.start_idx; i <= event.end_idx; i++) {
+                auto& cpu_jobs = cpu_schedules[i];
+                uint tid = cpu_jobs.task_id;
+                if (!list_task[tid].is_computation_time_constant)
+                    computation_matrix[tid][0] = 0.5f * max_scalar(computation_matrix[tid][0] + computation_matrix[tid][0] + average_delta, 0.0f); // Get Average
+            } 
+            
+            // if (dt / profile_sum > 1.3f)
+            // {
+            //     fast_format("  CPU Cmd Idx {} : ProfileTime = {:6.3f}, Actually Get {:6.3f}", cmd_idx, profile_sum, clock.duration());
+            //     for (uint i = event.start_idx; i <= event.end_idx; i++) {
+            //         auto& cpu_jobs = cpu_schedules[i];
+            //         uint tid = cpu_jobs.task_id;
+            //         auto& task = list_task[tid];
+            //         fast_format("     Out Of Range : task {} {}", tid, taskNames.at(task.func_id));
+            //     } 
+            // }
+        }
+        
+        // Refit GPU
+        
+        for (uint cmd_idx = 0; cmd_idx < num_gpu_events; cmd_idx++) {
+            const LaunchEvent& event = gpu_event[cmd_idx];
+
+            float profile_sum = 0.0f; uint un_fixed_count = 0;
+            for (uint i = event.start_idx; i <= event.end_idx; i++) {
+                auto& gpu_jobs = gpu_schedules[i];
+                uint tid = gpu_jobs.task_id;
+                if (!list_task[tid].is_computation_time_constant) un_fixed_count++;
+                profile_sum += computation_matrix[tid][1];
+                if (i != event.end_idx) profile_sum += communication_cost_matrix_uma[1][1];
+            }   
+
+            float dt = runtime_cost_gpu[cmd_idx];
+            // auto buffer = list_cmd_buffer[cmd_idx];
+            // float dt = (buffer->GPUEndTime() - buffer->GPUStartTime()) * 1000.0;
+
+            float delta_sum = dt - profile_sum;
+            float average_delta = delta_sum / float(un_fixed_count);
+            for (uint i = event.start_idx; i <= event.end_idx; i++) {
+                auto& gpu_jobs = gpu_schedules[i];
+                uint tid = gpu_jobs.task_id;
+                if (!list_task[tid].is_computation_time_constant)
+                    computation_matrix[tid][1] = 0.5f * max_scalar(computation_matrix[tid][1] + computation_matrix[tid][1] + average_delta, 0.0f);
+            } 
+
+            // if (cost / profile_sum > 1.3f)
+            // {
+            //     fast_format("  GPU Cmd Idx {} : ProfileTime = {:6.3f}, Actually Get {:6.3f}", cmd_idx, profile_sum, cost);
+            //     for (uint i = event.start_idx; i <= event.end_idx; i++) {
+            //         auto& gpu_jobs = gpu_schedules[i];
+            //         uint tid = gpu_jobs.task_id;
+            //         auto& task = list_task[tid];
+            //         fast_format("     Out Of Range : task {} {}", tid, taskNames.at(task.func_id));
+            //     } 
+            // }
+        }
+    };
+
+
     if (mode == LaunchModeGpu) 
     {
         // list_order
@@ -753,7 +836,7 @@ void Scheduler::launch(LaunchMode mode, const std::function<LaunchParam(const Ta
         for (uint i = 0; i < sorted_nodes.size(); i++) 
         {
             auto tid = sorted_nodes[i]; auto& task = list_task[tid];
-            bool find; auto& imp = task.get_implementation(Launcher::DeviceTypeGpu, find); if(!find) { get_command_list().send_and_wait(); } 
+            bool find; auto& imp = task.get_implementation(Launcher::DeviceTypeGpu, find); if (!find) { get_command_list().send_and_wait(); } 
             imp.launch_task(task_to_param(task));
         } 
         get_command_list().send_and_wait();
@@ -804,9 +887,7 @@ void Scheduler::launch(LaunchMode mode, const std::function<LaunchParam(const Ta
 
         
     }
-    ///
-    /// <Heterogeneous Computing in Cloth Simulation>
-    ///
+
     else if (mode == LaunchModeHetero) {
         
         if (launch_events.empty() || (launch_events[0].empty() && launch_events[1].empty())) { fast_print_err("Launching Order Is EMPTY"); return; }
@@ -975,80 +1056,16 @@ void Scheduler::launch(LaunchMode mode, const std::function<LaunchParam(const Ta
             }
         }
 
-
-        // Refit CPU
-        for (uint cmd_idx = 0; cmd_idx < num_cpu_events; cmd_idx++)
+        std::vector<float> runtime_cost_gpu(num_gpu_events, 0.0f);
+        for (uint cmd_idx = 0; cmd_idx < num_gpu_events; cmd_idx++) 
         {
-            const LaunchEvent& event = cpu_event[cmd_idx];
-            auto dt = runtime_cost_cpu[cmd_idx];
-
-            float profile_sum = 0.0f; uint un_fixed_count = 0;
-            for (uint i = event.start_idx; i <= event.end_idx; i++) {
-                auto& cpu_jobs = cpu_schedules[i];
-                uint tid = cpu_jobs.task_id;
-                if (!list_task[tid].is_computation_time_constant) un_fixed_count++;
-                profile_sum += computation_matrix[tid][0];
-                if (i != event.end_idx) profile_sum += communication_cost_matrix_uma[0][0];
-            } 
-            float delta_sum = dt - profile_sum;
-            float average_delta = delta_sum / float(un_fixed_count);
-            for (uint i = event.start_idx; i <= event.end_idx; i++) {
-                auto& cpu_jobs = cpu_schedules[i];
-                uint tid = cpu_jobs.task_id;
-                if (!list_task[tid].is_computation_time_constant)
-                    computation_matrix[tid][0] = 0.5f * max_scalar(computation_matrix[tid][0] + computation_matrix[tid][0] + average_delta, 0.0f); // Get Average
-            } 
-            
-            // if (dt / profile_sum > 1.3f)
-            // {
-            //     fast_format("  CPU Cmd Idx {} : ProfileTime = {:6.3f}, Actually Get {:6.3f}", cmd_idx, profile_sum, clock.duration());
-            //     for (uint i = event.start_idx; i <= event.end_idx; i++) {
-            //         auto& cpu_jobs = cpu_schedules[i];
-            //         uint tid = cpu_jobs.task_id;
-            //         auto& task = list_task[tid];
-            //         fast_format("     Out Of Range : task {} {}", tid, taskNames.at(task.func_id));
-            //     } 
-            // }
-        }
-        
-        // Refit GPU
-        
-        for (uint cmd_idx = 0; cmd_idx < num_gpu_events; cmd_idx++) {
-            const LaunchEvent& event = gpu_event[cmd_idx];
-
-            float profile_sum = 0.0f; uint un_fixed_count = 0;
-            for (uint i = event.start_idx; i <= event.end_idx; i++) {
-                auto& gpu_jobs = gpu_schedules[i];
-                uint tid = gpu_jobs.task_id;
-                if (!list_task[tid].is_computation_time_constant) un_fixed_count++;
-                profile_sum += computation_matrix[tid][1];
-                if (i != event.end_idx) profile_sum += communication_cost_matrix_uma[1][1];
-            }   
-
             auto buffer = list_cmd_buffer[cmd_idx];
             float dt = (buffer->GPUEndTime() - buffer->GPUStartTime()) * 1000.0;
-
-            float delta_sum = dt - profile_sum;
-            float average_delta = delta_sum / float(un_fixed_count);
-            for (uint i = event.start_idx; i <= event.end_idx; i++) {
-                auto& gpu_jobs = gpu_schedules[i];
-                uint tid = gpu_jobs.task_id;
-                if (!list_task[tid].is_computation_time_constant)
-                    computation_matrix[tid][1] = 0.5f * max_scalar(computation_matrix[tid][1] + computation_matrix[tid][1] + average_delta, 0.0f);
-            } 
-
-            // if (cost / profile_sum > 1.3f)
-            // {
-            //     fast_format("  GPU Cmd Idx {} : ProfileTime = {:6.3f}, Actually Get {:6.3f}", cmd_idx, profile_sum, cost);
-            //     for (uint i = event.start_idx; i <= event.end_idx; i++) {
-            //         auto& gpu_jobs = gpu_schedules[i];
-            //         uint tid = gpu_jobs.task_id;
-            //         auto& task = list_task[tid];
-            //         fast_format("     Out Of Range : task {} {}", tid, taskNames.at(task.func_id));
-            //     } 
-            // }
+            runtime_cost_gpu[cmd_idx] = dt;
         }
 
+        fn_refit_runtime_cost(runtime_cost_cpu, runtime_cost_gpu);
+        
     }
     else if (mode == LaunchModeProgressiveHetero) {
         
@@ -1219,8 +1236,16 @@ void Scheduler::launch(LaunchMode mode, const std::function<LaunchParam(const Ta
         const std::vector<LaunchEvent>& cpu_event = launch_events[0];
         const uint num_cpu_events = cpu_event.size();
 
-        auto fn_launch_gpu = [&](uint begin_cmd_idx, uint end_cmd_idx){
+        std::vector<float> runtime_cost_cpu(num_cpu_events, 0.0f);
+        std::vector<float> runtime_cost_gpu; runtime_cost_gpu.reserve(num_gpu_events);
+        std::vector<MTL::CommandBuffer*> list_cmd_buffer(num_gpu_events, nullptr);
+        get_command_list().reset_auto_fence_count();
+
+        auto fn_launch_gpu_and_wait = [&](uint begin_cmd_idx, uint end_cmd_idx){
+            
             for (uint gpu_cmd_idx = begin_cmd_idx; gpu_cmd_idx <= end_cmd_idx; gpu_cmd_idx++){
+
+                list_cmd_buffer[gpu_cmd_idx] = get_command_list().start_new_list_with_new_buffer();
 
                 const LaunchEvent& event = gpu_event[gpu_cmd_idx];
                 for (uint i = event.start_idx; i <= event.end_idx; i++) {
@@ -1239,31 +1264,19 @@ void Scheduler::launch(LaunchMode mode, const std::function<LaunchParam(const Ta
                         return;
                     }
                 }   
-            }
-        };
-        auto fn_launch_gpu_by_cpu = [&](uint begin_cmd_idx, uint end_cmd_idx){
-            for (uint gpu_cmd_idx = begin_cmd_idx; gpu_cmd_idx <= end_cmd_idx; gpu_cmd_idx++) {
-                const LaunchEvent& event = gpu_event[gpu_cmd_idx];
-                for (uint i = event.start_idx; i <= event.end_idx; i++) {
-                    auto& gpu_jobs = gpu_schedules[i];
-                    uint tid = gpu_jobs.task_id;
-                    auto& task = list_task[tid];
 
-                    bool find;
-                    auto& imp = task.get_implementation(Launcher::DeviceTypeCpu, find);
-                    if (find) {
-                        imp.launch_task(task_to_param(task));
-                    }   
-                    else {
-                        fast_print_err("Does NOT Have CPU Implementation, Wrong Dispatch Logic");
-                        return;
-                    }
-                }   
+                get_command_list().make_fence_with_previous_cmd_buffer(); // If False, The Function May Be Empty
+                get_command_list().send_last_cmd_buffer_in_list();
+                std::vector<double> rest_costs_from_buffer = get_command_list().wait_all_cmd_buffers_and_get_costs(false); 
+                runtime_cost_gpu.insert(runtime_cost_gpu.end(), rest_costs_from_buffer.begin(), rest_costs_from_buffer.end());
             }
         };
         auto fn_launch_cpu = [&](uint begin_cmd_idx, uint end_cmd_idx){
+               
             for (uint cpu_cmd_idx = begin_cmd_idx; cpu_cmd_idx <= end_cmd_idx; cpu_cmd_idx++) {
                 const LaunchEvent& event = cpu_event[cpu_cmd_idx];
+
+                SimClock clock; clock.start_clock();
                 for (uint i = event.start_idx; i <= event.end_idx; i++) {
                     auto& cpu_jobs = cpu_schedules[i];
                     uint tid = cpu_jobs.task_id;
@@ -1279,50 +1292,20 @@ void Scheduler::launch(LaunchMode mode, const std::function<LaunchParam(const Ta
                         return;
                     }
                 }   
+                runtime_cost_cpu[cpu_cmd_idx] = (clock.end_clock());     
             }
         };
 
-        const bool use_gpu_scene = false;
-
         uint gpu_new_begin = 0;
-        if constexpr (use_gpu_scene)
-        {
-            for (uint cmd_idx = 0; cmd_idx < num_cpu_events; cmd_idx++) {
-                const LaunchEvent& event = cpu_event[cmd_idx];
-                if (event.wait != -1u) {
-                    fn_launch_gpu(gpu_new_begin, event.wait);
-                    gpu_new_begin = event.wait + 1;
-                }
-                for (uint i = event.start_idx; i <= event.end_idx; i++) {
-                    auto& cpu_jobs = cpu_schedules[i];
-                    uint tid = cpu_jobs.task_id;
-                    auto& task = list_task[tid];
-                    
-                    bool find;
-                    auto& imp = task.get_implementation(Launcher::DeviceTypeGpu, find);
-                    if (find) {
-                        imp.launch_task(task_to_param(task)); // task.print_with_cluster(tid);
-                    }   
-                    else {
-                        get_command_list().send_and_wait();
-                        imp.launch_task(task_to_param(task));
-                    }
-                }   
-            }
-            fn_launch_gpu(gpu_new_begin, launch_events[1].size() - 1);
-            get_command_list().send_and_wait();
-        }
-        else 
         {
             // fn_launch_gpu(gpu_new_begin, gpu_event.size() - 1); uint gpu_new_begin = 0;
             for (uint cmd_idx = 0; cmd_idx < num_cpu_events; cmd_idx++) {
                 const LaunchEvent& event = cpu_event[cmd_idx];
                 if (event.wait != -1u) {
                     // fast_format("GPU Part");
-                    fn_launch_gpu(gpu_new_begin, event.wait);
+                    fn_launch_gpu_and_wait(gpu_new_begin, event.wait);
                     gpu_new_begin = event.wait + 1;
                 }
-                get_command_list().send_and_wait();
                 for (uint i = event.start_idx; i <= event.end_idx; i++) {
                     auto& cpu_jobs = cpu_schedules[i];
                     uint tid = cpu_jobs.task_id;
@@ -1338,10 +1321,10 @@ void Scheduler::launch(LaunchMode mode, const std::function<LaunchParam(const Ta
                     }
                 }   
             }
-            fn_launch_gpu(gpu_new_begin, launch_events[1].size() - 1);
-            get_command_list().send_and_wait();
+            fn_launch_gpu_and_wait(gpu_new_begin, launch_events[1].size() - 1);
         }   
 
+        fn_refit_runtime_cost(runtime_cost_cpu, runtime_cost_gpu);
     }
     else if (mode == LaunchModeSequeceHetero) {
 
@@ -1595,7 +1578,7 @@ void Scheduler::standardizing_dag(const std::vector< std::function<void(const La
         computation_matrix.push_back(ListCost(num_procs, 0.0f));
         list_order.insert(list_order.begin(), root_node);
 
-        if(print_root_terminal) fast_print("   Expected a Single Root Node, Switch to", 
+        if (print_root_terminal) fast_print("   Expected a Single Root Node, Switch to", 
                     Launcher::taskNames.at(list_task[root_node].func_id));
                     // Launcher::taskNames.at(list_task[root_node].func_id), "Change the Following Nodes Linking to the Root");
         
@@ -1618,7 +1601,7 @@ void Scheduler::standardizing_dag(const std::vector< std::function<void(const La
     /// Normalize根节点的操作可能会更改依赖情况
     for (uint tid = 0; tid < list_task.size(); tid++) {
         const auto& task = list_task[tid];
-        if(task.successors.empty()){
+        if (task.successors.empty()){
             list_terminal.push_back(tid);
         }
     }
@@ -2734,6 +2717,7 @@ void Scheduler::scheduler_dag()
     });
 
     // if constexpr (false) // Check Sort
+    if (bool_use_check)
     {
         std::vector<uint> original_get_sorted(num_tasks);
         for (uint sorted_idx = 0 ; sorted_idx < num_tasks; sorted_idx++)
@@ -3275,21 +3259,24 @@ void Scheduler::scheduler_dag()
     
 
     // Check
-    for (uint proc = 0; proc < num_procs; proc++)
+    if (bool_use_check)
     {
-        const auto& proc_tasks = proc_schedules[proc];
-        if (proc_tasks.size() > 1)
+        for (uint proc = 0; proc < num_procs; proc++)
         {
-            for (uint i = 0; i < proc_tasks.size() - 1; i++)
+            const auto& proc_tasks = proc_schedules[proc];
+            if (proc_tasks.size() > 1)
             {
-                const ScheduleEvent& curr_schedules = proc_tasks[i];
-                const ScheduleEvent& next_schedules = proc_tasks[i + 1];
-                if ((curr_schedules.end - curr_schedules.start != 0) && curr_schedules.start >= next_schedules.start)
+                for (uint i = 0; i < proc_tasks.size() - 1; i++)
                 {
-                    fast_print_err("Next Task Is Earliear Than Self : ", curr_schedules.get_str() + next_schedules.get_str());
-                    fast_print_err(std::format("    {} and {}", 
-                        taskNames.at(list_task[curr_schedules.task_id].func_id), 
-                        taskNames.at(list_task[next_schedules.task_id].func_id)));
+                    const ScheduleEvent& curr_schedules = proc_tasks[i];
+                    const ScheduleEvent& next_schedules = proc_tasks[i + 1];
+                    if ((curr_schedules.end - curr_schedules.start != 0) && curr_schedules.start >= next_schedules.start)
+                    {
+                        fast_print_err("Next Task Is Earliear Than Self : ", curr_schedules.get_str() + next_schedules.get_str());
+                        fast_print_err(std::format("    {} and {}", 
+                            taskNames.at(list_task[curr_schedules.task_id].func_id), 
+                            taskNames.at(list_task[next_schedules.task_id].func_id)));
+                    }
                 }
             }
         }
@@ -4087,6 +4074,12 @@ std::vector<float> Scheduler::get_scheduled_speedups()
     }
     return speedups;
 }
+std::vector<float> Scheduler::get_proc_costs()
+{
+    std::vector<float> tmp;
+    for (const auto value : summary_of_costs_each_device) tmp.push_back(value);
+    return tmp;
+}
 std::vector<float> Scheduler::get_proc_usage()
 {
     float end_time = get_scheduled_end_time();
@@ -4115,6 +4108,34 @@ void Scheduler::print_speedups_to_each_device()
         float speedup = (summary_of_costs_each_device[proc] - end_time) / end_time;
         fast_format("Speedup to proc {} = {:4.2f}\% (From {:4.2f} to {:4.2f} ) ", proc, speedup * 100, summary_of_costs_each_device[proc], end_time);
     }
+}
+void Scheduler::update_costs_from_computation_matrix()
+{
+    uint num_proc = proc_schedules.size();
+    summary_of_costs_each_device.resize(num_proc, 0.0);
+
+    for (uint tid = 0; tid < list_task.size(); tid++) 
+    {
+        const auto& comp_mat = computation_matrix[tid];
+        const auto& task = list_task[tid];
+        for (uint proc = 0; proc < num_proc; proc++)
+        {
+            if (task.has_implementation(proc))
+            {
+                summary_of_costs_each_device[proc] += comp_mat[proc] + communication_cost_matrix_uma[proc][proc];
+            }
+            else if (proc != 0)
+            {
+                summary_of_costs_each_device[proc] += comp_mat[0] + 
+                    communication_cost_matrix_uma[0][proc] + communication_cost_matrix_uma[proc][0];
+            }
+            else 
+            {
+                fast_format_err("Empty CPU Implementation!!!");
+            }
+        }
+    }
+
 }
 
 
@@ -4236,7 +4257,7 @@ void Scheduler::set_constant_computation_time_task()
             // || task.func_id ==  id_obstacle_collision_update_face_aabb_dcd
             )
         {
-            task.is_computation_time_constant = true;
+            // task.is_computation_time_constant = true;
         }
     }
 }
