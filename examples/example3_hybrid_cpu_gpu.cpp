@@ -6,6 +6,7 @@
 #include "mesh_reader.h"
 #include "scene_params.h"
 #include "fem_energy.h"
+#include "struct_to_string.h"
 #include "xpbd_constraints.h"
 
 template<typename T>
@@ -218,7 +219,7 @@ void init_mesh(BasicMeshData* mesh_data)
             parallel_for(0, num_verts, [&](const uint vid)
             {
                 bool is_fixed = mesh_data->sa_is_fixed[vid] != 0;
-                mesh_data->sa_vert_mass[vid] = is_fixed ? 1e12 : (defulat_mass);
+                mesh_data->sa_vert_mass[vid] = (defulat_mass);
                 mesh_data->sa_vert_mass_inv[vid] = is_fixed ? 0.0f : 1.0f / (defulat_mass);
             });
         }
@@ -421,7 +422,7 @@ private:
     void solve_constraint_stretch_spring(Buffer<Float3>& curr_cloth_position, const uint cluster_idx);
     void solve_constraint_bending(Buffer<Float3>& curr_cloth_position, const uint cluster_idx);
 
-public:
+private:
     void vbd_evaluate_inertia(Buffer<Float3>& curr_cloth_position, const uint cluster_idx);
     void vbd_evaluate_stretch_spring(Buffer<Float3>& curr_cloth_position, const uint cluster_idx);
     void vbd_evaluate_bending(Buffer<Float3>& curr_cloth_position, const uint cluster_idx);
@@ -1297,10 +1298,6 @@ void CpuSolver::vbd_step(Buffer<Float3>& sa_iter_position, const uint cluster_id
 }
 void GpuSolver::vbd_step(Buffer<Float3>& sa_iter_position, const uint cluster_idx)
 {
-    // get_command_list().send_and_wait();
-    // cpu_solver->vbd_step(sa_iter_position, cluster_idx);
-    // return;
-
     auto& clusters = xpbd_data->clusterd_per_vertex_bending;
     const uint next_prefix = clusters[cluster_idx + 1];
     const uint curr_prefix = clusters[cluster_idx];
@@ -1312,6 +1309,32 @@ void GpuSolver::vbd_step(Buffer<Float3>& sa_iter_position, const uint cluster_id
     fn_vbd_step.bind_ptr(clusters);
     fn_vbd_step.bind_constant(cluster_idx);
     fn_vbd_step.launch_async(num_verts_cluster);
+
+    // get_command_list().send_and_wait();
+    // for (uint vid = 0; vid < mesh_data->num_verts; vid++)
+    // {
+    //     Float3 pos = sa_iter_position[vid];
+    //     if (is_nan_float3(pos))
+    //     {
+    //         fast_format_err("pos in vid {} is nan", vid);
+    //         Float4x3 Hf = get_Hf()[vid];
+    //         Float3x3 H; Float3 f;
+    //         Constrains::VBD::extractHf(Hf, f, H);
+    //         float det = determinant_mat(H);
+    //         if (abs_scalar(det) > Epsilon)
+    //         {
+    //             Float3x3 H_inv = inverse_mat(H, det);
+    //             Float3 dx = H_inv * f;
+    //             fast_format_err("H = {}, f = {}, det = {}, dx = {} ", 
+    //                 SimString::mat_to_string(H), SimString::Vec3_to_string(f), det, SimString::Vec3_to_string(dx));
+    //         }
+    //         else 
+    //         {
+    //             fast_format_err("det  = {}", det);
+    //         }
+    //         exit(0);
+    //     }
+    // }
 }
 
 

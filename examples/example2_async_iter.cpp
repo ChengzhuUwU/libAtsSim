@@ -217,7 +217,7 @@ void init_mesh(BasicMeshData* mesh_data)
             parallel_for(0, num_verts, [&](const uint vid)
             {
                 bool is_fixed = mesh_data->sa_is_fixed[vid] != 0;
-                mesh_data->sa_vert_mass[vid] = is_fixed ? 1e12 : (defulat_mass);
+                mesh_data->sa_vert_mass[vid] = (defulat_mass);
                 mesh_data->sa_vert_mass_inv[vid] = is_fixed ? 0.0f : 1.0f / (defulat_mass);
             });
         }
