@@ -1956,8 +1956,6 @@ void GpuSolver::physics_step_vbd_async()
 
         computation_matrix = scheduler.computation_matrix;
     };
-    
-    scheule_clock.end_clock();
 
     //
     // Set communication matrix
@@ -1989,8 +1987,7 @@ void GpuSolver::physics_step_vbd_async()
 
         scheduler.make_wait_events();
     }
-
-    
+    scheule_clock.end_clock();
     
     //
     // Run
@@ -2004,7 +2001,7 @@ void GpuSolver::physics_step_vbd_async()
             //
             // In this mode, you will run scheduled tasks with SYNC waiting 
             // The final result should be the same as LaunchModeHetero 
-            // (since we use multi-buffer to identity the inputs, if we miss the relationship, then we will get NAN or exposition)
+            // (Since we use multi-buffer to identity the inputs, so if we miss the relationship, we will get NAN or exposition)
             // We will use runtime profiling to update the computation matrix and re-schedule 
             //
 
@@ -2018,17 +2015,28 @@ void GpuSolver::physics_step_vbd_async()
                     task.is_allocated_to_main_device
                 ); 
             };
-            scheduler.launch(Launcher::Scheduler::LaunchModeFakeHetero, fn_task_to_param, false);
+            // scheduler.launch(Launcher::Scheduler::LaunchModeFakeHetero, fn_task_to_param, false);
         }
         {   
             //
-            // In this mode, you will run scheduled tasks with ASYN waiting 
-            // However, this mode may not work when there are too many tasks (e.g. 40 command-buffers on the GPU).
+            // In this mode, you will run scheduled tasks with ASYN waiting, the actual time should close to the scheduling time (after seceral frames)
+            // However, this mode not work (e.g., GPU being locked or the simulation result is not equal to 'LaunchModeFakeHetero')
+            //                              when there are too many tasks (e.g. 40 command-buffers on the GPU)
             // This is limited to the hardware, maybe we can solve it by segmenting the commission of gpu commands
             // If you have some ideas to fix it, hope you can help me (you find my contact information in my homepage: https://chengzhuuwu.github.io/)
             // 
 
-            // scheduler.launch(Launcher::Scheduler::LaunchModeHetero, fn_task_to_param, false);
+            auto fn_task_to_param = [](const Launcher::Task& task) 
+            { 
+                // task.print_with_cluster(0);
+                return Launcher::LaunchParam(
+                    task.func_id, task.block_dim, 
+                    task.iter_idx, task.cluster_idx, 
+                    task.buffer_idx, task.buffer_left, task.buffer_ins, task.buffer_out, 
+                    task.is_allocated_to_main_device
+                ); 
+            };
+            scheduler.launch(Launcher::Scheduler::LaunchModeHetero, fn_task_to_param, false);
         }
         {   
             //
@@ -2370,7 +2378,7 @@ int main()
     {
         get_scene_params().use_substep = false;
         get_scene_params().num_substep = 10;
-        get_scene_params().constraint_iter_count = 10; // 
+        get_scene_params().constraint_iter_count = 8; // if larger than 8, then GPU may be locked in LaunchModeHetero
         get_scene_params().use_bending = true;
         get_scene_params().use_quadratic_bending_model = true;
         get_scene_params().print_xpbd_convergence = false;
@@ -2392,7 +2400,7 @@ int main()
         for (uint frame = 0; frame < max_frame; frame++)
         {   get_scene_params().current_frame = frame;    
 
-            // solver.physics_step(SolverTypeVBD_CPU);
+            solver.physics_step(SolverTypeVBD_CPU);
         }
     }
     {
@@ -2408,7 +2416,7 @@ int main()
         for (uint frame = 0; frame < max_frame; frame++)
         {   get_scene_params().current_frame = frame; 
 
-            // solver.physics_step(SolverTypeVBD_GPU);
+            solver.physics_step(SolverTypeVBD_GPU);
         }
     }
     {

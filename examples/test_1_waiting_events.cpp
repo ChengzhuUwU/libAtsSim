@@ -43,23 +43,31 @@ int main()
     Buffer<uint> test_buffer;
     test_buffer.resize(1); test_buffer.set_data(0);
 
-    const uint loop_time = 4;
-
+    const uint event_length = 60; // Stable in 60, failed in 65
+    const uint num_gpu_events = event_length;
+    const uint num_cpu_events = event_length;
+    
+    bool succ_all_loop = true;
+    const uint loop_time = 100;
+    
     //
     // Test async waiting: Add single value for loop_time times, Odd on the CPU, Even on the GPU
     //   GPU ->     1     3   5    7   9
     //   CPU ->  0     2    4   6    8
     // 
+    for (uint frame = 0; frame < loop_time; frame++)
     {
-        get_shared_event().refresh();
-        get_command_list().reset_auto_fence_count();
+        // Reset GPU event system
+        {
+            get_shared_event().refresh();
+            get_command_list().reset_auto_fence_count();
+        }
         
         //
         // Launch GPU Commands : Async
         //
-        const uint num_gpu_events = loop_time;
-
-        std::vector< MTL::CommandBuffer* > list_cmd_buffer(num_gpu_events);
+        
+        std::vector< MTL::CommandBuffer* > list_cmd_buffer(num_gpu_events, nullptr);
 
         for (uint cmd_idx = 0; cmd_idx < num_gpu_events; cmd_idx++) 
         {
@@ -72,7 +80,7 @@ int main()
             // Wait for CPU's signal
             {
                 // fast_print(cmd_idx, "GPU Waits for CPU", prev_cpu_event);
-                get_command_list().wait_cpu(get_shared_event(), prev_cpu_event);     
+                get_command_list().wait_cpu(get_shared_event(), prev_cpu_event + 1);     
             }
             
             // Launch
@@ -90,7 +98,7 @@ int main()
         ///
         /// Launch CPU Commands : Immediate
         ///
-        const uint num_cpu_events = loop_time;
+        
         
         std::vector<float> runtime_cost_cpu(num_cpu_events, 0.0f);
         for (uint cmd_idx = 0; cmd_idx < num_cpu_events; cmd_idx++) 
@@ -116,15 +124,31 @@ int main()
             // Signal
             {
                 // fast_print(cmd_idx, "CPU Signal", curr_event);
-                get_shared_event().event->setSignaledValue(curr_event);
+                get_shared_event().event->setSignaledValue(curr_event + 1);
             }
         }
 
-        get_command_list().wait_all_cmd_buffers();
+        get_command_list().wait_all_cmd_buffers();\
+        
+        const uint desire_value = event_length * 2;
+        if (test_buffer[0] != desire_value) succ_all_loop = false;
+        
+        fast_format("In loop {:3} : get value {} (desire for {})", frame, test_buffer[0], desire_value);
+        
+        test_buffer.set_data(0);
     }  
 
-    fast_format("Final value = {} (desire for {})", test_buffer[0], loop_time * 2);
-
+    fast_format("");
+    fast_format("/////////////////////");
+    if (succ_all_loop)
+    {
+        fast_format("Succ in passing all tests");
+    }
+    else 
+    {
+        fast_format("Faild to pass all tests");
+    }
+    fast_format("/////////////////////");
 
     return 0;
 }

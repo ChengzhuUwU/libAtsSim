@@ -922,8 +922,7 @@ void Scheduler::launch(LaunchMode mode, const std::function<LaunchParam(const Ta
                 if ( event.wait != -1u) 
                 {
                     // fast_print(cmd_idx, "GPU Waits for CPU", event.wait + 1);
-                    get_command_list().wait_cpu(get_shared_event(), event.wait);  
-                    // assemble_impl[1]();
+                    get_command_list().wait_cpu(get_shared_event(), event.wait + 1);  // Should larger than 1
                 }
             }
             
@@ -1016,6 +1015,9 @@ void Scheduler::launch(LaunchMode mode, const std::function<LaunchParam(const Ta
         const ListSchedule& cpu_schedules = proc_schedules[0];
         const std::vector<LaunchEvent>& cpu_event = launch_events[0];
         const uint num_cpu_events = cpu_event.size();
+
+        // fast_format("num_gpu_events = {}, num_cpu_events = {}", num_gpu_events, num_cpu_events);
+        if (num_gpu_events > 60) fast_format("Waiting events larger than 60, may out of hardward limitation");
         
         std::vector<float> runtime_cost_cpu(num_cpu_events, 0.0f);
         for (uint cmd_idx = 0; cmd_idx < num_cpu_events; cmd_idx++) {
@@ -1025,7 +1027,7 @@ void Scheduler::launch(LaunchMode mode, const std::function<LaunchParam(const Ta
             
             /// Wait
             if (!fully_not_wait){
-                if(event.wait != -1u){
+                if (event.wait != -1u){
                     // SimClock clock; clock.start_clock();
                     list_cmd_buffer[event.wait]->waitUntilCompleted();
                     // float dt = clock.end_clock();
@@ -1053,7 +1055,7 @@ void Scheduler::launch(LaunchMode mode, const std::function<LaunchParam(const Ta
             runtime_cost_cpu[cmd_idx] = (clock.end_clock());            
 
             if (event.signal != -1u) {
-                get_shared_event().event->setSignaledValue(event.signal);
+                get_shared_event().event->setSignaledValue(event.signal + 1); // Should larger than 1
             }
         }
 

@@ -473,6 +473,8 @@ public:
     }
     inline void wait_cpu(sim::SharedEvent event, uint64_t value){
         #if defined (__APPLE__)
+        if (value == 0) fast_format_err("Waiting event should larger than 1");
+        // if (value > 61) fast_format_err("Waiting event should smaller than 60 due to hardware limitation");
         command_buffer->encodeWait(event.event, value);
         #endif
     }
