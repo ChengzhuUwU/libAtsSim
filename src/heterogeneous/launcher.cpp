@@ -8,12 +8,15 @@
 
 #include "launcher.h"
 #include "clock.h"
-#include "command_list.h"
 #include <map>
 #include <numeric>
 #include <queue>
 #include <set>
 #include <stack>
+
+#if __APPLE__
+    #include "command_list.h"
+#endif
 
 
 
@@ -866,12 +869,12 @@ void Scheduler::launch(LaunchMode mode, const std::function<LaunchParam(const Ta
     {
         if (sorted_nodes.empty()) 
         { 
-            fast_print_err("List Order Is EMPTY, Switch To Topology SortingOrder");
+            fast_print_err("List Order Is EMPTY, Switch To Topology Sorting Order");
             for (uint i = 0; i < list_order.size(); i++) 
             {
                 auto tid = list_order[i]; auto& task = list_task[tid];
                 bool find; auto& imp = task.get_implementation(Launcher::DeviceTypeCpu, find);
-                if(!find) { fast_print_err("There Is NO CPU Implementation!!"); return; }
+                if (!find) { fast_print_err("There Is NO CPU Implementation!!"); return; }
                 imp.launch_task(task_to_param(task));
             }  
         }
@@ -881,7 +884,7 @@ void Scheduler::launch(LaunchMode mode, const std::function<LaunchParam(const Ta
             {
                 auto tid = sorted_nodes[i]; auto& task = list_task[tid];
                 bool find; auto& imp = task.get_implementation(Launcher::DeviceTypeCpu, find);
-                if(!find) { fast_print_err("There Is NO CPU Implementation!!"); return; }
+                if (!find) { fast_print_err("There Is NO CPU Implementation!!"); return; }
                 imp.launch_task(task_to_param(task));
             } 
         }
@@ -2899,8 +2902,10 @@ void Scheduler::scheduler_dag()
     // Post processing: Add communication between iteractive tasks for asynchronous iteration
     //
     // if constexpr (false)
-    if (!constraint_task_orders.empty() && !communication_cost_matrix_uma.empty()) // For iteration tasks, make additional connections
+    if (!constraint_task_orders.empty() && !communication_cost_matrix_uma.empty() && num_procs == 2) // For iteration tasks, make additional connections
     {
+        // TODO: num_procs > 2
+
         auto fn_is_cloth_task = [](const Task& task)
         {
             return 
@@ -3643,7 +3648,8 @@ void Scheduler::make_wait_events()
 /// 
 /// Print Information
 ///
-void Scheduler::print_costs(bool use_sort){
+void Scheduler::print_task_costs(bool use_sort) 
+{
 
     fast_print("Cost of each task (cpu & gpu) ");
     // for (auto tid : list_order) {
@@ -3653,18 +3659,21 @@ void Scheduler::print_costs(bool use_sort){
 
     // Compute Rate
     std::vector< std::pair<uint, float> > list_rate(list_task.size());
-    for(uint tid = 0; tid < list_task.size(); tid++){
+    for (uint tid = 0; tid < list_task.size(); tid++) {
         auto& task = list_task[tid];
         auto& costs = computation_matrix[tid];
         float rate = costs[0] / costs[1];
         list_rate[tid] = std::make_pair(tid, rate);
     }
 
-    std::sort(list_rate.begin(), list_rate.end(), [&](const std::pair<uint, float>& left, const std::pair<uint, float>& right) -> bool{
-        return left.second < right.second;
-    });
+    if (use_sort) {
+        std::sort(list_rate.begin(), list_rate.end(), [&](const std::pair<uint, float>& left, const std::pair<uint, float>& right) -> bool{
+            return left.second < right.second;
+        });
+    }
+    
 
-    for(auto& pair : list_rate){
+    for (auto& pair : list_rate) {
         const uint tid = pair.first;
         auto& costs = computation_matrix[tid];
         auto& task = list_task[tid];
@@ -3687,6 +3696,40 @@ void Scheduler::print_costs(bool use_sort){
         // }
 
     }
+}
+void Scheduler::print_task_costs_map() 
+{
+    struct TaskCostInfo
+    {
+        Launcher::FunctionID func_id;
+        uint cluster_idx;
+        std::vector<float> costs;
+    };
+    std::vector<TaskCostInfo> task_costs;
+
+    const uint num_tasks = list_task.size();
+    const uint num_procs = proc_schedules.size();
+
+    for (uint tid = 0; tid < num_tasks; tid++)
+    {
+        const auto& task = list_task[tid];
+        const auto& curr_cost = computation_matrix[tid];
+        // task.print_with_cluster(tid);
+        if (task.iter_idx == -1u || (task.iter_idx == 0))
+        {
+            task_costs.push_back(TaskCostInfo{
+                .func_id = task.func_id,
+                .cluster_idx = task.cluster_idx,
+                .costs = curr_cost
+            });
+        }
+    }
+    for (const auto& pair : task_costs)
+    {
+        
+        fast_format("task = {}, cluster = {}, cost = {:6.3f}/{:6.3f} ", taskNames.at(pair.func_id), pair.cluster_idx, pair.costs[0], pair.costs[1]);
+    }
+    
 }
 void Scheduler::print_schedule() {
     const uint num_procs = proc_schedules.size();

@@ -447,10 +447,10 @@ struct LaunchParam{
     bool use_hetero = false;
     bool is_allocated_to_main_device = true;
 
+    uint buffer_idx = 0;
     uint left_buffer_idx = -1u;
     // uint input_buffer_idx = -1u;
     uint output_buffer_idx = -1u;
-    uint buffer_idx = 0;
 
     std::vector<uint> input_buffer_idxs;
     
@@ -459,6 +459,7 @@ struct LaunchParam{
     // bool memory_only_pass = false;
     // uint deault_thread_num = 256;
 
+    /*
     LaunchParam(){}
     LaunchParam(
         const FunctionID& input_task_idx, 
@@ -518,7 +519,7 @@ struct LaunchParam{
             output_buffer_idx(task_output_buffer_idx),
             is_allocated_to_main_device(task_is_main_device)
             {}
-
+    */
     
     uint get_thread_num() const{
         return endIdx - startIdx;
@@ -827,7 +828,8 @@ struct LaunchEvent{
 
 #define BROTHER_CONNECTION_RALATIONSHIP 3
 const float inf = 99999.0;
-const uint input_buffer_mask = 0x0FFFFFFF;
+const uint input_buffer_mask =   0x0FFFFFFF;
+const uint default_buffer_mask = 0x0FFFFFFF;
 
 class Scheduler{
 
@@ -937,7 +939,8 @@ public:
     void launch(LaunchMode mode, const std::function<LaunchParam(const Task&)> task_to_param, const bool fully_not_wait, const std::vector<std::function<void()>>& assemble_impl = {});
     
     void print_tasks();
-    void print_costs(bool use_sort = true);
+    void print_task_costs(bool use_sort = true);
+    void print_task_costs_map();
     void print_schedule();
     void print_dag();
     void print_scheduling_with_waiting_events();

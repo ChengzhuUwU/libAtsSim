@@ -929,6 +929,7 @@ void CpuSolver::compute_energy(const Buffer<Float3>& curr_position)
 {
     if (!get_scene_params().print_xpbd_convergence) return;
     // fast_format("buffer size = {}", curr_position.size());
+    // fast_format("CPU Call {}", energy_idx);
 
     double energy = 0.0;
     double energy_inertia = 0.f, energy_stretch = 0.f, energy_bending = 0.f;
@@ -1014,6 +1015,11 @@ void GpuSolver::compute_energy(const Buffer<Float3>& curr_position)
 {
     if (!get_scene_params().print_xpbd_convergence) return;
     // fast_format("buffer size = {}", curr_position.size());
+    fast_format("GPU Call {}", energy_idx);
+
+    // get_command_list().send_and_wait();
+    // cpu_solver->compute_energy(curr_position);
+    // return;
 
     // Inertia
     {
@@ -1147,10 +1153,10 @@ Buffer<Float4x3>& CpuSolver::get_Hf()
 {
     return xpbd_data->sa_Hf;
 }
-Buffer<Float4x3>& GpuSolver::get_Hf()
+Buffer<Float4x3>& GpuSolver::get_Hf() // Remember to use the saperate buffer!!!
 {
-    // return xpbd_data->sa_Hf_2;
-    return xpbd_data->sa_Hf;
+    return xpbd_data->sa_Hf_2;
+    // return xpbd_data->sa_Hf;
 }
 void CpuSolver::vbd_evaluate_inertia(Buffer<Float3>& sa_iter_position, const uint cluster_idx)
 {
@@ -1546,7 +1552,7 @@ void CpuSolver::fn_dispatch(const Launcher::LaunchParam& param)
     auto fn_get_iter_buffer = [&](const uint buffer_idx) -> Buffer<Float3>& 
     { 
         // if constexpr (print_buffer_idx) fast_format("Iter buffer {} ({}) size = {}", buffer_idx, buffer_idx % max_buffer_count, xpbd_data->sa_async_iter_positions_cloth[buffer_idx % max_buffer_count].size());
-        return xpbd_data->sa_async_iter_positions_cloth[buffer_idx % max_buffer_count];
+        return buffer_idx == Launcher::default_buffer_mask ? xpbd_data->sa_x : xpbd_data->sa_async_iter_positions_cloth[buffer_idx % max_buffer_count];
     };
     auto fn_get_begin_buffer = [&](const uint buffer_idx) -> Buffer<Float3>& 
     { 
@@ -1697,7 +1703,7 @@ void GpuSolver::fn_dispatch(const Launcher::LaunchParam& param)
     constexpr bool print_buffer_idx = false;
     auto fn_get_iter_buffer = [&](const uint buffer_idx) -> Buffer<Float3>& 
     { 
-        return xpbd_data->sa_async_iter_positions_cloth[buffer_idx % max_buffer_count];
+        return buffer_idx == Launcher::default_buffer_mask ? xpbd_data->sa_x : xpbd_data->sa_async_iter_positions_cloth[buffer_idx % max_buffer_count];
     };
     auto fn_get_begin_buffer = [&](const uint buffer_idx) -> Buffer<Float3>& 
     { 
@@ -1929,7 +1935,7 @@ void GpuSolver::physics_step_vbd_async()
     // Init for computation matrix (Approximate value)
     // Computation matrix can be updated per frame
     //
-    static std::vector< std::vector<float> > computation_matrix;
+    static std::vector< std::vector<float> > computation_matrix; // Update each frame, to fit the dynamic costs due to collisions
     auto fn_init_compuatation_matrix = [&]()
     {
         std::vector< std::pair<Launcher::FunctionID, uint> > list_task_id = { };
@@ -1984,6 +1990,8 @@ void GpuSolver::physics_step_vbd_async()
         
         // if (get_scene_params().current_frame == 0 && get_scene_params().constraint_iter_count < 20) scheduler.print_schedule_to_graph_xpbd();
         // if (get_scene_params().current_frame == 0) scheduler.print_speedups_to_each_device();
+        // if (get_scene_params().current_frame == 0) scheduler.print_schedule_to_graph_xpbd();
+        // if (get_scene_params().current_frame == 29) scheduler.print_schedule_to_graph_xpbd();
 
         scheduler.make_wait_events();
     }
@@ -1995,65 +2003,89 @@ void GpuSolver::physics_step_vbd_async()
     SimClock clock; clock.start_clock();
     for (uint substep = 0; substep < num_substep; substep++) // 1 or 50 ?
     {   { get_scene_params().current_substep = substep; }
-        
         // SimClock substep_clock; substep_clock.start_clock();
-        {   
-            //
-            // In this mode, you will run scheduled tasks with SYNC waiting 
-            // The final result should be the same as LaunchModeHetero 
-            // (Since we use multi-buffer to identity the inputs, so if we miss the relationship, we will get NAN or exposition)
-            // We will use runtime profiling to update the computation matrix and re-schedule 
-            //
 
+        // LaunchModeFakeHetero 
+        // LaunchModeHetero
+        // LaunchModeGpu
+        constexpr auto launch_mode = Launcher::Scheduler::LaunchModeFakeHetero; 
+
+        // In this mode, you will run scheduled tasks with SYNC waiting 
+        // The final result should be the same as LaunchModeHetero 
+        // (Since we use multi-buffer to identity the inputs, so if we miss the relationship, we will get NAN or exposition)
+        // We will use runtime profiling to update the computation matrix and re-schedule 
+        if (launch_mode == Launcher::Scheduler::LaunchModeFakeHetero)
+        {   
             auto fn_task_to_param = [](const Launcher::Task& task) 
             { 
                 // task.print_with_cluster(0);
-                return Launcher::LaunchParam(
-                    task.func_id, task.block_dim, 
-                    task.iter_idx, task.cluster_idx, 
-                    task.buffer_idx, task.buffer_left, task.buffer_ins, task.buffer_out, 
-                    task.is_allocated_to_main_device
-                ); 
+                return Launcher::LaunchParam{
+                    .function_id = task.func_id, 
+                    .iter_idx = task.iter_idx, 
+                    .cluster_idx = task.cluster_idx, 
+                    .is_allocated_to_main_device = task.is_allocated_to_main_device,
+                    .buffer_idx = task.buffer_idx, 
+                    .left_buffer_idx = task.buffer_left, 
+                    .input_buffer_idxs = task.buffer_ins, 
+                }; 
+                // return Launcher::LaunchParam(
+                //     task.func_id, task.block_dim, 
+                //     task.iter_idx, task.cluster_idx, 
+                //     task.buffer_idx, task.buffer_left, task.buffer_ins, task.buffer_out, 
+                //     task.is_allocated_to_main_device
+                // ); 
             };
-            // scheduler.launch(Launcher::Scheduler::LaunchModeFakeHetero, fn_task_to_param, false);
+            scheduler.launch(Launcher::Scheduler::LaunchModeFakeHetero, fn_task_to_param, false);
         }
-        {   
-            //
-            // In this mode, you will run scheduled tasks with ASYN waiting, the actual time should close to the scheduling time (after seceral frames)
-            // However, this mode not work (e.g., GPU being locked or the simulation result is not equal to 'LaunchModeFakeHetero')
-            //                              when there are too many tasks (e.g. 40 command-buffers on the GPU)
-            // This is limited to the hardware, maybe we can solve it by segmenting the commission of gpu commands
-            // If you have some ideas to fix it, hope you can help me (you find my contact information in my homepage: https://chengzhuuwu.github.io/)
-            // 
 
-            auto fn_task_to_param = [](const Launcher::Task& task) 
-            { 
-                // task.print_with_cluster(0);
-                return Launcher::LaunchParam(
-                    task.func_id, task.block_dim, 
-                    task.iter_idx, task.cluster_idx, 
-                    task.buffer_idx, task.buffer_left, task.buffer_ins, task.buffer_out, 
-                    task.is_allocated_to_main_device
-                ); 
-            };
-            scheduler.launch(Launcher::Scheduler::LaunchModeHetero, fn_task_to_param, false);
-        }
+        // In this mode, you will run scheduled tasks with ASYN waiting, the actual time should close to the scheduling time (after seceral frames)
+        // However, this mode not work (e.g., GPU being locked or the simulation result is not equal to 'LaunchModeFakeHetero')
+        //                              when there are too many tasks (e.g. 40 command-buffers on the GPU)
+        // This is limited to the hardware, maybe we can solve it by segmenting the commission of gpu commands
+        // If you have some ideas to fix it, hope you can help me (you find my contact information in my homepage: https://chengzhuuwu.github.io/)
+        else if (launch_mode == Launcher::Scheduler::LaunchModeHetero)
         {   
-            //
-            // In this mode, you will run tasks sorted by ranku on single device
-            // 
             
             auto fn_task_to_param = [](const Launcher::Task& task) 
             { 
-                // if (get_scene_params().current_substep == 0) task.print_with_cluster(0);
-                const uint task_left_buffer_idx = task.is_first_iterative_task ? Launcher::input_buffer_mask : -1u;
-                return Launcher::LaunchParam(
-                    task.func_id, task.block_dim, 
-                    task.iter_idx, task.cluster_idx, 
-                    0, task_left_buffer_idx, std::vector<uint>({}), -1u, true
-                ); 
+                // task.print_with_cluster(0);
+                return Launcher::LaunchParam{
+                    .function_id = task.func_id, 
+                    .iter_idx = task.iter_idx, 
+                    .cluster_idx = task.cluster_idx, 
+                    .is_allocated_to_main_device = task.is_allocated_to_main_device,
+                    .buffer_idx = task.buffer_idx, 
+                    .left_buffer_idx = task.buffer_left, 
+                    .input_buffer_idxs = task.buffer_ins, 
+                }; 
             };
-            // scheduler.launch(Launcher::Scheduler::LaunchModeGpu, fn_task_to_param, false);
+            scheduler.launch(Launcher::Scheduler::LaunchModeHetero, fn_task_to_param, false);
+        }
+
+        // In this mode, you will run tasks sorted by ranku on single device
+        else if (launch_mode == Launcher::Scheduler::LaunchModeCpu || launch_mode == Launcher::Scheduler::LaunchModeGpu)
+        {    
+            auto fn_task_to_param = [](const Launcher::Task& task) 
+            { 
+                // if (get_scene_params().current_substep == 0) task.print_with_cluster(0);
+
+                const uint task_iter_buffer_idx = Launcher::default_buffer_mask;
+                // We identify the "buffer_left" of the first scheduled task on each processor as "input_buffer_mask"
+                //      Which will copy information from predict position: sa_x
+                // If we drop the "buffer_left/buffer_input" information, then we miss the input from sa_x
+                // In this mode, we use "default_buffer_mask" to make zero-copy and always iter from sa_x 
+                
+                return Launcher::LaunchParam{
+                    .function_id = task.func_id, 
+                    .iter_idx = task.iter_idx, 
+                    .cluster_idx = task.cluster_idx, 
+                    .is_allocated_to_main_device = true,
+                    .buffer_idx = Launcher::default_buffer_mask, 
+                    .left_buffer_idx = -1u, 
+                    .input_buffer_idxs = {}, 
+                }; 
+            };
+            scheduler.launch(launch_mode, fn_task_to_param, false);
             // scheduler.launch(Launcher::Scheduler::LaunchModeCpu, fn_task_to_param, false);
         }
         // substep_clock.end_clock();
@@ -2061,8 +2093,9 @@ void GpuSolver::physics_step_vbd_async()
     float frame_cost = clock.end_clock();
     
     
-    computation_matrix = scheduler.computation_matrix;
+    // computation_matrix = scheduler.computation_matrix;
     scheduler.update_costs_from_computation_matrix();
+    // if (get_scene_params().current_frame == 0) scheduler.print_task_costs_map();
 
     fast_format("   In Frame {:2} : Hybrid Cost/Desire = {:.2f}/{:5.2f}, speedup = {:5.2f}%/{:5.2f}% to GPU/CPU (profile time = {:5.2f}/{:5.2f}), scheuling cost = {:3.2f}",
         get_scene_params().current_frame, 
@@ -2073,7 +2106,7 @@ void GpuSolver::physics_step_vbd_async()
         num_substep * scheduler.get_proc_costs()[0]  // CPU is proc 0
         , scheule_clock.duration()
     ); 
-    
+
 
     {
         if (get_scene_params().print_xpbd_convergence)
@@ -2098,6 +2131,24 @@ void CpuSolver::solve_constraints_VBD()
     { 
         compute_energy(iter_position); 
     }
+
+    // auto fn_task_to_param = [](const Launcher::FunctionID func_id, const uint iter_idx, const uint cluster_idx) 
+    // { 
+    //     const uint task_iter_buffer_idx = Launcher::default_buffer_mask;
+    //     return Launcher::LaunchParam{
+    //         .function_id = func_id, 
+    //         .iter_idx = iter_idx, 
+    //         .cluster_idx = cluster_idx, 
+    //         .is_allocated_to_main_device = true,
+    //         .buffer_idx = Launcher::default_buffer_mask, 
+    //         .left_buffer_idx = -1u, 
+    //         .input_buffer_idxs = {}, 
+    //     }; 
+    // };
+    // for (uint cluster = 0; cluster < xpbd_data->num_clusters_per_vertex_bending; cluster++)
+    // {
+    //     fn_dispatch(fn_task_to_param(Launcher::id_vbd_all_in_one, get_scene_params().current_it, cluster));
+    // }
 
     for (uint cluster = 0; cluster < xpbd_data->num_clusters_per_vertex_bending; cluster++)
     {
@@ -2310,7 +2361,7 @@ void SolverInterface::save_mesh_to_obj(const std::string& addition_str)
 
     if (file.is_open()) 
     {
-        file << "# File Simulated From SIGGRAPH 2025 paper <Auto Task Scheduling for Cloth and Deformable Simulation on Heterogeneous Environments>" << std::endl;
+        file << "# File Simulated From SIGGRAPH 2025 paper <Automatic Task Scheduling for Cloth and Deformable Simulation on Heterogeneous Environments>" << std::endl;
 
         uint glocal_vert_id_prefix = 0;
         uint glocal_mesh_id_prefix = 0;
@@ -2381,12 +2432,12 @@ int main()
         get_scene_params().constraint_iter_count = 8; // if larger than 8, then GPU may be locked in LaunchModeHetero
         get_scene_params().use_bending = true;
         get_scene_params().use_quadratic_bending_model = true;
-        get_scene_params().print_xpbd_convergence = false;
+        get_scene_params().print_xpbd_convergence = true;
         get_scene_params().use_xpbd_solver = false;
         get_scene_params().use_vbd_solver = true;
     }
 
-    const uint max_frame = 30;
+    const uint max_frame = 1;
     
     // Synchronous CPU Implementation
     {
@@ -2400,11 +2451,11 @@ int main()
         for (uint frame = 0; frame < max_frame; frame++)
         {   get_scene_params().current_frame = frame;    
 
-            solver.physics_step(SolverTypeVBD_CPU);
+            // solver.physics_step(SolverTypeVBD_CPU);
         }
     }
     {
-        solver.save_mesh_to_obj("_sync_CPU"); 
+        // solver.save_mesh_to_obj("_sync_CPU"); 
     }       
 
     // Synchronous GPU Implementation
@@ -2416,11 +2467,11 @@ int main()
         for (uint frame = 0; frame < max_frame; frame++)
         {   get_scene_params().current_frame = frame; 
 
-            solver.physics_step(SolverTypeVBD_GPU);
+            // solver.physics_step(SolverTypeVBD_GPU);
         }
     }
     {
-        solver.save_mesh_to_obj("_sync_GPU"); 
+        // solver.save_mesh_to_obj("_sync_GPU"); 
     }       
 
 

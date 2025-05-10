@@ -1435,12 +1435,15 @@ void CpuSolver::physics_step_vbd_async()
     auto fn_task_to_param = [](const Launcher::Task& task) 
     { 
         // task.print_with_cluster(0);
-        return Launcher::LaunchParam(
-            task.func_id, task.block_dim, 
-            task.iter_idx, task.cluster_idx, 
-            task.buffer_idx, task.buffer_left, task.buffer_ins, task.buffer_out, 
-            task.is_allocated_to_main_device
-        ); 
+        return Launcher::LaunchParam{
+            .function_id = task.func_id, 
+            .iter_idx = task.iter_idx, 
+            .cluster_idx = task.cluster_idx, 
+            .is_allocated_to_main_device = task.is_allocated_to_main_device,
+            .buffer_idx = task.buffer_idx, 
+            .left_buffer_idx = task.buffer_left, 
+            .input_buffer_idxs = task.buffer_ins, 
+        }; 
     };
     
     SimClock clock; clock.start_clock();
@@ -1648,7 +1651,7 @@ void SolverInterface::save_mesh_to_obj(const std::string& addition_str)
 
     if (file.is_open()) 
     {
-        file << "# File Simulated From SIGGRAPH 2025 paper <Auto Task Scheduling for Cloth and Deformable Simulation on Heterogeneous Environments>" << std::endl;
+        file << "# File Simulated From SIGGRAPH 2025 paper <Automatic Task Scheduling for Cloth and Deformable Simulation on Heterogeneous Environments>" << std::endl;
 
         uint glocal_vert_id_prefix = 0;
         uint glocal_mesh_id_prefix = 0;
