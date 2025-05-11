@@ -601,7 +601,7 @@ struct Task {
     std::vector< Implementation > list_implementation;
 
     uint buffer_left = -1u;  uint task_left = -1u;
-    uint buffer_in = -1u;    uint task_in = -1u;
+    // uint buffer_in = -1u;    uint task_in = -1u;
     uint buffer_out = -1u;   uint task_out = -1u;
     uint buffer_idx = -1u;   bool is_allocated_to_main_device = true; bool is_first_iterative_task = false;
 
@@ -656,10 +656,10 @@ struct Task {
         list_implementation(input_task.list_implementation),
 
         buffer_left(input_task.buffer_left), 
-        buffer_in(input_task.buffer_in), 
+        // buffer_in(input_task.buffer_in), 
         buffer_out(input_task.buffer_out), 
         task_left(input_task.task_left), 
-        task_in(input_task.task_in), 
+        // task_in(input_task.task_in), 
         task_out(input_task.task_out), 
         buffer_idx(input_task.buffer_idx), 
         is_allocated_to_main_device(input_task.is_allocated_to_main_device), 

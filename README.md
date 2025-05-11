@@ -52,7 +52,12 @@ This example shows how do we use our heterogenous framework in a simulation appl
 
 We use Metal-shading-language for GPU implementation, so this example is only supported on MacOS.
 
-Code will be comming soon...
+Coding will be comming soon...
+
+<!-- Most of the code is tested, except for `LaunchModeHetero`, we are working hard to fix the inequal result compared to sequecial implementation.
+
+We make scheduling each frame to fit the dynamic overhead caused by collisions (Although we do not add collision in this example... might comming soooooon)  -->
+
 
 ## Dependencies
 

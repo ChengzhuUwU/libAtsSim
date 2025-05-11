@@ -3026,6 +3026,21 @@ void Scheduler::scheduler_dag()
             }
         }
 
+        if constexpr (false) // Print Original Connections
+        {
+            for (uint tid = 0; tid < num_tasks; tid++)
+            {
+                const auto& task = list_task[tid];
+                const auto& task_schedule = task_schedules[tid];
+                const auto& task_ins = list_in[tid];
+                const auto& task_outs = list_out[tid];
+                fast_format("Task {:2} ({}) in proc {} (form {:4.2f} to {:4.2f}), input = {}, output = {}", 
+                    tid, taskNames.at(task.func_id), 
+                    task_schedule.proc, task_schedule.start, task_schedule.end,
+                    task_ins.size(), task_outs.size());
+            }
+        }
+
     #define USE_MAIN_DEVICE true
     #define MAIN_DEVICE_ID 1
 
@@ -3242,7 +3257,7 @@ void Scheduler::scheduler_dag()
                                 else 
                                 {
                                     // First iterative task in current processor
-                                    task.buffer_left = input_buffer_mask;
+                                    task.buffer_left = Launcher::input_buffer_mask;
                                     task.task_left = predict_position_tid;
                                 }
                             }
@@ -3251,11 +3266,15 @@ void Scheduler::scheduler_dag()
                         task_buffers[tid] = selected_buffer_idx;
                         task.buffer_idx = selected_buffer_idx;
                         left_constraint_tid[min_proc] = tid;
-                        // fast_format(" Task {:2}: left = {}, input = {}, buffer = {}  ({})", 
+                        
+                        // fast_format(" Task {:2}: left = {}, input = {}, buffer = {}  ({}, cluster = {}, iter = {})", 
                         //     tid, 
                         //     task.buffer_left != -1u ? std::to_string(task.buffer_left) : "/", 
-                        //     task.buffer_in != -1u ? std::to_string(task.buffer_in) : "/", 
-                        //     selected_buffer_idx, taskNames.at(task.func_id));
+                        //     // task.buffer_in != -1u ? std::to_string(task.buffer_in) : "/", 
+                        //     !task.buffer_ins.empty() ? std::to_string(task.buffer_ins.back()) : "/", 
+                        //     selected_buffer_idx, taskNames.at(task.func_id),
+                        //     task.cluster_idx, task.iter_idx
+                        // );
                     }
                 }
             }
@@ -3265,7 +3284,6 @@ void Scheduler::scheduler_dag()
 
     set_constant_computation_time_task();
     
-
     // Check
     if (bool_use_check)
     {

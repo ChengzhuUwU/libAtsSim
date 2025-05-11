@@ -1136,9 +1136,7 @@ void CpuSolver::physics_step_vbd()
 }
 void CpuSolver::fn_dispatch(const Launcher::LaunchParam& param)
 {
-    //
     // Asynchronous iteration part
-    //
     constexpr uint max_buffer_count = 32; 
     constexpr bool print_buffer_idx = false;
     auto fn_get_iter_buffer = [&](const uint buffer_idx) -> Buffer<Float3>& 
@@ -1223,9 +1221,8 @@ void CpuSolver::fn_dispatch(const Launcher::LaunchParam& param)
         }
     };
     
-    //
     // Register Implementation
-    //
+
     // auto fn_launch = [&](const Launcher::LaunchParam& param) // Why cant i use it in lambda ???
     {
         switch (param.function_id) 
@@ -1306,9 +1303,7 @@ void CpuSolver::physics_step_vbd_async()
 
     Launcher::Scheduler scheduler;
 
-    //
     // Register DAG and implementation
-    //
     {
         Launcher::Implementation ipm_xpbd_cpu(Launcher::DeviceTypeCpu, [&](const Launcher::LaunchParam& param) { fn_dispatch(param); });
         Launcher::Implementation imp_xpbd_gpu(Launcher::DeviceTypeGpu, [&](const Launcher::LaunchParam& param) { fn_dispatch(param); }); // Actually is CPU-implementation, you can replace it to your GPU-implementation's interface
@@ -1376,9 +1371,7 @@ void CpuSolver::physics_step_vbd_async()
         }
     }
 
-    //
     // Set computation matrix
-    //
     {
         std::vector< std::pair<Launcher::FunctionID, uint> > list_task_id = { };
         std::vector< std::vector<double> > list_cost; 
@@ -1402,9 +1395,7 @@ void CpuSolver::physics_step_vbd_async()
         scheduler.profile_from(list_task_id, list_cost, cost_total);
     }
 
-    //
     // Set communication matrix
-    //
     {
         scheduler.communication_cost_matrix_uma = {
             {0.0f, 0.1f},
@@ -1414,9 +1405,7 @@ void CpuSolver::physics_step_vbd_async()
         scheduler.communication_startup = {0, 0}; // First call cost
     }
 
-    //
     // Make scheduling
-    //
     if (scheduler.topological_sort()) 
     {
         // scheduler.print_sort_by_typology();

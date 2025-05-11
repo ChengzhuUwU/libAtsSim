@@ -1861,16 +1861,12 @@ void GpuSolver::physics_step_vbd_async()
     
     SimClock scheule_clock; scheule_clock.start_clock();  
 
-    //
     // Register DAG and implementation
-    //
     {
         Launcher::Implementation ipm_xpbd_cpu(Launcher::DeviceTypeCpu, [&](const Launcher::LaunchParam& param) { cpu_solver->fn_dispatch(param); });
         Launcher::Implementation imp_xpbd_gpu(Launcher::DeviceTypeGpu, [&](const Launcher::LaunchParam& param) { this->fn_dispatch(param); }); 
 
-        //
         // Register DAG
-        //
         {
             std::vector<Launcher::Implementation> implementation_list_xpbd_cpu_and_gpu = {ipm_xpbd_cpu, imp_xpbd_gpu};
             
@@ -1931,10 +1927,8 @@ void GpuSolver::physics_step_vbd_async()
         }
     }
 
-    //
     // Init for computation matrix (Approximate value)
     // Computation matrix can be updated per frame
-    //
     static std::vector< std::vector<float> > computation_matrix; // Update each frame, to fit the dynamic costs due to collisions
     auto fn_init_compuatation_matrix = [&]()
     {
@@ -1963,9 +1957,7 @@ void GpuSolver::physics_step_vbd_async()
         computation_matrix = scheduler.computation_matrix;
     };
 
-    //
     // Set communication matrix
-    //
     {
         scheduler.communication_cost_matrix_uma = {
             {0.002, 0.220},  /// gpu wait cpu
@@ -1975,9 +1967,7 @@ void GpuSolver::physics_step_vbd_async()
         scheduler.communication_startup = {0, 0}; // First call cost
     }
 
-    //
     // Make scheduling
-    //
     if (scheduler.topological_sort()) 
     {
         scheduler.standardizing_dag();
@@ -1997,9 +1987,7 @@ void GpuSolver::physics_step_vbd_async()
     }
     scheule_clock.end_clock();
     
-    //
     // Run
-    //
     SimClock clock; clock.start_clock();
     for (uint substep = 0; substep < num_substep; substep++) // 1 or 50 ?
     {   { get_scene_params().current_substep = substep; }
@@ -2038,14 +2026,13 @@ void GpuSolver::physics_step_vbd_async()
             scheduler.launch(Launcher::Scheduler::LaunchModeFakeHetero, fn_task_to_param, false);
         }
 
-        // In this mode, you will run scheduled tasks with ASYN waiting, the actual time should close to the scheduling time (after seceral frames)
+        // In this mode, you will run scheduled tasks with ASYNC waiting, the actual time should close to the scheduling time (after seceral frames)
         // However, this mode not work (e.g., GPU being locked or the simulation result is not equal to 'LaunchModeFakeHetero')
         //                              when there are too many tasks (e.g. 40 command-buffers on the GPU)
         // This is limited to the hardware, maybe we can solve it by segmenting the commission of gpu commands
         // If you have some ideas to fix it, hope you can help me (you find my contact information in my homepage: https://chengzhuuwu.github.io/)
         else if (launch_mode == Launcher::Scheduler::LaunchModeHetero)
         {   
-            
             auto fn_task_to_param = [](const Launcher::Task& task) 
             { 
                 // task.print_with_cluster(0);
