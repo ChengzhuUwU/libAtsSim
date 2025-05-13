@@ -136,6 +136,7 @@ inline uint upload_2d_csr_from(SharedArray<uint>& dest, const std::vector<std::v
 void init_mesh(BasicMeshData* mesh_data)
 {
     std::string model_name = "square8K.obj";
+    // std::string model_name = "square40K.obj";
     Float3 transform = make<Float3>(0.0f);
     Float3 rotation = make<Float3>(0.0f * Pi);
     Float3 scale = makeFloat3(1.0f);
@@ -2047,11 +2048,14 @@ void GpuSolver::evaluate_compuatation_matrix(Launcher::Scheduler& scheduler)
     CostMapType map_cpu;
     CostMapType map_gpu;
     
+    const bool use_profiled_matrix = true;
+
     // Pre-Profiling
+    if (!use_profiled_matrix)
     {
-        const uint profile_cpu_loop_count = 10; 
-        const uint profile_gpu_loop_count = 10;
-        const uint start_profile_threshhold = 0;    
+        const uint profile_cpu_loop_count = 50; 
+        const uint profile_gpu_loop_count = 50;
+        const uint start_profile_threshhold = 20;    
 
         auto fn_insert_cost_template = [](CostMapType& map, const Launcher::FunctionID& func_id, const uint& cluster_idx, const double& cost) -> void 
         {
@@ -2194,7 +2198,7 @@ void GpuSolver::evaluate_compuatation_matrix(Launcher::Scheduler& scheduler)
 
         fn_reset_to_load();
 
-        const bool print_cost = false;
+        const bool print_cost = true;
         {
             cost_total = {};
             
@@ -2252,26 +2256,61 @@ void GpuSolver::evaluate_compuatation_matrix(Launcher::Scheduler& scheduler)
             // list_cost.push_back({0.0, 0.0});
             // list_cost.push_back({0.0, 0.0});
         }
-    };
+    }
+    else 
+    {
+        // list_task_id = {
+        //     { Launcher::id_xpbd_predict_position, 0 }, 
+        //     { Launcher::id_xpbd_update_velocity, 0 }, 
+        //     { Launcher::id_xpbd_constraint_last_node, 0 }, 
+        // };
+        // for (uint cluster = 0; cluster < xpbd_data->num_clusters_per_vertex_bending; cluster++)
+        // {
+        //     list_task_id.push_back({Launcher::id_vbd_all_in_one, cluster});
+        // }
+        // for (uint i = 0; i < list_task_id.size(); i++)
+        // {
+        //     list_cost.push_back({1.0, 0.2});
+        // }
+
+        list_task_id = {
+            { Launcher::id_xpbd_predict_position, 0 }, 
+            { Launcher::id_vbd_all_in_one, 0 }, 
+            { Launcher::id_vbd_all_in_one, 1 }, 
+            { Launcher::id_vbd_all_in_one, 2 }, 
+            { Launcher::id_vbd_all_in_one, 3 }, 
+            { Launcher::id_vbd_all_in_one, 4 }, 
+            { Launcher::id_vbd_all_in_one, 5 }, 
+            { Launcher::id_vbd_all_in_one, 6 }, 
+            { Launcher::id_vbd_all_in_one, 7 }, 
+            { Launcher::id_vbd_all_in_one, 8 }, 
+            { Launcher::id_vbd_all_in_one, 9 }, 
+            { Launcher::id_xpbd_constraint_last_node, 0 }, 
+            { Launcher::id_xpbd_update_velocity, 0 }, 
+            { Launcher::id_additional_root, 0 }, 
+            { Launcher::id_additional_terminal, 0 }, 
+        };
+        list_cost = {
+            // id_xpbd_constraint_last_node
+            { 0.00876, 0.00378333 }, 
+            // id_vbd_all_in_one
+            { 0.0911744, 0.0658269 }, 
+            { 0.0962064, 0.0695517 }, 
+            { 0.0955727, 0.0709349 }, 
+            { 0.091657, 0.0711159 }, 
+            { 0.0922093, 0.072056 }, 
+            { 0.0870669, 0.0711635 }, 
+            { 0.0816308, 0.0729224 }, 
+            { 0.0662471, 0.0729321 }, 
+            { 0.0276512, 0.0488068 }, 
+            { 0.00111919, 0.0374237 }, 
+            // id_xpbd_predict_position
+            { 0.01712, 0.00437593 }, 
+            // id_xpbd_update_velocity
+            { 0.02156, 0.00476296 },
+        };
+    }
     
-    // list_task_id.clear();
-    // list_cost.clear();
-    // list_task_id = {
-    //     { Launcher::id_xpbd_predict_position, 0 }, 
-    //     { Launcher::id_xpbd_update_velocity, 0 }, 
-    //     { Launcher::id_xpbd_constraint_last_node, 0 }, 
-    //     { Launcher::id_additional_root, 0 },
-    //     { Launcher::id_additional_terminal, 0 },
-    // };
-    // for (uint cluster = 0; cluster < xpbd_data->num_clusters_per_vertex_bending; cluster++)
-    // {
-    //     list_task_id.push_back({Launcher::id_vbd_all_in_one, cluster});
-    // }
-    // for (uint i = 0; i < list_task_id.size(); i++)
-    // {
-    //     // std::cout << "        " << "    { Launcher::" << Launcher::taskNames.at(list_task_id[i].first) << ", " << list_task_id[i].second << " }, \n";
-    //     list_cost.push_back({1.0, 0.2});
-    // }
 
     scheduler.profile_from(list_task_id, list_cost, cost_total);
 }
@@ -2329,7 +2368,7 @@ void GpuSolver::physics_step_vbd_async()
         // if (get_scene_params().current_frame == 0 && get_scene_params().constraint_iter_count < 20) scheduler.print_schedule_to_graph_xpbd();
         // if (get_scene_params().current_frame == 0) scheduler.print_speedups_to_each_device();
         // if (get_scene_params().current_frame == 0) scheduler.print_schedule_to_graph_xpbd();
-        if (get_scene_params().current_frame == 29) scheduler.print_schedule_to_graph_xpbd();
+        // if (get_scene_params().current_frame == 29 && constraint_iter_count < 20) scheduler.print_schedule_to_graph_xpbd();
 
         scheduler.make_wait_events();
     }
@@ -2418,6 +2457,7 @@ void GpuSolver::physics_step_vbd_async()
             scheduler.launch(launch_mode, fn_task_to_param, false);
             // scheduler.launch(Launcher::Scheduler::LaunchModeCpu, fn_task_to_param, false);
         }
+
         // substep_clock.end_clock(); frame_cost += substep_clock.duration();
     }
     // frame_cost /= num_substep;
@@ -2426,7 +2466,7 @@ void GpuSolver::physics_step_vbd_async()
     
     computation_matrix = scheduler.computation_matrix;
     scheduler.update_costs_from_computation_matrix();
-    // if (get_scene_params().current_frame == 0) scheduler.print_task_costs_map();
+    if (get_scene_params().current_frame == 29) scheduler.print_task_costs_map();
 
     fast_format("   In Frame {:2} : Hybrid Cost/Desire = {:.2f}/{:5.2f}, speedup = {:5.2f}%/{:5.2f}% to GPU/CPU (profile time = {:5.2f}/{:5.2f}), scheuling cost = {:3.2f}",
         get_scene_params().current_frame, 
@@ -2442,15 +2482,10 @@ void GpuSolver::physics_step_vbd_async()
         if (get_scene_params().print_xpbd_convergence)
         {
             std::vector<double> list_energy(energy_idx);
-            for(uint it = 0; it < list_energy.size(); it++)
+            for (uint it = 0; it < list_energy.size(); it++)
             {
                 list_energy[it] = mesh_data->sa_system_energy[it];
             }
-            auto print_fromatob = [&](const uint left, const uint right)
-            { 
-                for (uint i = left; i <= right; i++) { if (i < list_energy.size()) fast_print_single(list_energy[i]); }; 
-                fast_print(); 
-            };
             fast_print_iterator(list_energy, "Energy Convergence"); energy_idx = 0;
         }
     }
@@ -2791,7 +2826,7 @@ int main()
         }
     }
     {
-        solver.save_mesh_to_obj("_sync_CPU"); 
+        // solver.save_mesh_to_obj("_sync_CPU"); 
     }       
 
     // Synchronous GPU Implementation
@@ -2807,7 +2842,7 @@ int main()
         }
     }
     {
-        solver.save_mesh_to_obj("_sync_GPU"); 
+        // solver.save_mesh_to_obj("_sync_GPU"); 
     }       
 
 

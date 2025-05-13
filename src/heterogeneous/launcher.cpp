@@ -703,7 +703,6 @@ void Scheduler::profile_from(
     
 }
 
-// If use 'LaunchModeHetero', we do not need do sync after this function
 void Scheduler::launch(LaunchMode mode, const std::function<LaunchParam(const Task&)> task_to_param, const bool fully_not_wait, const std::vector<std::function<void()>>& assemble_impl)
 {
     #if __APPLE__
@@ -934,7 +933,9 @@ void Scheduler::launch(LaunchMode mode, const std::function<LaunchParam(const Ta
         const std::vector<LaunchEvent>& cpu_event = launch_events[0];
         const uint num_gpu_events = gpu_event.size();
         const uint num_cpu_events = cpu_event.size();
-        // fast_format("cpu = {}, gpu = {}", num_cpu_events, num_gpu_events);
+        
+        // fast_format("num_gpu_events = {}, num_cpu_events = {}", num_gpu_events, num_cpu_events);
+        // if (num_gpu_events > 60) fast_format("Waiting events larger than 60, may out of hardward limitation");
         
         
         /// Launch GPU Commands : Async
@@ -1002,19 +1003,6 @@ void Scheduler::launch(LaunchMode mode, const std::function<LaunchParam(const Ta
         // fn_launch_cpu(1, 1);
         // fn_launch_gpu_and_wait(2, 3);
 
-        // auto fn_launch_single_gpu = [&](const uint tid)
-        // {
-        //     auto& task = list_task[tid];
-        //     bool find;
-        //     auto& imp = task.get_implementation(Launcher::DeviceTypeGpu, find);
-        //     if (find) imp.launch_task(task_to_param(task)); 
-        // };
-
-        // fn_launch_single_gpu(9);
-        // fn_launch_single_gpu(10);
-        // get_command_list().send_and_wait();
-        // return;
-
         for (uint cmd_idx = 0; cmd_idx < num_gpu_events; cmd_idx++) 
         {
 
@@ -1036,9 +1024,6 @@ void Scheduler::launch(LaunchMode mode, const std::function<LaunchParam(const Ta
             /// Launch
             for (uint i = event.start_idx; i <= event.end_idx; i++) 
             {
-
-                SimClock clock2; clock2.start_clock();
-
                 auto& gpu_jobs = gpu_schedules[i];
                 uint tid = gpu_jobs.task_id;
                 auto& task = list_task[tid];
@@ -1054,74 +1039,14 @@ void Scheduler::launch(LaunchMode mode, const std::function<LaunchParam(const Ta
                     fast_print_err("Does NOT Have GPU Implementation, Wrong Dispatch Logic", taskNames.at(task.func_id));
                     return;
                 }
-
             }   
             get_command_list().make_fence_with_previous_cmd_buffer(); // If False, The Function May Be Empty
             get_command_list().send_last_cmd_buffer_in_list();
         }
 
-        /*
-        for (uint cmd_idx = 0; cmd_idx < num_gpu_events; cmd_idx++) {
-            
-            const LaunchEvent& event = gpu_event[cmd_idx];
-
-            {
-                get_command_list().start_new_list();
-            }
-
-            /// Wait & Signal Between CPU & CPU
-            if (!fully_not_wait) {
-                if( event.wait != -1u) {
-                    // fast_print(cmd_idx, "GPU Waits for CPU", event.wait + 1);
-                    get_command_list().wait_cpu(get_shared_event(), event.wait);  
-                }
-            }
-            
-            /// Launch
-            for (uint i = event.start_idx; i <= event.end_idx; i++) {
-
-                auto& gpu_jobs = gpu_schedules[i];
-                uint tid = gpu_jobs.task_id;
-                auto& task = list_task[tid];
-
-                bool find;
-                auto& imp = task.get_implementation(Launcher::DeviceTypeGpu, find);
-
-                if(find){
-                    imp.launch_task(task_to_param(task));
-                }   
-                else{
-                    fast_print_err("Does NOT Have GPU Implementation, Wrong Dispatch Logic", taskNames.at(task.func_id));
-                    return;
-                }
-            }   
-
-            list_cmd_buffer[cmd_idx] = get_command_list().command_buffer;
-
-            if (auto_fence_count != 0) 
-                get_command_list().wait_fence(get_fence(auto_fence_count++)); 
-            auto_fence_count++; if (auto_fence_count == get_num_fence() - 1) { auto_fence_count = 0; }
-            get_command_list().make_fence(get_fence(auto_fence_count)); 
-
-            get_command_list().is_command_buffer_active = false; 
-            get_command_list().current_task_num = 0;
-            
-        }
-
-        for (auto& buffer : list_cmd_buffer) {
-            buffer->commit();
-        }
-        */
-
-        // Encode/Start/Get/Segment =  0.380/ 0.032/ 0.054/ 0.036
-        // fast_format("Encode/Start/Get/Segment = {:6.3f}/{:6.3f}/{:6.3f}/{:6.3f}",total_encode, total_start, total_get, total_segment);
-
-        
+   
         /// Launch CPU Commands : Immediate
 
-        // fast_format("num_gpu_events = {}, num_cpu_events = {}", num_gpu_events, num_cpu_events);
-        // if (num_gpu_events > 60) fast_format("Waiting events larger than 60, may out of hardward limitation");
-        
         std::vector<float> runtime_cost_cpu(num_cpu_events, 0.0f);
         for (uint cmd_idx = 0; cmd_idx < num_cpu_events; cmd_idx++) 
         {
@@ -1385,7 +1310,6 @@ void Scheduler::launch(LaunchMode mode, const std::function<LaunchParam(const Ta
                 }   
 
                 // get_command_list().send_and_wait();
-                // std::vector<double> rest_costs_from_buffer = get_command_list().get_cmd_buffer_costs(false);
 
                 get_command_list().make_fence_with_previous_cmd_buffer(); // If False, The Function May Be Empty
                 get_command_list().send_last_cmd_buffer_in_list();
@@ -3870,12 +3794,27 @@ void Scheduler::print_task_costs_map()
             });
         }
     }
+    fast_print("Implementation List : ");
+    std::cout << "{\n";
     for (const auto& pair : task_costs)
     {
-        
-        fast_format("task = {}, cluster = {}, cost = {:6.3f}/{:6.3f} ", taskNames.at(pair.func_id), pair.cluster_idx, pair.costs[0], pair.costs[1]);
+        const std::string func_name = taskNames.at(pair.func_id);
+        std::cout << "        " << "    { Launcher::" << func_name << ", " << pair.cluster_idx << " }, \n";
     }
-    
+    std::cout << "}\n";
+    fast_print("Cost List : ");
+    std::cout << "{\n";
+
+    for (const auto& pair : task_costs)
+    {
+        if (pair.cluster_idx == 0) 
+        {
+            std::cout << "        " << "    // " << Launcher::taskNames.at(pair.func_id) << "\n";
+        }
+        std::cout << "        " << "    { " << pair.costs[0] << ", " << pair.costs[1] << " }, \n";
+    }
+    std::cout << "}\n";
+
 }
 void Scheduler::print_schedule() {
     const uint num_procs = proc_schedules.size();
