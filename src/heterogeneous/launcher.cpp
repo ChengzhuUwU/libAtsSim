@@ -796,12 +796,36 @@ void Scheduler::launch(LaunchMode mode, const std::function<LaunchParam(const Ta
 
     if (mode == LaunchModeGpu) 
     {
-        // list_order
-        if (sorted_nodes.empty()) { fast_print_err("List Order Is EMPTY"); return; }
+        if (!sorted_nodes.empty()) 
+        { 
+            for (uint i = 0; i < sorted_nodes.size(); i++) 
+            {
+                auto tid = sorted_nodes[i]; auto& task = list_task[tid];
+                bool find; auto& imp = task.get_implementation(Launcher::DeviceTypeGpu, find); 
+                if (!find) { get_command_list().send_and_wait(); } 
+                imp.launch_task(task_to_param(task));
+            }
+        }
+        else if (!list_order.empty())
+        {
+            for (uint i = 0; i < list_order.size(); i++) 
+            {
+                auto tid = list_order[i]; auto& task = list_task[tid];
+                bool find; auto& imp = task.get_implementation(Launcher::DeviceTypeGpu, find); 
+                if (!find) { get_command_list().send_and_wait(); } 
+                imp.launch_task(task_to_param(task));
+            }  
+        }
+        else 
+        {
+            fast_print_err("Topology-Sorted List and RankU-Sorted List are EMPTY");
+            return;
+        }
+        get_command_list().send_and_wait();
 
-        get_command_list().reset_auto_fence_count();
         if constexpr (false)
         {  
+            get_command_list().reset_auto_fence_count();
             constexpr bool get_kernel_time = false;
 
             bool prev_is_gpu;
@@ -836,16 +860,9 @@ void Scheduler::launch(LaunchMode mode, const std::function<LaunchParam(const Ta
             auto costs = get_command_list().wait_all_cmd_buffers_and_get_costs(get_kernel_time); 
             
         }
-
-        for (uint i = 0; i < sorted_nodes.size(); i++) 
+        if constexpr (false)
         {
-            auto tid = sorted_nodes[i]; auto& task = list_task[tid];
-            bool find; auto& imp = task.get_implementation(Launcher::DeviceTypeGpu, find); if (!find) { get_command_list().send_and_wait(); } 
-            imp.launch_task(task_to_param(task));
-        } 
-        get_command_list().send_and_wait();
-
-        // const uint sync_count = 40;
+            // const uint sync_count = 40;
         // for (uint i = 0; i < list_order.size(); i++) 
         // {
         //     if ((i % sync_count == 0) && (i != list_order.size() - 1))
@@ -863,13 +880,25 @@ void Scheduler::launch(LaunchMode mode, const std::function<LaunchParam(const Ta
         // get_command_list().send_all_cmd_buffers();
         // get_command_list().wait_all_cmd_buffers();
         // get_command_list().clear_all_cmd_buffers();
+        }
+        
 
     }
     else if (mode == LaunchModeCpu)
     {
-        if (sorted_nodes.empty()) 
+        if (!sorted_nodes.empty()) 
         { 
-            fast_print_err("List Order Is EMPTY, Switch To Topology Sorting Order");
+            for (uint i = 0; i < sorted_nodes.size(); i++) 
+            {
+                auto tid = sorted_nodes[i]; auto& task = list_task[tid];
+                bool find; auto& imp = task.get_implementation(Launcher::DeviceTypeCpu, find);
+                if (!find) { fast_print_err("There Is NO CPU Implementation!!"); return; }
+                imp.launch_task(task_to_param(task));
+            }
+        }
+        else if (!list_order.empty())
+        {
+            
             for (uint i = 0; i < list_order.size(); i++) 
             {
                 auto tid = list_order[i]; auto& task = list_task[tid];
@@ -880,13 +909,8 @@ void Scheduler::launch(LaunchMode mode, const std::function<LaunchParam(const Ta
         }
         else 
         {
-            for (uint i = 0; i < sorted_nodes.size(); i++) 
-            {
-                auto tid = sorted_nodes[i]; auto& task = list_task[tid];
-                bool find; auto& imp = task.get_implementation(Launcher::DeviceTypeCpu, find);
-                if (!find) { fast_print_err("There Is NO CPU Implementation!!"); return; }
-                imp.launch_task(task_to_param(task));
-            } 
+            fast_print_err("Topology-Sorted List and RankU-Sorted List are EMPTY");
+            return;
         }
 
         
@@ -910,7 +934,7 @@ void Scheduler::launch(LaunchMode mode, const std::function<LaunchParam(const Ta
         const std::vector<LaunchEvent>& cpu_event = launch_events[0];
         const uint num_gpu_events = gpu_event.size();
         const uint num_cpu_events = cpu_event.size();
-        fast_format("cpu = {}, gpu = {}", num_cpu_events, num_gpu_events);
+        // fast_format("cpu = {}, gpu = {}", num_cpu_events, num_gpu_events);
         
         
         /// Launch GPU Commands : Async
@@ -1096,7 +1120,7 @@ void Scheduler::launch(LaunchMode mode, const std::function<LaunchParam(const Ta
         /// Launch CPU Commands : Immediate
 
         // fast_format("num_gpu_events = {}, num_cpu_events = {}", num_gpu_events, num_cpu_events);
-        if (num_gpu_events > 60) fast_format("Waiting events larger than 60, may out of hardward limitation");
+        // if (num_gpu_events > 60) fast_format("Waiting events larger than 60, may out of hardward limitation");
         
         std::vector<float> runtime_cost_cpu(num_cpu_events, 0.0f);
         for (uint cmd_idx = 0; cmd_idx < num_cpu_events; cmd_idx++) 
@@ -1339,6 +1363,7 @@ void Scheduler::launch(LaunchMode mode, const std::function<LaunchParam(const Ta
             for (uint gpu_cmd_idx = begin_cmd_idx; gpu_cmd_idx <= end_cmd_idx; gpu_cmd_idx++){
 
                 list_cmd_buffer[gpu_cmd_idx] = get_command_list().start_new_list_with_new_buffer();
+                // list_cmd_buffer[gpu_cmd_idx] = get_command_list().start_new_list();
 
                 const LaunchEvent& event = gpu_event[gpu_cmd_idx];
                 for (uint i = event.start_idx; i <= event.end_idx; i++) {
@@ -1348,15 +1373,19 @@ void Scheduler::launch(LaunchMode mode, const std::function<LaunchParam(const Ta
 
                     bool find;
                     auto& imp = task.get_implementation(Launcher::DeviceTypeGpu, find);
-                    if (find){
+                    if (find) {
+                        // fast_format("  In gpu_idx {}, launch task {} ({}, {})", gpu_cmd_idx, taskNames.at(task.func_id), task.iter_idx, task.cluster_idx);
                         // imp.launch_task({task.func_id, 0, task.num_threads, 256, 0, 0, true, false, true});
                         imp.launch_task(task_to_param(task)); // task.print_with_cluster(tid);
                     }   
-                    else{
+                    else {
                         fast_print_err("Does NOT Have GPU Implementation, Wrong Dispatch Logic");
                         return;
                     }
                 }   
+
+                // get_command_list().send_and_wait();
+                // std::vector<double> rest_costs_from_buffer = get_command_list().get_cmd_buffer_costs(false);
 
                 get_command_list().make_fence_with_previous_cmd_buffer(); // If False, The Function May Be Empty
                 get_command_list().send_last_cmd_buffer_in_list();
@@ -1735,7 +1764,7 @@ void Scheduler::standardizing_dag(const std::vector< std::function<void(const La
 
 
     const bool print_connectivity_matrix = false; /// --- Print --- 
-    if (print_connectivity_matrix){
+    if constexpr (print_connectivity_matrix) {
         const uint num_tasks = list_task.size();
         
         // T  ,T0 ,T1 ,T2 ,T3 ,T4 ,T5 ,T6 ,T7 ,T8 ,T9

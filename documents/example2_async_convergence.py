@@ -90,4 +90,4 @@ proc_energy_list(list_sync, "Sync")
 
 
 
-draw_all(fig, "Iterations", "Iteration", "Relative Energy", "iter_100_convergence")
+draw_all(fig, "Iterations", "Iteration", "Relative Energy", "example2_iter_100_convergence")

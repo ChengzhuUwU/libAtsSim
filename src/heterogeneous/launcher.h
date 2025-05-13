@@ -864,10 +864,13 @@ private:
 
 private:
     
-
+public:
+    const std::vector< Task >& get_list_task() const { return list_task; }
+    const std::vector< uint >& get_list_order() const { return list_order; }
+    
 private:
-    // std::vector< Connect > list_connect;
     std::vector< Task > list_task;
+    // std::vector< Connect > list_connect;
     std::vector<uint> list_order;
     std::vector<uint> sorted_nodes;
     uint sync_count = 1;

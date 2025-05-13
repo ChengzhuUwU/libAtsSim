@@ -27,6 +27,8 @@ struct BasicMeshData
     Buffer<Float3> sa_v_frame_start;
     Buffer<Float3> sa_x_frame_end;
     Buffer<Float3> sa_v_frame_end;
+    Buffer<Float3> sa_x_frame_saved;
+    Buffer<Float3> sa_v_frame_saved;
 
     Buffer<Int3> sa_faces;
     Buffer<Int2> sa_edges;
@@ -380,8 +382,13 @@ void init_mesh(BasicMeshData* mesh_data)
     {
         mesh_data->sa_x_frame_start.resize(num_verts); mesh_data->sa_x_frame_start = mesh_data->sa_rest_x;
         mesh_data->sa_v_frame_start.resize(num_verts); mesh_data->sa_v_frame_start = mesh_data->sa_rest_v;
+
         mesh_data->sa_x_frame_end.resize(num_verts); mesh_data->sa_x_frame_end = mesh_data->sa_rest_x;
         mesh_data->sa_v_frame_end.resize(num_verts); mesh_data->sa_v_frame_end = mesh_data->sa_rest_v;
+
+        mesh_data->sa_x_frame_saved.resize(num_verts); mesh_data->sa_x_frame_saved = mesh_data->sa_rest_x;
+        mesh_data->sa_v_frame_saved.resize(num_verts); mesh_data->sa_v_frame_saved = mesh_data->sa_rest_v;
+
         mesh_data->sa_system_energy.resize(10240);
         mesh_data->sa_system_energy_2.resize(10240);
     }
@@ -453,6 +460,8 @@ public:
     void physics_step_vbd();
     void physics_step_xpbd();
     void physics_step_vbd_async();
+    void register_dag(Launcher::Scheduler& scheduler);
+    void evaluate_compuatation_matrix(Launcher::Scheduler& scheduler);
     void fn_dispatch(const Launcher::LaunchParam& param);
     void compute_energy(const Buffer<Float3>& curr_cloth_position);
     void solve_constraints_VBD();
@@ -1908,24 +1917,9 @@ void GpuSolver::fn_dispatch(const Launcher::LaunchParam& param)
         }
     };
 }
-
-void GpuSolver::physics_step_vbd_async()
+void GpuSolver::register_dag(Launcher::Scheduler& scheduler)
 {
-    xpbd_data->sa_x_start = mesh_data->sa_x_frame_start;
-    xpbd_data->sa_v_start = mesh_data->sa_v_frame_start;
-    xpbd_data->sa_x = mesh_data->sa_x_frame_start;
-    xpbd_data->sa_v = mesh_data->sa_v_frame_start;
-
-    const uint num_substep = get_scene_params().print_xpbd_convergence ? 1 : get_scene_params().num_substep;
     const uint constraint_iter_count = get_scene_params().constraint_iter_count;
-
-    std::memset(mesh_data->sa_system_energy.data(), 0, mesh_data->sa_system_energy.size() * sizeof(float)); energy_idx = 0;
-
-    Launcher::Scheduler scheduler; scheduler.set_safety_check(true);
-    
-    SimClock scheule_clock; scheule_clock.start_clock();  
-
-    // Register DAG and implementation
     {
         Launcher::Implementation ipm_xpbd_cpu(Launcher::DeviceTypeCpu, [&](const Launcher::LaunchParam& param) { cpu_solver->fn_dispatch(param); });
         Launcher::Implementation imp_xpbd_gpu(Launcher::DeviceTypeGpu, [&](const Launcher::LaunchParam& param) { this->fn_dispatch(param); }); 
@@ -1990,36 +1984,318 @@ void GpuSolver::physics_step_vbd_async()
             }
         }
     }
-
+}
+void GpuSolver::evaluate_compuatation_matrix(Launcher::Scheduler& scheduler)
+{
     // Init for computation matrix (Approximate value)
+
+    std::vector< std::pair<Launcher::FunctionID, uint> > list_task_id = { };
+    std::vector< std::vector<double> > list_cost; 
+    std::vector< double > cost_total;
+
+    auto fn_reset_to_load = [&]()
+    {
+        parallel_for(0, mesh_data->num_verts, [&](uint vid)
+        {
+            Float3 saved_pos = mesh_data->sa_x_frame_saved[vid];
+            mesh_data->sa_x_frame_start[vid] = saved_pos;
+            mesh_data->sa_x_frame_end[vid] = saved_pos;
+
+            Float3 saved_vel = mesh_data->sa_v_frame_saved[vid];
+            mesh_data->sa_v_frame_start[vid] = saved_vel;
+            mesh_data->sa_v_frame_end[vid] = saved_vel;
+        });
+    };
+    auto func_prepare = [](){};
+
+    mesh_data->sa_x_frame_saved = mesh_data->sa_x_frame_end;
+    mesh_data->sa_v_frame_saved = mesh_data->sa_v_frame_end;
+
+    const auto& list_task = scheduler.get_list_task();
+    const auto& list_order = scheduler.get_list_order();
+    const uint num_tasks = list_task.size();
+    std::vector< std::vector<double> > cost_list_cpu(num_tasks);
+    std::vector< std::vector<double> > cost_list_gpu(num_tasks); 
+
+    using CostMapKey = std::pair<Launcher::FunctionID, uint>;
+    auto comp = [](const CostMapKey& key1, const CostMapKey& key2) 
+    {         
+        int func_id1    = int(key1.first);  int func_id2 = int(key2.first);
+        int cluster_id1 = int(key1.second); int cluster_id2 = int(key2.second);
+        if (func_id1 != func_id2) {
+            return func_id1 < func_id2;
+        }
+        else {
+            return cluster_id1 < cluster_id2;
+        }
+    };
+
+    struct CostMapCompFunc 
+    {
+        using KeyType = std::pair<Launcher::FunctionID, uint>;
+        bool operator()(const KeyType& key1, const KeyType& key2) const 
+        {
+            int func_id1    = int(key1.first);  int func_id2 = int(key2.first);
+            int cluster_id1 = int(key1.second); int cluster_id2 = int(key2.second);
+            if (func_id1 != func_id2) 
+                return func_id1 < func_id2;
+            else 
+                return cluster_id1 < cluster_id2;
+        }
+    };
+    using CostMapType = std::map<std::pair<Launcher::FunctionID, uint>, std::vector<double>, CostMapCompFunc>;
+    CostMapType map_cpu;
+    CostMapType map_gpu;
+    
+    // Pre-Profiling
+    {
+        const uint profile_cpu_loop_count = 10; 
+        const uint profile_gpu_loop_count = 10;
+        const uint start_profile_threshhold = 0;    
+
+        auto fn_insert_cost_template = [](CostMapType& map, const Launcher::FunctionID& func_id, const uint& cluster_idx, const double& cost) -> void 
+        {
+            const auto key = std::make_pair(func_id, cluster_idx);
+            if (map.find(key) != map.end()) {
+                map.at(key).push_back(cost);
+            }
+            else {
+                map.insert(std::make_pair(key, std::vector<double>{cost}));
+            }
+        };
+        auto fn_insert_cost_cpu = [&](const Launcher::FunctionID& func_id, const uint& cluster_idx, const double& cost) {  fn_insert_cost_template(map_cpu, func_id, cluster_idx, cost); };
+        auto fn_insert_cost_gpu = [&](const Launcher::FunctionID& func_id, const uint& cluster_idx, const double& cost) {  fn_insert_cost_template(map_gpu, func_id, cluster_idx, cost); };
+        
+        auto fn_task_to_param = [](const Launcher::Task& task) 
+        { 
+            return Launcher::LaunchParam{
+                .function_id = task.func_id, 
+                .iter_idx = task.iter_idx, 
+                .cluster_idx = task.cluster_idx, 
+                .is_allocated_to_main_device = true,
+                .buffer_idx = Launcher::default_buffer_mask, 
+                .left_buffer_idx = -1u, 
+                .right_buffer_idx = -1u, 
+                .input_buffer_idxs = {}, 
+            }; 
+        };
+
+        fn_reset_to_load();
+        func_prepare();
+        fn_reset_to_load();
+        
+        // Profile CPU
+        fast_format("\nPrev CPU Loop for {} Times", 2); 
+        for (uint prev_loop = 0; prev_loop < 2; prev_loop++) 
+        { 
+            for (uint i = 0; i < 8; i++) 
+            {
+                scheduler.launch(Launcher::Scheduler::LaunchModeCpu, fn_task_to_param, false);
+            }
+        }
+
+        fast_print("CPU Loop..."); double total_cpu = 0.0;
+        for (uint loop = 0; loop < profile_cpu_loop_count; loop++) 
+        { 
+            // fast_print_single(loop); // We Do Not Do Print... Since It Is TOO SLOW !!!
+            SimClock clock_total; clock_total.start_clock(); double sum_of_each_task = 0.0;
+            for (auto tid : list_order) 
+            {
+                SimClock clock; clock.start_clock();
+                auto& task = list_task[tid];
+                bool find; auto& imp = task.get_implementation(Launcher::DeviceTypeCpu, find);
+                if (!find) { fast_print_err("Does Not Exist CPU Implement"); }          
+                {
+                    imp.launch_task(fn_task_to_param(task));
+                }
+                double cost = clock.end_clock();
+                if (loop > start_profile_threshhold) 
+                {
+                    double dt = cost; sum_of_each_task += dt;
+                    cost_list_cpu[tid].push_back(dt);  
+                    fn_insert_cost_cpu(task.func_id, task.cluster_idx, dt);
+                }
+            }
+            double curr_loop_cost = clock_total.end_clock(); 
+            if (loop > start_profile_threshhold) { total_cpu += curr_loop_cost; } 
+        } 
+        cost_total.push_back(total_cpu / double(profile_cpu_loop_count - start_profile_threshhold - 1));
+
+        fn_reset_to_load();
+
+        // Profile GPU  
+
+    #if __APPLE__
+
+        fast_print_single("GPU Loop..."); double total_gpu = 0.0;
+        auto& auto_fence_count = get_command_list().auto_fence_count; get_command_list().reset_auto_fence_count();
+        for (uint loop = 0; loop < profile_gpu_loop_count; loop++) 
+        {
+            fast_print_single(loop); get_command_list().reset_auto_fence_count();
+
+            constexpr bool get_kernel_time = false;
+
+            std::vector<double> list_gpu_costs; 
+            bool prev_is_gpu; std::vector<MTL::CommandBuffer*> curr_loop_buffers;
+            for (uint i = 0; i < list_order.size() ; i++)
+            {
+                auto tid = list_order[i % num_tasks];
+                auto& task = list_task[tid];
+                bool find; const auto& imp = task.get_implementation(Launcher::DeviceTypeGpu, find);
+                if (!find) 
+                { 
+                    if (prev_is_gpu)
+                    {
+                        std::vector<double> prev_costs_from_cmd_buffer = get_command_list().wait_all_cmd_buffers_and_get_costs(get_kernel_time);
+                        list_gpu_costs.insert(list_gpu_costs.end(), prev_costs_from_cmd_buffer.begin(), prev_costs_from_cmd_buffer.end());
+                    }
+                    SimClock clock_for_cpu; clock_for_cpu.start_clock();
+                    {
+                        imp.launch_task(fn_task_to_param(task)); 
+                    }
+                    list_gpu_costs.push_back(clock_for_cpu.end_clock());
+                    if (loop == 0) fast_print("Switch To CPU Implementation",  Launcher::taskNames.at(task.func_id));
+                    prev_is_gpu = false; 
+                }  
+                else 
+                {
+                    auto buffer = get_command_list().start_new_list_with_new_buffer(); curr_loop_buffers.push_back(buffer);
+                    {
+                        imp.launch_task(fn_task_to_param(task));
+                    }
+                    get_command_list().make_fence_with_previous_cmd_buffer(); // If False, The Function May Be Empty
+                    get_command_list().send_last_cmd_buffer_in_list();
+                    prev_is_gpu = true;
+                }
+            }
+            
+            std::vector<double> rest_costs_from_buffer = get_command_list().wait_all_cmd_buffers_and_get_costs(get_kernel_time); 
+            list_gpu_costs.insert(list_gpu_costs.end(), rest_costs_from_buffer.begin(), rest_costs_from_buffer.end());
+            double duration = 1000.0 * (curr_loop_buffers.back()->GPUEndTime() - curr_loop_buffers[0]->GPUStartTime());
+            double sum_of_each_task = std::accumulate(list_gpu_costs.begin(), list_gpu_costs.end(), 0.0);
+            
+            for (uint i = 0; i < list_order.size() ; i++)
+            {
+                auto tid = list_order[i % num_tasks];
+                const auto& task = list_task[tid];
+                double dt = list_gpu_costs[i];
+
+                if (loop != 0) 
+                {
+                    cost_list_gpu[tid].push_back(dt);  
+                    fn_insert_cost_gpu(task.func_id, task.cluster_idx, dt);
+                }
+            }
+            if (loop != 0) total_gpu += duration;
+
+        }  fast_print();
+        cost_total.push_back(total_gpu / double(profile_gpu_loop_count - 1));
+    #endif
+
+        fn_reset_to_load();
+
+        const bool print_cost = false;
+        {
+            cost_total = {};
+            
+            if constexpr (print_cost) fast_print("Implementation List : ");
+            if constexpr (print_cost) 
+            {
+                std::cout << "{\n";
+                for (const auto& pair : map_cpu) 
+                {
+                    const auto& key = pair.first;
+                    if (Launcher::taskNames.find(key.first) != Launcher::taskNames.end()) 
+                    {
+                        const std::string func_name = Launcher::taskNames.at(key.first);
+                        std::cout << "        " << "    { Launcher::" << func_name << ", " << key.second << " }, \n";// std::format("{{}, {}}, ", func_name, pair_cpu.second);
+                    }
+                    else  { fast_print_err("Task does not exist");  }
+                }
+                std::cout << "}\n";
+                fast_print("Cost List : ");
+                std::cout << "{\n";
+            }
+            
+            const uint drop_count = 2;
+            for (const auto& pair : map_cpu) 
+            {
+                const auto& key = pair.first;
+                
+                if constexpr (print_cost) 
+                {
+                    if (key.second == 0) 
+                    {
+                        std::cout << "        " << "    // " << Launcher::taskNames.at(key.first) << "\n";
+                    }
+                }
+
+                auto list_cpu = pair.second;
+                auto list_gpu = map_gpu.at(key);
+                std::sort(list_cpu.begin(), list_cpu.end());
+                std::sort(list_gpu.begin(), list_gpu.end());
+
+                // Drop the  largest 2 elements
+                // Drop the smallest 2 elements
+                double avg_cpu = std::accumulate(list_cpu.begin() + drop_count, list_cpu.end() - drop_count, 0.0) / double(list_cpu.size() - 2 * drop_count);
+                double avg_gpu = std::accumulate(list_gpu.begin() + drop_count, list_gpu.end() - drop_count, 0.0) / double(list_gpu.size() - 2 * drop_count);
+                
+                list_task_id.push_back({key.first, key.second});
+                list_cost.push_back({avg_cpu, avg_gpu});
+
+                if constexpr (print_cost) std::cout << "        " << "    { " << avg_cpu << ", " << avg_gpu << " }, \n";
+            }
+            if constexpr (print_cost) std::cout << "}\n";
+
+            // list_task_id.push_back({Launcher::id_additional_root, 0});
+            // list_task_id.push_back({Launcher::id_additional_terminal, 0});
+            // list_cost.push_back({0.0, 0.0});
+            // list_cost.push_back({0.0, 0.0});
+        }
+    };
+    
+    // list_task_id.clear();
+    // list_cost.clear();
+    // list_task_id = {
+    //     { Launcher::id_xpbd_predict_position, 0 }, 
+    //     { Launcher::id_xpbd_update_velocity, 0 }, 
+    //     { Launcher::id_xpbd_constraint_last_node, 0 }, 
+    //     { Launcher::id_additional_root, 0 },
+    //     { Launcher::id_additional_terminal, 0 },
+    // };
+    // for (uint cluster = 0; cluster < xpbd_data->num_clusters_per_vertex_bending; cluster++)
+    // {
+    //     list_task_id.push_back({Launcher::id_vbd_all_in_one, cluster});
+    // }
+    // for (uint i = 0; i < list_task_id.size(); i++)
+    // {
+    //     // std::cout << "        " << "    { Launcher::" << Launcher::taskNames.at(list_task_id[i].first) << ", " << list_task_id[i].second << " }, \n";
+    //     list_cost.push_back({1.0, 0.2});
+    // }
+
+    scheduler.profile_from(list_task_id, list_cost, cost_total);
+}
+void GpuSolver::physics_step_vbd_async()
+{
+    xpbd_data->sa_x_start = mesh_data->sa_x_frame_start;
+    xpbd_data->sa_v_start = mesh_data->sa_v_frame_start;
+    xpbd_data->sa_x = mesh_data->sa_x_frame_start;
+    xpbd_data->sa_v = mesh_data->sa_v_frame_start;
+
+    const uint num_substep = get_scene_params().print_xpbd_convergence ? 1 : get_scene_params().num_substep;
+    const uint constraint_iter_count = get_scene_params().constraint_iter_count;
+
+    std::memset(mesh_data->sa_system_energy.data(), 0, mesh_data->sa_system_energy.size() * sizeof(float)); energy_idx = 0;
+
+    Launcher::Scheduler scheduler; scheduler.set_safety_check(false);
+    
+    SimClock scheule_clock; scheule_clock.start_clock();  
+
+    // Register DAG and implementation
+    register_dag(scheduler);
+
     // Computation matrix can be updated per frame
     static std::vector< std::vector<float> > computation_matrix; // Update each frame, to fit the dynamic costs due to collisions
-    auto fn_init_compuatation_matrix = [&]()
-    {
-        std::vector< std::pair<Launcher::FunctionID, uint> > list_task_id = { };
-        std::vector< std::vector<double> > list_cost; 
-        std::vector< double > cost_total;
-
-        list_task_id = {
-            { Launcher::id_xpbd_predict_position, 0 }, 
-            { Launcher::id_xpbd_update_velocity, 0 }, 
-            { Launcher::id_xpbd_constraint_last_node, 0 }, 
-            { Launcher::id_vbd_all_in_one, 0 },
-            { Launcher::id_additional_root, 0 },
-            { Launcher::id_additional_terminal, 0 },
-        };
-        for (uint cluster = 0; cluster < xpbd_data->num_clusters_per_vertex_bending; cluster++)
-        {
-            list_task_id.push_back({Launcher::id_vbd_all_in_one, cluster});
-        }
-        for (uint i = 0; i < list_task_id.size(); i++)
-        {
-            list_cost.push_back({1.0, 0.2});
-        }
-        scheduler.profile_from(list_task_id, list_cost, cost_total);
-
-        computation_matrix = scheduler.computation_matrix;
-    };
 
     // Set communication matrix
     {
@@ -2034,18 +2310,26 @@ void GpuSolver::physics_step_vbd_async()
     // Make scheduling
     if (scheduler.topological_sort()) 
     {
-        scheduler.standardizing_dag();
-        
-        if (computation_matrix.empty()) fn_init_compuatation_matrix();
+        if (computation_matrix.empty()) 
+        {
+            evaluate_compuatation_matrix(scheduler);
+        }
+        else 
+        {
+            scheduler.computation_matrix = computation_matrix;
+        }
 
-        scheduler.computation_matrix = computation_matrix;
+        scheduler.standardizing_dag({
+            [&](const Launcher::LaunchParam&){},
+            [&](const Launcher::LaunchParam&){ get_command_list().add_task(fn_empty); fn_empty.launch_async(1); },
+        });
 
         scheduler.scheduler_dag();
         
         // if (get_scene_params().current_frame == 0 && get_scene_params().constraint_iter_count < 20) scheduler.print_schedule_to_graph_xpbd();
         // if (get_scene_params().current_frame == 0) scheduler.print_speedups_to_each_device();
         // if (get_scene_params().current_frame == 0) scheduler.print_schedule_to_graph_xpbd();
-        // if (get_scene_params().current_frame == 29) scheduler.print_schedule_to_graph_xpbd();
+        if (get_scene_params().current_frame == 29) scheduler.print_schedule_to_graph_xpbd();
 
         scheduler.make_wait_events();
     }
@@ -2058,10 +2342,11 @@ void GpuSolver::physics_step_vbd_async()
     constexpr auto launch_mode = Launcher::Scheduler::LaunchModeHetero;  
     
     // Run
-    SimClock clock; clock.start_clock();
-    for (uint substep = 0; substep < num_substep; substep++) // 1 or 50 ?
+    SimClock clock; clock.start_clock(); 
+    float frame_cost = 0.0f;
+    for (uint substep = 0; substep < num_substep; substep++)
     {   { get_scene_params().current_substep = substep; }
-        // SimClock substep_clock; substep_clock.start_clock();
+        SimClock substep_clock; substep_clock.start_clock();
 
         // In this mode, you will run scheduled tasks with SYNC waiting 
         // The final result should be the same as LaunchModeHetero 
@@ -2082,12 +2367,6 @@ void GpuSolver::physics_step_vbd_async()
                     .right_buffer_idx = task.buffer_right, 
                     .input_buffer_idxs = task.buffer_ins, 
                 }; 
-                // return Launcher::LaunchParam(
-                //     task.func_id, task.block_dim, 
-                //     task.iter_idx, task.cluster_idx, 
-                //     task.buffer_idx, task.buffer_left, task.buffer_ins, task.buffer_out, 
-                //     task.is_allocated_to_main_device
-                // ); 
             };
             scheduler.launch(Launcher::Scheduler::LaunchModeFakeHetero, fn_task_to_param, false);
         }
@@ -2095,6 +2374,8 @@ void GpuSolver::physics_step_vbd_async()
         // In this mode, you will run scheduled tasks with ASYNC waiting, the actual time should close to the scheduling time (after seceral frames)
         // However, this mode not work (e.g., GPU being locked or the simulation result is not equal to 'LaunchModeFakeHetero')
         //                              when there are too many tasks (e.g. 40 command-buffers on the GPU)
+        //                              (Another reason that the simulation result is not equal to 'LaunchModeFakeHetero' is that 
+        //                                 we may not write the data transfering stragegy correctly which may result buffer conflict or access)
         // This is limited to the hardware, maybe we can solve it by segmenting the commission of gpu commands
         // If you have some ideas to fix it, hope you can help me (you find my contact information in my homepage: https://chengzhuuwu.github.io/)
         else if constexpr (launch_mode == Launcher::Scheduler::LaunchModeHetero || launch_mode == Launcher::Scheduler::LaunchModePartialGPU)
@@ -2123,14 +2404,6 @@ void GpuSolver::physics_step_vbd_async()
         {    
             auto fn_task_to_param = [](const Launcher::Task& task) 
             { 
-                // if (get_scene_params().current_substep == 0) task.print_with_cluster(0);
-
-                const uint task_iter_buffer_idx = Launcher::default_buffer_mask;
-                // We identify the "buffer_left" of the first scheduled task on each processor as "input_buffer_mask"
-                //      Which will copy information from predict position: sa_x
-                // If we drop the "buffer_left/buffer_input" information, then we miss the input from sa_x
-                // In this mode, we use "default_buffer_mask" to make zero-copy and always iter from sa_x 
-                
                 return Launcher::LaunchParam{
                     .function_id = task.func_id, 
                     .iter_idx = task.iter_idx, 
@@ -2145,18 +2418,19 @@ void GpuSolver::physics_step_vbd_async()
             scheduler.launch(launch_mode, fn_task_to_param, false);
             // scheduler.launch(Launcher::Scheduler::LaunchModeCpu, fn_task_to_param, false);
         }
-        // substep_clock.end_clock();
+        // substep_clock.end_clock(); frame_cost += substep_clock.duration();
     }
-    float frame_cost = clock.end_clock();
+    // frame_cost /= num_substep;
+    frame_cost = clock.end_clock();
     
     
-    // computation_matrix = scheduler.computation_matrix;
+    computation_matrix = scheduler.computation_matrix;
     scheduler.update_costs_from_computation_matrix();
     // if (get_scene_params().current_frame == 0) scheduler.print_task_costs_map();
 
     fast_format("   In Frame {:2} : Hybrid Cost/Desire = {:.2f}/{:5.2f}, speedup = {:5.2f}%/{:5.2f}% to GPU/CPU (profile time = {:5.2f}/{:5.2f}), scheuling cost = {:3.2f}",
         get_scene_params().current_frame, 
-        clock.duration(), scheduler.get_scheduled_end_time() * num_substep, // get_scheduled_end_time() should near to actual time in LaunchModeHetero
+        frame_cost, scheduler.get_scheduled_end_time() * num_substep, // get_scheduled_end_time() should near to actual time in LaunchModeHetero
         scheduler.get_scheduled_speedups()[1] * 100, 
         scheduler.get_scheduled_speedups()[0] * 100,
         num_substep * scheduler.get_proc_costs()[1], // GPU is proc 1
@@ -2177,13 +2451,6 @@ void GpuSolver::physics_step_vbd_async()
                 for (uint i = left; i <= right; i++) { if (i < list_energy.size()) fast_print_single(list_energy[i]); }; 
                 fast_print(); 
             };
-            // fast_format("Energy Convergence");
-            // print_fromatob(0, 3);
-            // print_fromatob(4, 6);
-            // print_fromatob(7, 8);
-            // print_fromatob(9, 11);
-            // print_fromatob(12, 15);
-            // print_fromatob(16, 16);
             fast_print_iterator(list_energy, "Energy Convergence"); energy_idx = 0;
         }
     }
@@ -2199,24 +2466,6 @@ void CpuSolver::solve_constraints_VBD()
     { 
         compute_energy(iter_position); 
     }
-
-    // auto fn_task_to_param = [](const Launcher::FunctionID func_id, const uint iter_idx, const uint cluster_idx) 
-    // { 
-    //     const uint task_iter_buffer_idx = Launcher::default_buffer_mask;
-    //     return Launcher::LaunchParam{
-    //         .function_id = func_id, 
-    //         .iter_idx = iter_idx, 
-    //         .cluster_idx = cluster_idx, 
-    //         .is_allocated_to_main_device = true,
-    //         .buffer_idx = Launcher::default_buffer_mask, 
-    //         .left_buffer_idx = -1u, 
-    //         .input_buffer_idxs = {}, 
-    //     }; 
-    // };
-    // for (uint cluster = 0; cluster < xpbd_data->num_clusters_per_vertex_bending; cluster++)
-    // {
-    //     fn_dispatch(fn_task_to_param(Launcher::id_vbd_all_in_one, get_scene_params().current_it, cluster));
-    // }
 
     for (uint cluster = 0; cluster < xpbd_data->num_clusters_per_vertex_bending; cluster++)
     {
@@ -2338,6 +2587,8 @@ public:
     void physics_step(SolverType type);
     void restart_system();
     void save_mesh_to_obj(const std::string& addition_str = "");
+    void save_current_frame_state();
+    void load_saved_state();
 
 private:
     BasicMeshData* mesh_data;
@@ -2463,7 +2714,24 @@ void SolverInterface::save_mesh_to_obj(const std::string& addition_str)
         std::cerr << "Unable to open file: " << full_path << std::endl;
     }
 }
+void SolverInterface::save_current_frame_state()
+{
+    mesh_data->sa_x_frame_saved = mesh_data->sa_x_frame_end;
+    mesh_data->sa_v_frame_saved = mesh_data->sa_v_frame_end;
+}
+void SolverInterface::load_saved_state()
+{
+    parallel_for(0, mesh_data->num_verts, [&](uint vid)
+    {
+        Float3 saved_pos = mesh_data->sa_x_frame_saved[vid];
+        mesh_data->sa_x_frame_start[vid] = saved_pos;
+        mesh_data->sa_x_frame_end[vid] = saved_pos;
 
+        Float3 saved_vel = mesh_data->sa_v_frame_saved[vid];
+        mesh_data->sa_v_frame_start[vid] = saved_vel;
+        mesh_data->sa_v_frame_end[vid] = saved_vel;
+    });
+}
 
 int main()
 {
@@ -2497,20 +2765,20 @@ int main()
     {
         get_scene_params().use_substep = false;
         get_scene_params().num_substep = 10;
-        get_scene_params().constraint_iter_count = 2; // if larger than 8, then GPU may be locked in LaunchModeHetero
+        get_scene_params().constraint_iter_count = 12; // May not be too large, otherwise communcation overload on GPU may be higher
         get_scene_params().use_bending = true;
         get_scene_params().use_quadratic_bending_model = true;
-        get_scene_params().print_xpbd_convergence = true;
+        get_scene_params().print_xpbd_convergence = false;
         get_scene_params().use_xpbd_solver = false;
         get_scene_params().use_vbd_solver = true;
     }
 
-    const uint max_frame = 1;
+    const uint max_frame = 30;
     
     // Synchronous CPU Implementation
     {
         solver.restart_system();
-        // solver.save_mesh_to_obj(""); 
+        solver.save_mesh_to_obj("_init"); 
         fast_format("");
         fast_format("");
         fast_format("Sync CPU part");
@@ -2523,7 +2791,7 @@ int main()
         }
     }
     {
-        // solver.save_mesh_to_obj("_sync_CPU"); 
+        solver.save_mesh_to_obj("_sync_CPU"); 
     }       
 
     // Synchronous GPU Implementation
@@ -2539,7 +2807,7 @@ int main()
         }
     }
     {
-        // solver.save_mesh_to_obj("_sync_GPU"); 
+        solver.save_mesh_to_obj("_sync_GPU"); 
     }       
 
 
