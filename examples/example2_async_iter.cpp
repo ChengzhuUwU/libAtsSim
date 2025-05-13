@@ -1749,12 +1749,12 @@ int main()
         get_scene_params().use_vbd_solver = true;
     }
 
-    const uint num_frames = 10;
+    const uint num_frames = 30;
     
     // Synchronous Implementation
     {
         solver.restart_system();
-        solver.save_mesh_to_obj(""); 
+        solver.save_mesh_to_obj("_init"); 
         fast_format("");
         fast_format("");
         fast_format("Sync part");
@@ -1766,6 +1766,9 @@ int main()
             solver.physics_step(SolverTypeVBD_CPU);
         }
     }
+    {
+        solver.save_mesh_to_obj("_sync"); 
+    }   
     // Synchronous Implementation Evaluates Convergence
     {
         get_scene_params().print_xpbd_convergence = true;
@@ -1774,9 +1777,7 @@ int main()
         solver.physics_step(SolverTypeVBD_CPU);
         get_scene_params().print_xpbd_convergence = false;
     }
-    {
-        solver.save_mesh_to_obj("_sync"); 
-    }       
+        
 
 
     // Asynchronous Implementation
@@ -1791,6 +1792,9 @@ int main()
             solver.physics_step(SolverTypeVBD_async);
         }
     }
+    {
+        solver.save_mesh_to_obj("_async");
+    }
     // Asynchronous Implementation Evaluates Convergence
     {
         get_scene_params().print_xpbd_convergence = true;
@@ -1799,9 +1803,7 @@ int main()
         solver.physics_step(SolverTypeVBD_async);
         get_scene_params().print_xpbd_convergence = false;
     }
-    {
-        solver.save_mesh_to_obj("_async");
-    }
+    
     
 
     return 0;
