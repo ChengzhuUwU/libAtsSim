@@ -1,6 +1,12 @@
-# HeteroScheduler
+# libAtsSim
 
-The source code of **SIGGRAPH 2025** paper **Auto Task Scheduling for Cloth and Deformable Simulation on Heterogeneous Environments** ([Chengzhu He](https://chengzhuuwu.github.io/), [Zhendong Wang](https://wangzhendong619.github.io/), Zhaorui Meng, [Junfeng Yao](https://cdmc.xmu.edu.cn/), [Shihui Guo](https://www.humanplus.xyz/), [Huamin Wang](https://wanghmin.github.io/)).
+Code for SIGGRAPH 2025 conference paper "Auto Task Scheduling for Cloth and Deformable Simulation on Heterogeneous Environments".
+
+Authors: [Chengzhu He](https://chengzhuuwu.github.io/), [Zhendong Wang](https://wangzhendong619.github.io/), Zhaorui Meng, [Junfeng Yao](https://cdmc.xmu.edu.cn/), [Shihui Guo](https://www.humanplus.xyz/), [Huamin Wang](https://wanghmin.github.io/).
+
+[Download Paper](https://chengzhuuwu.github.io/files/ats_camera_ready.pdf)
+
+<!-- <video src="movie.mp4.mp4" controls="controls" width="500" height="300"></video> -->
 
 We provided several examples to show our scheduler and asynchronous iteration progress.
 
@@ -19,7 +25,9 @@ HEFT algorithm will quantify the dependency of each task ($rank_u$) and sorted t
 The final time (represented the finished time of the latest task across all devices, $n_{10}$) should be 91.
 
 > Speedup to proc 0 = 39.56% (From 127.00 to 91.00 ) 
+>
 > Speedup to proc 1 = 42.86% (From 130.00 to 91.00 ) 
+>
 > Speedup to proc 2 = 57.14% (From 143.00 to 91.00 )
 
 Our HEFT implementation is based on a [python-version heft](https://github.com/mackncheesiest/heft), which is the source code of paper "Performant, Multi-Objective Scheduling of Highly Interleaved Task Graphs on Heterogeneous System on Chip Devices" (IEEE Transactions on Parallel and Distributed Systems 2022, [Joshua Mack](https://github.com/mackncheesiest/) et. al.).
@@ -61,8 +69,29 @@ We make scheduling each frame to fit the dynamic overhead caused by collisions (
 
 ## Dependencies
 
-The library itself depends only on glm and TBB. For windows users, TBB installed by vcpkg might be hard to debug, so we use the source code to compile. Example 3 can only run on MacOS due to our Metal based GPU implementation.
+The library itself depends only on glm and TBB. 
+
+> brew install glm
+>
+> brew install tbb
+
+For windows users, TBB installed by vcpkg might be hard to debug, so we use the source code to compile. 
+
+Example 3 can only run on MacOS due to our Metal based GPU implementation.
+
+(Linux system has not been tested yet...)
 
 ## Others
 
 If you have any questions on our methods or our source code, please feel free to [contact me](https://chengzhuuwu.github.io/) **at any time**!!!
+
+## Important Update
+
+2025.5.13: We find the logical problem in asynchronous iteration that "Copy from left buffer" operation should be done in the previous tasks, otherwise it may get the buffer from futher iterated task (on another devices).
+
+
+
+<!-- 0.000391765, 0.00039183, 0.000391658, 0.000391699, 0.000391736, 0.000391735, 0.000391735, 0.000391737, 0.000391737, 0.000391737, 0.000391555, 0.000391542, 0.000391738, 0.000391799, 0.000392269, 0.000392262, 0.00039226,
+
+0.000391765, 0.000391737, 0.000392261, 0.000396298, 0.000389294, 0.000394338, 0.000391387, 0.00039077, 0.000394629, 0.000394629, 
+0.000391765, 0.000391737, 0.00039226, 0.000396298, 0.000389295, 0.000394338, 0.000391387, 0.00039077, 0.000394629, 0.000394629, -->

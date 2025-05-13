@@ -24,16 +24,13 @@ endforeach()
 # file(GLOB HEADERS "*.h" "Utils/*.h" "SolverData/*.h" "Solver/*.h" "Render/*.h" "SharedDefine/*.h")
 
 
-# if(APPLE)
+
 add_library(Scheduler SHARED ${SOURCES} ${HEADERS})
-# else()
-# add_executable(HeteroScheduler ${SOURCES} ${HEADERS})
-# endif()
 
 
 
 if(WIN32)
-set(CMAKE_PREFIX_PATH   "C:/Applications/vcpkg/installed/x64-windows") # Replace with your vcpkg path
+set(CMAKE_PREFIX_PATH   "C:/Applications/vcpkg/installed/x64-windows") # Replace it with your vcpkg path
 set(TBB_DIR ${THIRDPARTY_DIR}/oneapi-tbb-2021.12.0-win/oneapi-tbb-2021.12.0/lib/cmake/tbb)
 # set(NLOPT_DIR ${THIRDPARTY_DIR}/NLopt.v2.6.1.x86_64-w64-mingw32/lib/cmake/nlopt)
 endif()
@@ -70,17 +67,14 @@ find_package(glm CONFIG REQUIRED)
 # find_package(spdlog REQUIRED)
 # find_package(Boost REQUIRED) 
 
-
-
 # include(polyscope)
-
 if(WIN32)
 else()
 # find_package(NLopt REQUIRED)
 # list(APPEND EXTRA_LIBS ${NLOPT_LIBRARIES})
 endif()
-
 # set(Boost_USE_MULTITHREADED ON)  
+
 
 list(APPEND EXTRA_LIBS TBB::tbb)
 list(APPEND EXTRA_LIBS glm::glm)

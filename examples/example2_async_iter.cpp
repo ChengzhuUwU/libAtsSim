@@ -24,6 +24,8 @@ struct BasicMeshData
 
     Buffer<Float3> sa_x_frame_start;
     Buffer<Float3> sa_v_frame_start;
+    Buffer<Float3> sa_x_frame_saved;
+    Buffer<Float3> sa_v_frame_saved;
     Buffer<Float3> sa_x_frame_end;
     Buffer<Float3> sa_v_frame_end;
 
@@ -377,8 +379,13 @@ void init_mesh(BasicMeshData* mesh_data)
     {
         mesh_data->sa_x_frame_start.resize(num_verts); mesh_data->sa_x_frame_start = mesh_data->sa_rest_x;
         mesh_data->sa_v_frame_start.resize(num_verts); mesh_data->sa_v_frame_start = mesh_data->sa_rest_v;
+
         mesh_data->sa_x_frame_end.resize(num_verts); mesh_data->sa_x_frame_end = mesh_data->sa_rest_x;
         mesh_data->sa_v_frame_end.resize(num_verts); mesh_data->sa_v_frame_end = mesh_data->sa_rest_v;
+
+        mesh_data->sa_x_frame_saved.resize(num_verts); mesh_data->sa_x_frame_saved = mesh_data->sa_rest_x;
+        mesh_data->sa_v_frame_saved.resize(num_verts); mesh_data->sa_v_frame_saved = mesh_data->sa_rest_v;
+
         mesh_data->sa_system_energy.resize(10240);
     }
     
@@ -1190,8 +1197,8 @@ void CpuSolver::fn_dispatch(const Launcher::LaunchParam& param)
         }
         else if (param.left_buffer_idx != -1u && param.left_buffer_idx != Launcher::input_buffer_mask) // Copy from left
         {
-            if constexpr (print_buffer_idx) fast_format("Copy input: from {} to {}", param.left_buffer_idx, param.buffer_idx);
-            fn_copy_to_start_and_iter(fn_get_iter_buffer(param.left_buffer_idx), param.buffer_idx);
+            // if constexpr (print_buffer_idx) fast_format("Copy input: from {} to {}", param.left_buffer_idx, param.buffer_idx);
+            // fn_copy_to_start_and_iter(fn_get_iter_buffer(param.left_buffer_idx), param.buffer_idx);
         }
         else if (param.left_buffer_idx == Launcher::input_buffer_mask) 
         {
@@ -1207,6 +1214,12 @@ void CpuSolver::fn_dispatch(const Launcher::LaunchParam& param)
     auto fn_cloth_constraint_post_func = [&](const Launcher::LaunchParam& param)
     {
         if constexpr (print_buffer_idx) fast_format("Post get Buffer {}", param.buffer_idx);
+
+        if (param.right_buffer_idx != -1u)
+        {
+            if constexpr (print_buffer_idx) fast_format("Copy right : from {} to {}", param.buffer_idx, param.right_buffer_idx);
+            fn_copy_to_start_and_iter(fn_get_iter_buffer(param.buffer_idx), param.right_buffer_idx);
+        }
 
         if (get_scene_params().print_xpbd_convergence) 
         {
@@ -1431,6 +1444,7 @@ void CpuSolver::physics_step_vbd_async()
             .is_allocated_to_main_device = task.is_allocated_to_main_device,
             .buffer_idx = task.buffer_idx, 
             .left_buffer_idx = task.buffer_left, 
+            .right_buffer_idx = task.buffer_right, 
             .input_buffer_idxs = task.buffer_ins, 
         }; 
     };
@@ -1555,6 +1569,8 @@ public:
 public:
     void physics_step(SolverType type);
     void restart_system();
+    void save_current_frame_state();
+    void load_saved_state();
     void save_mesh_to_obj(const std::string& addition_str = "");
 
 private:
@@ -1576,6 +1592,24 @@ void SolverInterface::restart_system()
         Float3 rest_vel = mesh_data->sa_rest_v[vid];
         mesh_data->sa_v_frame_start[vid] = rest_vel;
         mesh_data->sa_v_frame_end[vid] = rest_vel;
+    });
+}
+void SolverInterface::save_current_frame_state()
+{
+    mesh_data->sa_x_frame_saved = mesh_data->sa_x_frame_end;
+    mesh_data->sa_v_frame_saved = mesh_data->sa_v_frame_end;
+}
+void SolverInterface::load_saved_state()
+{
+    parallel_for(0, mesh_data->num_verts, [&](uint vid)
+    {
+        Float3 saved_pos = mesh_data->sa_x_frame_saved[vid];
+        mesh_data->sa_x_frame_start[vid] = saved_pos;
+        mesh_data->sa_x_frame_end[vid] = saved_pos;
+
+        Float3 saved_vel = mesh_data->sa_v_frame_saved[vid];
+        mesh_data->sa_v_frame_start[vid] = saved_vel;
+        mesh_data->sa_v_frame_end[vid] = saved_vel;
     });
 }
 void SolverInterface::physics_step(SolverType type)
@@ -1710,12 +1744,12 @@ int main()
         get_scene_params().constraint_iter_count = 100; // 
         get_scene_params().use_bending = true;
         get_scene_params().use_quadratic_bending_model = true;
-        get_scene_params().print_xpbd_convergence = true;
+        get_scene_params().print_xpbd_convergence = false;
         get_scene_params().use_xpbd_solver = false;
         get_scene_params().use_vbd_solver = true;
     }
 
-
+    const uint num_frames = 10;
     
     // Synchronous Implementation
     {
@@ -1726,13 +1760,19 @@ int main()
         fast_format("Sync part");
     }
     {   
-        for (uint frame = 0; frame < 10; frame++)
+        for (uint frame = 0; frame < num_frames; frame++)
         {   get_scene_params().current_frame = frame; fast_format("     Sync frame {}", frame);   
 
-            if (frame != 9) get_scene_params().print_xpbd_convergence = false;
-            if (frame == 9) get_scene_params().print_xpbd_convergence = true; // Print the energy convergence in frame 10
             solver.physics_step(SolverTypeVBD_CPU);
         }
+    }
+    // Synchronous Implementation Evaluates Convergence
+    {
+        get_scene_params().print_xpbd_convergence = true;
+        solver.save_current_frame_state();
+        get_scene_params().current_frame = num_frames; fast_format("     Sync frame {}", num_frames); 
+        solver.physics_step(SolverTypeVBD_CPU);
+        get_scene_params().print_xpbd_convergence = false;
     }
     {
         solver.save_mesh_to_obj("_sync"); 
@@ -1745,13 +1785,19 @@ int main()
         fast_format("Async part");
     }
     {
-        for (uint frame = 0; frame < 10; frame++)
+        for (uint frame = 0; frame < num_frames; frame++)
         {   get_scene_params().current_frame = frame; fast_format("    Async frame {}", frame);
             
-            if (frame != 9) get_scene_params().print_xpbd_convergence = false;
-            if (frame == 9) get_scene_params().print_xpbd_convergence = true;
             solver.physics_step(SolverTypeVBD_async);
         }
+    }
+    // Asynchronous Implementation Evaluates Convergence
+    {
+        get_scene_params().print_xpbd_convergence = true;
+        solver.load_saved_state();
+        get_scene_params().current_frame = num_frames; fast_format("    Async frame {}", num_frames); 
+        solver.physics_step(SolverTypeVBD_async);
+        get_scene_params().print_xpbd_convergence = false;
     }
     {
         solver.save_mesh_to_obj("_async");

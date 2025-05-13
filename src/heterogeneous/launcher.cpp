@@ -892,7 +892,8 @@ void Scheduler::launch(LaunchMode mode, const std::function<LaunchParam(const Ta
         
     }
 
-    else if (mode == LaunchModeHetero) {
+    else if (mode == LaunchModeHetero) 
+    {
         
         if (launch_events.empty() || (launch_events[0].empty() && launch_events[1].empty())) { fast_print_err("Launching Order Is EMPTY"); return; }
 
@@ -903,17 +904,96 @@ void Scheduler::launch(LaunchMode mode, const std::function<LaunchParam(const Ta
         get_shared_event().refresh();
         get_command_list().reset_auto_fence_count();
   
-        /// Launch GPU Commands : Async
         const ListSchedule& gpu_schedules = proc_schedules[1];
+        const ListSchedule& cpu_schedules = proc_schedules[0];
         const std::vector<LaunchEvent>& gpu_event = launch_events[1];
+        const std::vector<LaunchEvent>& cpu_event = launch_events[0];
         const uint num_gpu_events = gpu_event.size();
-
+        const uint num_cpu_events = cpu_event.size();
+        fast_format("cpu = {}, gpu = {}", num_cpu_events, num_gpu_events);
+        
+        
+        /// Launch GPU Commands : Async
         std::vector< MTL::CommandBuffer* > list_cmd_buffer(num_gpu_events);
         auto& auto_fence_count = get_command_list().auto_fence_count;
 
+        auto fn_launch_gpu_and_wait = [&](uint begin_cmd_idx, uint end_cmd_idx){
+            
+            for (uint gpu_cmd_idx = begin_cmd_idx; gpu_cmd_idx <= end_cmd_idx; gpu_cmd_idx++){
+
+                // list_cmd_buffer[gpu_cmd_idx] = get_command_list().start_new_list_with_new_buffer();
+
+                const LaunchEvent& event = gpu_event[gpu_cmd_idx];
+                for (uint i = event.start_idx; i <= event.end_idx; i++) {
+                    auto& gpu_jobs = gpu_schedules[i];
+                    uint tid = gpu_jobs.task_id;
+                    auto& task = list_task[tid];
+
+                    bool find;
+                    auto& imp = task.get_implementation(Launcher::DeviceTypeGpu, find);
+                    if (find) {
+                        // imp.launch_task({task.func_id, 0, task.num_threads, 256, 0, 0, true, false, true});
+                        // task.print_with_cluster(tid);
+                        imp.launch_task(task_to_param(task)); 
+                    }   
+                    else {
+                        fast_print_err("Does NOT Have GPU Implementation, Wrong Dispatch Logic");
+                        return;
+                    }
+                }   
+                get_command_list().send_and_wait();
+                // get_command_list().make_fence_with_previous_cmd_buffer(); // If False, The Function May Be Empty
+                // get_command_list().send_last_cmd_buffer_in_list();
+                // std::vector<double> rest_costs_from_buffer = get_command_list().wait_all_cmd_buffers_and_get_costs(false); 
+            }
+        };
+        auto fn_launch_cpu = [&](uint begin_cmd_idx, uint end_cmd_idx){
+               
+            for (uint cpu_cmd_idx = begin_cmd_idx; cpu_cmd_idx <= end_cmd_idx; cpu_cmd_idx++) {
+                const LaunchEvent& event = cpu_event[cpu_cmd_idx];
+
+                SimClock clock; clock.start_clock();
+                for (uint i = event.start_idx; i <= event.end_idx; i++) {
+                    auto& cpu_jobs = cpu_schedules[i];
+                    uint tid = cpu_jobs.task_id;
+                    auto& task = list_task[tid];
+
+                    bool find;
+                    auto& imp = task.get_implementation(Launcher::DeviceTypeCpu, find);
+                    if (find) {
+                        // task.print_with_cluster(tid);
+                        imp.launch_task(task_to_param(task));
+                    }   
+                    else {
+                        fast_print_err("Does NOT Have CPU Implementation, Wrong Dispatch Logic");
+                        return;
+                    }
+                }   
+            }
+        };
+
+        // fn_launch_gpu_and_wait(0, 0);
+        // fn_launch_cpu(0, 0);
+        // fn_launch_gpu_and_wait(1, 1);
+        // fn_launch_cpu(1, 1);
+        // fn_launch_gpu_and_wait(2, 3);
+
+        // auto fn_launch_single_gpu = [&](const uint tid)
+        // {
+        //     auto& task = list_task[tid];
+        //     bool find;
+        //     auto& imp = task.get_implementation(Launcher::DeviceTypeGpu, find);
+        //     if (find) imp.launch_task(task_to_param(task)); 
+        // };
+
+        // fn_launch_single_gpu(9);
+        // fn_launch_single_gpu(10);
+        // get_command_list().send_and_wait();
+        // return;
+
         for (uint cmd_idx = 0; cmd_idx < num_gpu_events; cmd_idx++) 
         {
-            
+
             const LaunchEvent& event = gpu_event[cmd_idx];
 
             // get_command_list().start_new_list();
@@ -1012,55 +1092,62 @@ void Scheduler::launch(LaunchMode mode, const std::function<LaunchParam(const Ta
         // Encode/Start/Get/Segment =  0.380/ 0.032/ 0.054/ 0.036
         // fast_format("Encode/Start/Get/Segment = {:6.3f}/{:6.3f}/{:6.3f}/{:6.3f}",total_encode, total_start, total_get, total_segment);
 
-        ///
+        
         /// Launch CPU Commands : Immediate
-        ///
-        const ListSchedule& cpu_schedules = proc_schedules[0];
-        const std::vector<LaunchEvent>& cpu_event = launch_events[0];
-        const uint num_cpu_events = cpu_event.size();
 
         // fast_format("num_gpu_events = {}, num_cpu_events = {}", num_gpu_events, num_cpu_events);
         if (num_gpu_events > 60) fast_format("Waiting events larger than 60, may out of hardward limitation");
         
         std::vector<float> runtime_cost_cpu(num_cpu_events, 0.0f);
-        for (uint cmd_idx = 0; cmd_idx < num_cpu_events; cmd_idx++) {
+        for (uint cmd_idx = 0; cmd_idx < num_cpu_events; cmd_idx++) 
+        {
             const LaunchEvent& event = cpu_event[cmd_idx];
 
             // SimClock::sleep_ms(50);
             
             /// Wait
-            if (!fully_not_wait){
-                if (event.wait != -1u){
+            if (!fully_not_wait)
+            {
+                if (event.wait != -1u)
+                {
                     // SimClock clock; clock.start_clock();
                     list_cmd_buffer[event.wait]->waitUntilCompleted();
                     // float dt = clock.end_clock();
                 }
             }
-            
 
             /// Launch
             SimClock clock; clock.start_clock(); 
-            for (uint i = event.start_idx; i <= event.end_idx; i++) {
+            for (uint i = event.start_idx; i <= event.end_idx; i++) 
+            {
                 auto& cpu_jobs = cpu_schedules[i];
                 uint tid = cpu_jobs.task_id;
                 auto& task = list_task[tid];
 
                 bool find;
                 auto& imp = task.get_implementation(Launcher::DeviceTypeCpu, find);
-                if (find) {
+                if (find) 
+                {
                     imp.launch_task(task_to_param(task));
                 }   
-                else {
+                else 
+                {
                     fast_print_err("Does NOT Have CPU Implementation, Wrong Dispatch Logic");
                     return;
                 }
             }   
             runtime_cost_cpu[cmd_idx] = (clock.end_clock());            
 
-            if (event.signal != -1u) {
-                get_shared_event().event->setSignaledValue(event.signal + 1); // Should larger than 1
+            if (!fully_not_wait)
+            {
+                if (event.signal != -1u) 
+                {
+                    get_shared_event().event->setSignaledValue(event.signal + 1); // Should larger than 1
+                }
             }
         }
+
+        get_command_list().wait_all_cmd_buffers();
 
         std::vector<float> runtime_cost_gpu(num_gpu_events, 0.0f);
         for (uint cmd_idx = 0; cmd_idx < num_gpu_events; cmd_idx++) 
@@ -1232,7 +1319,7 @@ void Scheduler::launch(LaunchMode mode, const std::function<LaunchParam(const Ta
     }
     else if (mode == LaunchModeFakeHetero) {
 
-         const bool print_schedule_event = false;
+        constexpr bool print_schedule_event = false;
 
         const ListSchedule& gpu_schedules = proc_schedules[1];
         const std::vector<LaunchEvent>& gpu_event = launch_events[1];
@@ -1304,22 +1391,29 @@ void Scheduler::launch(LaunchMode mode, const std::function<LaunchParam(const Ta
 
         uint gpu_new_begin = 0;
         {
-            // fn_launch_gpu(gpu_new_begin, gpu_event.size() - 1); uint gpu_new_begin = 0;
+            // fn_launch_gpu_and_wait(gpu_new_begin, gpu_event.size() - 1); uint gpu_new_begin = 0;
             for (uint cmd_idx = 0; cmd_idx < num_cpu_events; cmd_idx++) {
                 const LaunchEvent& event = cpu_event[cmd_idx];
                 if (event.wait != -1u) {
                     // fast_format("GPU Part");
+                    if constexpr (print_schedule_event) fast_format("GPU from {} to {}", gpu_new_begin, event.wait);
                     fn_launch_gpu_and_wait(gpu_new_begin, event.wait);
                     gpu_new_begin = event.wait + 1;
                 }
+                if constexpr (print_schedule_event) fast_format("CPU from {} to {}", event.start_idx, event.end_idx);
                 for (uint i = event.start_idx; i <= event.end_idx; i++) {
                     auto& cpu_jobs = cpu_schedules[i];
                     uint tid = cpu_jobs.task_id;
                     auto& task = list_task[tid];
                     
                     bool find;
-                    auto& imp = task.get_implementation(Launcher::DeviceTypeCpu, find);
+                    auto& imp = task.get_implementation(Launcher::DeviceTypeCpu, find); 
                     if (find) {
+                        // fast_format("implementation size = {}, addr = {}/{}", 
+                        //     task.list_implementation.size(),
+                        //     (task.list_implementation.front().device),
+                        //     (task.list_implementation.back().device)
+                        // );
                         imp.launch_task(task_to_param(task)); // task.print_with_cluster(tid);
                     }   
                     else {
@@ -1327,6 +1421,7 @@ void Scheduler::launch(LaunchMode mode, const std::function<LaunchParam(const Ta
                     }
                 }   
             }
+            if constexpr (print_schedule_event) fast_format("GPU from {} to {}", gpu_new_begin, launch_events[1].size() - 1);
             fn_launch_gpu_and_wait(gpu_new_begin, launch_events[1].size() - 1);
         }   
 
@@ -3250,9 +3345,13 @@ void Scheduler::scheduler_dag()
                                 selected_buffer_idx = fn_update_buffer_idx();
                                 if (left_task_idx != -1u) 
                                 {   
-                                    // Copy from left and 
+                                    // Copy from left 
                                     task.buffer_left = task_buffers[left_task_idx];
                                     task.task_left = left_task_idx;
+
+                                    // We need to make the copying operation in the previous task
+                                    list_task[left_task_idx].buffer_right = selected_buffer_idx;
+                                    list_task[left_task_idx].task_right = tid;
                                 }
                                 else 
                                 {
@@ -3977,7 +4076,7 @@ void Scheduler::print_schedule_to_graph_xpbd()
         std::cout << "],\n";
     }
 
-    
+
 
     // Cross Device Connection
     std::cout << "    [";

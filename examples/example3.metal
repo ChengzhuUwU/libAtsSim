@@ -26,6 +26,32 @@ kernel void test_add_1(
         input_ptr[0] += 1;
     }
 }
+kernel void test_sum(
+    PTR(Float3) input_ptr,
+    PTR(float) output_ptr,
+    CONSTANT(uint) write_pos,
+    uint vid [[thread_position_in_grid]],
+    threadgroup_ids
+)
+{
+    const Float3 vec = input_ptr[vid];
+    float value = sqrt_scalar(length_squared_vec(vec));
+
+    const uint bid = vid / 256;
+    reduce_add(value);
+    if (tid == 0) (output_ptr[100 + bid] = value);
+}
+kernel void test_sum_2(
+    PTR(float) input_ptr,
+    CONSTANT(uint) write_pos,
+    uint vid [[thread_position_in_grid]],
+    threadgroup_ids
+)
+{
+    float value = input_ptr[100 + vid];
+    reduce_add(value);
+    if (tid == 0) input_ptr[write_pos] = value;
+}
 
 kernel void reset_float(
     PTR(float) lambda_aaa, 

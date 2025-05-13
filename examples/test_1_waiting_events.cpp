@@ -22,6 +22,7 @@ int main()
     }
 
     gpuFunction fn_test_add_gpu;
+    gpuFunction fn_empty;
 
     auto fn_test_add_cpu = [](Buffer<uint>& input_ptr, const uint desire_value)
     {
@@ -38,6 +39,7 @@ int main()
         check_err(library_xpbd, err);
         
         fn_test_add_gpu.load(library_xpbd, "test_add_1");
+        fn_empty.load(library_xpbd, "empty");
     }
 
     Buffer<uint> test_buffer;
@@ -85,11 +87,17 @@ int main()
             
             // Launch
             {
+                get_command_list().add_task(fn_empty);
+                fn_empty.launch_async(1);
+                
                 // fast_format("GPU desire for {}", curr_event);
                 get_command_list().add_task(fn_test_add_gpu);
                 fn_test_add_gpu.bind_ptr(test_buffer);
                 fn_test_add_gpu.bind_constant(curr_event);
                 fn_test_add_gpu.launch_async(1);
+                
+                get_command_list().add_task(fn_empty);
+                fn_empty.launch_async(1);
             }   
             get_command_list().make_fence_with_previous_cmd_buffer(); // If False, The Function May Be Empty
             get_command_list().send_last_cmd_buffer_in_list();

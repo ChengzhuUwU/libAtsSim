@@ -47,6 +47,7 @@ struct BasicMeshData
     Buffer<uint> sa_vert_adj_bending_edges; std::vector< std::vector<uint> > vert_adj_bending_edges;
 
     Buffer<float> sa_system_energy;
+    Buffer<float> sa_system_energy_2;
 };
 
 struct XpbdData
@@ -382,6 +383,7 @@ void init_mesh(BasicMeshData* mesh_data)
         mesh_data->sa_x_frame_end.resize(num_verts); mesh_data->sa_x_frame_end = mesh_data->sa_rest_x;
         mesh_data->sa_v_frame_end.resize(num_verts); mesh_data->sa_v_frame_end = mesh_data->sa_rest_v;
         mesh_data->sa_system_energy.resize(10240);
+        mesh_data->sa_system_energy_2.resize(10240);
     }
     
 }
@@ -500,6 +502,8 @@ private:
     gpuFunction fn_compute_energy_inertia;
     gpuFunction fn_compute_energy_stretch_mass_spring;
     gpuFunction fn_compute_energy_bending;
+    gpuFunction fn_test_sum;
+    gpuFunction fn_test_sum_2;
 };
 static uint energy_idx = 0; 
 
@@ -789,8 +793,11 @@ void GpuSolver::init_xpbd_system()
     fn_compute_energy_inertia.load(library_xpbd, "compute_energy_inertia");
     fn_compute_energy_stretch_mass_spring.load(library_xpbd, "compute_energy_stretch_mass_spring");
     fn_compute_energy_bending.load(library_xpbd, "compute_energy_bending");
+    fn_test_sum.load(library_xpbd, "test_sum");
+    fn_test_sum_2.load(library_xpbd, "test_sum_2");
 #endif
 }
+
 void CpuSolver::reset_constrains()
 {
     auto fn_reset_template = [&](Buffer<float>& buffer)
@@ -816,6 +823,7 @@ void GpuSolver::reset_constrains()
     fn_reset_template(xpbd_data->sa_lambda_stretch_mass_spring);
     fn_reset_template(xpbd_data->sa_lambda_bending);
 }
+
 void CpuSolver::reset_collision_constrains()
 {
 
@@ -824,6 +832,7 @@ void GpuSolver::reset_collision_constrains()
 {
 
 }
+
 void CpuSolver::init_simulation_params()
 {
     get_scene_params().print_cost_detail = true;
@@ -859,6 +868,7 @@ void CpuSolver::init_simulation_params()
     }
 
 }
+
 void CpuSolver::collision_detection()
 {
     // TODO
@@ -867,6 +877,7 @@ void GpuSolver::collision_detection()
 {
     // TODO
 }
+
 void CpuSolver::predict_position()
 {
     parallel_for(0, mesh_data->num_verts, [&](const uint vid)
@@ -897,6 +908,7 @@ void GpuSolver::predict_position()
     fn_predict_position.bind_constant(false);
     fn_predict_position.launch_async(mesh_data->num_verts);
 }
+
 void CpuSolver::update_velocity()
 {
     parallel_for(0, mesh_data->num_verts, [&](const uint vid)
@@ -925,8 +937,11 @@ void GpuSolver::update_velocity()
     fn_update_velocity.bind_constant(false);
     fn_update_velocity.launch_async(mesh_data->num_verts);
 }
+
 void CpuSolver::compute_energy(const Buffer<Float3>& curr_position)
 {
+    return;
+
     if (!get_scene_params().print_xpbd_convergence) return;
     // fast_format("buffer size = {}", curr_position.size());
     // fast_format("CPU Call {}", energy_idx);
@@ -1013,9 +1028,11 @@ void CpuSolver::compute_energy(const Buffer<Float3>& curr_position)
 }
 void GpuSolver::compute_energy(const Buffer<Float3>& curr_position)
 {
+    // return;
+
     if (!get_scene_params().print_xpbd_convergence) return;
     // fast_format("buffer size = {}", curr_position.size());
-    fast_format("GPU Call {}", energy_idx);
+    // fast_format("GPU Call {}", energy_idx);
 
     // get_command_list().send_and_wait();
     // cpu_solver->compute_energy(curr_position);
@@ -1158,6 +1175,7 @@ Buffer<Float4x3>& GpuSolver::get_Hf() // Remember to use the saperate buffer!!!
     return xpbd_data->sa_Hf_2;
     // return xpbd_data->sa_Hf;
 }
+
 void CpuSolver::vbd_evaluate_inertia(Buffer<Float3>& sa_iter_position, const uint cluster_idx)
 {
     auto& clusters = xpbd_data->clusterd_per_vertex_bending;
@@ -1200,6 +1218,7 @@ void GpuSolver::vbd_evaluate_inertia(Buffer<Float3>& sa_iter_position, const uin
     fn_evaluate_inertia.bind_constant(cluster_idx);
     fn_evaluate_inertia.launch_async(num_verts_cluster);
 }
+
 void CpuSolver::vbd_evaluate_stretch_spring(Buffer<Float3>& sa_iter_position, const uint cluster_idx)
 {
     auto& clusters = xpbd_data->clusterd_per_vertex_bending;
@@ -1239,6 +1258,7 @@ void GpuSolver::vbd_evaluate_stretch_spring(Buffer<Float3>& sa_iter_position, co
     fn_evaluate_stretch_mass_spring.bind_constant(cluster_idx);
     fn_evaluate_stretch_mass_spring.launch_async(num_verts_cluster);
 }
+
 void CpuSolver::vbd_evaluate_bending(Buffer<Float3>& sa_iter_position, const uint cluster_idx)
 {
     auto& clusters = xpbd_data->clusterd_per_vertex_bending;
@@ -1278,6 +1298,7 @@ void GpuSolver::vbd_evaluate_bending(Buffer<Float3>& sa_iter_position, const uin
     fn_evaluate_bending.bind_constant(cluster_idx);
     fn_evaluate_bending.launch_async(num_verts_cluster);
 }
+
 void CpuSolver::vbd_step(Buffer<Float3>& sa_iter_position, const uint cluster_idx)
 {
     auto& clusters = xpbd_data->clusterd_per_vertex_bending;
@@ -1409,6 +1430,7 @@ void CpuSolver::physics_step_xpbd()
     mesh_data->sa_x_frame_end = xpbd_data->sa_x;
     mesh_data->sa_v_frame_end = xpbd_data->sa_v;
 }
+
 void CpuSolver::physics_step_vbd()
 {
     xpbd_data->sa_x_start = mesh_data->sa_x_frame_start;
@@ -1542,11 +1564,13 @@ void GpuSolver::physics_step_vbd()
     mesh_data->sa_x_frame_end = xpbd_data->sa_x;
     mesh_data->sa_v_frame_end = xpbd_data->sa_v;
 }
+
 void CpuSolver::fn_dispatch(const Launcher::LaunchParam& param)
 {
-    //
+    // return;
+    // fast_format("CPU dispatch {} {}", Launcher::taskNames.at(param.function_id), param.cluster_idx);
+
     // Asynchronous iteration part
-    //
     constexpr uint max_buffer_count = 32; 
     constexpr bool print_buffer_idx = false;
     auto fn_get_iter_buffer = [&](const uint buffer_idx) -> Buffer<Float3>& 
@@ -1563,7 +1587,7 @@ void CpuSolver::fn_dispatch(const Launcher::LaunchParam& param)
     {
         Buffer<Float3>& out1 = fn_get_begin_buffer(output_buffer_idx);
         Buffer<Float3>& out2 = fn_get_iter_buffer(output_buffer_idx);
-        if constexpr (print_buffer_idx) fast_format("fn_copy_to_start_and_iter from {} to {}/{}", input_array.size(), out1.size(), out2.size());
+        // if constexpr (print_buffer_idx) fast_format("fn_copy_to_start_and_iter from {} to {}/{}", input_array.size(), out1.size(), out2.size());
         parallel_for(0, input_array.size(), [&](const uint vid)
         {   
             Float3 input_vec = input_array[vid];
@@ -1575,7 +1599,7 @@ void CpuSolver::fn_dispatch(const Launcher::LaunchParam& param)
     {
         if constexpr (print_buffer_idx) fast_format("Prev get Buffer {}", param.buffer_idx);
         const float weight = 0.5f;
-        
+
         if (!param.input_buffer_idxs.empty() && param.left_buffer_idx != -1u) // Weight from left and input
         {
             for (const uint input_buffer_idx : param.input_buffer_idxs)
@@ -1595,17 +1619,17 @@ void CpuSolver::fn_dispatch(const Launcher::LaunchParam& param)
         }
         else if (!param.input_buffer_idxs.empty()) // Copy from input
         {
-            if constexpr (print_buffer_idx) fast_format("Copy left  : from {} to {}", param.input_buffer_idxs.back(), param.buffer_idx);
+            if constexpr (print_buffer_idx) fast_format("Copy input : from {} to {}", param.input_buffer_idxs.back(), param.buffer_idx);
             fn_copy_to_start_and_iter(fn_get_iter_buffer(param.input_buffer_idxs.back()), param.buffer_idx);
         }
         else if (param.left_buffer_idx != -1u && param.left_buffer_idx != Launcher::input_buffer_mask) // Copy from left
         {
-            if constexpr (print_buffer_idx) fast_format("Copy input: from {} to {}", param.left_buffer_idx, param.buffer_idx);
-            fn_copy_to_start_and_iter(fn_get_iter_buffer(param.left_buffer_idx), param.buffer_idx);
+            // if constexpr (print_buffer_idx) fast_format("Copy left  : from {} to {}", param.left_buffer_idx, param.buffer_idx);
+            // fn_copy_to_start_and_iter(fn_get_iter_buffer(param.left_buffer_idx), param.buffer_idx);
         }
-        else if (param.left_buffer_idx == Launcher::input_buffer_mask) 
+        else if (param.left_buffer_idx == Launcher::input_buffer_mask) // Copy from sa_x
         {
-            if constexpr (print_buffer_idx) fast_format("Copy input: from sa_x to {}", param.buffer_idx);
+            if constexpr (print_buffer_idx) fast_format("Copy predict position: from sa_x to {}", param.buffer_idx);
             fn_copy_to_start_and_iter(xpbd_data->sa_x, param.buffer_idx);
         }
 
@@ -1617,6 +1641,20 @@ void CpuSolver::fn_dispatch(const Launcher::LaunchParam& param)
     auto fn_cloth_constraint_post_func = [&](const Launcher::LaunchParam& param)
     {
         if constexpr (print_buffer_idx) fast_format("Post get Buffer {}", param.buffer_idx);
+
+        if (param.right_buffer_idx != -1u)
+        {
+            // Copying left operation should be done in the previous task, otherwise we will get the value from the futher iterated buffer
+
+            if constexpr (print_buffer_idx) fast_format("Copy right : from {} to {}", param.buffer_idx, param.right_buffer_idx);
+            fn_copy_to_start_and_iter(fn_get_iter_buffer(param.buffer_idx), param.right_buffer_idx);
+        }
+        // if (param.function_id == Launcher::id_vbd_all_in_one)
+        // {
+        //     fast_format("evaluate energy in cluster {} from buffer {} (iter_idx = {})", param.cluster_idx, param.buffer_idx, energy_idx);
+        //     compute_energy(fn_get_iter_buffer(param.buffer_idx)); 
+        //     return;
+        // }
 
         if (get_scene_params().print_xpbd_convergence) 
         {
@@ -1631,9 +1669,8 @@ void CpuSolver::fn_dispatch(const Launcher::LaunchParam& param)
         }
     };
     
-    //
     // Register Implementation
-    //
+
     // auto fn_launch = [&](const Launcher::LaunchParam& param) // Why cant i use it in lambda ???
     {
         switch (param.function_id) 
@@ -1696,9 +1733,7 @@ void CpuSolver::fn_dispatch(const Launcher::LaunchParam& param)
 }
 void GpuSolver::fn_dispatch(const Launcher::LaunchParam& param)
 {
-    //
     // Asynchronous iteration part
-    //
     constexpr uint max_buffer_count = 32; 
     constexpr bool print_buffer_idx = false;
     auto fn_get_iter_buffer = [&](const uint buffer_idx) -> Buffer<Float3>& 
@@ -1713,7 +1748,7 @@ void GpuSolver::fn_dispatch(const Launcher::LaunchParam& param)
     {
         Buffer<Float3>& out1 = fn_get_begin_buffer(output_buffer_idx);
         Buffer<Float3>& out2 = fn_get_iter_buffer(output_buffer_idx);
-        if constexpr (print_buffer_idx) fast_format("fn_copy_to_start_and_iter from {} to {}/{}", input_array.size(), out1.size(), out2.size());
+        // if constexpr (print_buffer_idx) fast_format("fn_copy_to_start_and_iter from {} to {}/{}", input_array.size(), out1.size(), out2.size());
         
         get_command_list().add_task(fn_copy_from_A_to_B_and_C);
         fn_copy_from_A_to_B_and_C.bind_ptr(input_array);
@@ -1725,6 +1760,12 @@ void GpuSolver::fn_dispatch(const Launcher::LaunchParam& param)
     {
         // if constexpr (print_buffer_idx) fast_format("Prev get Buffer {}", param.buffer_idx);
         const float weight = 0.5f;
+
+        if constexpr (print_buffer_idx) fast_format("    iter = {}, cluster = {}, input = {}, left = {}", 
+            param.iter_idx, param.cluster_idx,
+            param.input_buffer_idxs.empty() ? "/" : std::to_string(param.input_buffer_idxs.back()), 
+            param.left_buffer_idx == -1u ? "/" : std::to_string(param.left_buffer_idx)
+        );
         
         if (!param.input_buffer_idxs.empty() && param.left_buffer_idx != -1u) // Weight from left and input
         {
@@ -1746,19 +1787,27 @@ void GpuSolver::fn_dispatch(const Launcher::LaunchParam& param)
         }
         else if (!param.input_buffer_idxs.empty()) // Copy from input
         {
-            if constexpr (print_buffer_idx) fast_format("Copy left  : from {} to {}", param.input_buffer_idxs.back(), param.buffer_idx);
+            if constexpr (print_buffer_idx) fast_format("Copy input : from {} to {}", param.input_buffer_idxs.back(), param.buffer_idx);
             fn_copy_to_start_and_iter(fn_get_iter_buffer(param.input_buffer_idxs.back()), param.buffer_idx);
         }
         else if (param.left_buffer_idx != -1u && param.left_buffer_idx != Launcher::input_buffer_mask) // Copy from left
         {
-            if constexpr (print_buffer_idx) fast_format("Copy input: from {} to {}", param.left_buffer_idx, param.buffer_idx);
-            fn_copy_to_start_and_iter(fn_get_iter_buffer(param.left_buffer_idx), param.buffer_idx);
+            // Copying left operation should be done in the previous task, otherwise we will get the value from the futher iterated buffer
+            // if constexpr (print_buffer_idx) fast_format("Copy  left : from {} to {}", param.left_buffer_idx, param.buffer_idx);
+            // fn_copy_to_start_and_iter(fn_get_iter_buffer(param.left_buffer_idx), param.buffer_idx);
         }
         else if (param.left_buffer_idx == Launcher::input_buffer_mask) 
         {
-            if constexpr (print_buffer_idx) fast_format("Copy input: from sa_x to {}", param.buffer_idx);
+            if constexpr (print_buffer_idx) fast_format("Copy predict position : from sa_x to {}", param.buffer_idx);
             fn_copy_to_start_and_iter(xpbd_data->sa_x, param.buffer_idx);
         }
+
+        // if (param.function_id == Launcher::id_vbd_all_in_one)
+        // {
+        //     // fast_format("bg evaluate energy in cluster {} from buffer {} (iter_idx = {})", param.cluster_idx, param.buffer_idx, energy_idx);
+        //     compute_energy(fn_get_iter_buffer(param.buffer_idx)); 
+        //     return;
+        // }
 
         if (get_scene_params().print_xpbd_convergence && param.iter_idx == 0 &&param.cluster_idx == 0)
         { 
@@ -1768,6 +1817,19 @@ void GpuSolver::fn_dispatch(const Launcher::LaunchParam& param)
     auto fn_cloth_constraint_post_func = [&](const Launcher::LaunchParam& param)
     {
         // if constexpr (print_buffer_idx) fast_format("Post get Buffer {}", param.buffer_idx);
+
+        if (param.right_buffer_idx != -1u)
+        {
+            if constexpr (print_buffer_idx) fast_format("Copy right : from {} to {}", param.buffer_idx, param.right_buffer_idx);
+            fn_copy_to_start_and_iter(fn_get_iter_buffer(param.buffer_idx), param.right_buffer_idx);
+        }
+
+        // if (param.function_id == Launcher::id_vbd_all_in_one && (param.buffer_idx == 3))
+        // {
+        //     fast_format("ed evaluate energy in cluster {} from buffer {} (iter_idx = {})", param.cluster_idx, param.buffer_idx, energy_idx);
+        //     compute_energy(fn_get_iter_buffer(param.buffer_idx)); 
+        //     return;
+        // }
 
         if (get_scene_params().print_xpbd_convergence) 
         {
@@ -1782,9 +1844,7 @@ void GpuSolver::fn_dispatch(const Launcher::LaunchParam& param)
         }
     };
     
-    //
     // Register Implementation
-    //
     {
         switch (param.function_id) 
         {
@@ -1824,15 +1884,18 @@ void GpuSolver::fn_dispatch(const Launcher::LaunchParam& param)
                 auto& iter_position = fn_get_iter_buffer(param.buffer_idx); 
                 const uint cluster = param.cluster_idx;
                 
+                
                 fn_cloth_constraint_prev_func(param);
                 {
                     vbd_evaluate_inertia(iter_position, cluster);
-
+                    
                     vbd_evaluate_stretch_spring(iter_position, cluster);
                     
                     vbd_evaluate_bending(iter_position, cluster);
                     
                     vbd_step(iter_position, cluster);
+
+                    // if (param.cluster_idx == 9 || param.cluster_idx == 10) return;
                 }
                 fn_cloth_constraint_post_func(param);
                 break;
@@ -1845,6 +1908,7 @@ void GpuSolver::fn_dispatch(const Launcher::LaunchParam& param)
         }
     };
 }
+
 void GpuSolver::physics_step_vbd_async()
 {
     xpbd_data->sa_x_start = mesh_data->sa_x_frame_start;
@@ -1857,7 +1921,7 @@ void GpuSolver::physics_step_vbd_async()
 
     std::memset(mesh_data->sa_system_energy.data(), 0, mesh_data->sa_system_energy.size() * sizeof(float)); energy_idx = 0;
 
-    Launcher::Scheduler scheduler; scheduler.set_safety_check(false);
+    Launcher::Scheduler scheduler; scheduler.set_safety_check(true);
     
     SimClock scheule_clock; scheule_clock.start_clock();  
 
@@ -1986,6 +2050,12 @@ void GpuSolver::physics_step_vbd_async()
         scheduler.make_wait_events();
     }
     scheule_clock.end_clock();
+
+    // LaunchModeFakeHetero 
+    // LaunchModeHetero
+    // LaunchModeGpu
+    // LaunchModePartialGPU
+    constexpr auto launch_mode = Launcher::Scheduler::LaunchModeHetero;  
     
     // Run
     SimClock clock; clock.start_clock();
@@ -1993,16 +2063,11 @@ void GpuSolver::physics_step_vbd_async()
     {   { get_scene_params().current_substep = substep; }
         // SimClock substep_clock; substep_clock.start_clock();
 
-        // LaunchModeFakeHetero 
-        // LaunchModeHetero
-        // LaunchModeGpu
-        constexpr auto launch_mode = Launcher::Scheduler::LaunchModeFakeHetero; 
-
         // In this mode, you will run scheduled tasks with SYNC waiting 
         // The final result should be the same as LaunchModeHetero 
         // (Since we use multi-buffer to identity the inputs, so if we miss the relationship, we will get NAN or exposition)
         // We will use runtime profiling to update the computation matrix and re-schedule 
-        if (launch_mode == Launcher::Scheduler::LaunchModeFakeHetero)
+        if constexpr (launch_mode == Launcher::Scheduler::LaunchModeFakeHetero)
         {   
             auto fn_task_to_param = [](const Launcher::Task& task) 
             { 
@@ -2014,6 +2079,7 @@ void GpuSolver::physics_step_vbd_async()
                     .is_allocated_to_main_device = task.is_allocated_to_main_device,
                     .buffer_idx = task.buffer_idx, 
                     .left_buffer_idx = task.buffer_left, 
+                    .right_buffer_idx = task.buffer_right, 
                     .input_buffer_idxs = task.buffer_ins, 
                 }; 
                 // return Launcher::LaunchParam(
@@ -2031,7 +2097,7 @@ void GpuSolver::physics_step_vbd_async()
         //                              when there are too many tasks (e.g. 40 command-buffers on the GPU)
         // This is limited to the hardware, maybe we can solve it by segmenting the commission of gpu commands
         // If you have some ideas to fix it, hope you can help me (you find my contact information in my homepage: https://chengzhuuwu.github.io/)
-        else if (launch_mode == Launcher::Scheduler::LaunchModeHetero)
+        else if constexpr (launch_mode == Launcher::Scheduler::LaunchModeHetero || launch_mode == Launcher::Scheduler::LaunchModePartialGPU)
         {   
             auto fn_task_to_param = [](const Launcher::Task& task) 
             { 
@@ -2043,14 +2109,17 @@ void GpuSolver::physics_step_vbd_async()
                     .is_allocated_to_main_device = task.is_allocated_to_main_device,
                     .buffer_idx = task.buffer_idx, 
                     .left_buffer_idx = task.buffer_left, 
+                    .right_buffer_idx = task.buffer_right, 
                     .input_buffer_idxs = task.buffer_ins, 
                 }; 
             };
-            scheduler.launch(Launcher::Scheduler::LaunchModeHetero, fn_task_to_param, false);
+            scheduler.launch(launch_mode, fn_task_to_param, false);
+            // scheduler.launch(Launcher::Scheduler::LaunchModeHetero, fn_task_to_param, false);
+            // scheduler.launch(Launcher::Scheduler::LaunchModePartialGPU, fn_task_to_param, false);
         }
 
         // In this mode, you will run tasks sorted by ranku on single device
-        else if (launch_mode == Launcher::Scheduler::LaunchModeCpu || launch_mode == Launcher::Scheduler::LaunchModeGpu)
+        else if constexpr (launch_mode == Launcher::Scheduler::LaunchModeCpu || launch_mode == Launcher::Scheduler::LaunchModeGpu)
         {    
             auto fn_task_to_param = [](const Launcher::Task& task) 
             { 
@@ -2069,6 +2138,7 @@ void GpuSolver::physics_step_vbd_async()
                     .is_allocated_to_main_device = true,
                     .buffer_idx = Launcher::default_buffer_mask, 
                     .left_buffer_idx = -1u, 
+                    .right_buffer_idx = -1u, 
                     .input_buffer_idxs = {}, 
                 }; 
             };
@@ -2094,7 +2164,6 @@ void GpuSolver::physics_step_vbd_async()
         , scheule_clock.duration()
     ); 
 
-
     {
         if (get_scene_params().print_xpbd_convergence)
         {
@@ -2103,6 +2172,18 @@ void GpuSolver::physics_step_vbd_async()
             {
                 list_energy[it] = mesh_data->sa_system_energy[it];
             }
+            auto print_fromatob = [&](const uint left, const uint right)
+            { 
+                for (uint i = left; i <= right; i++) { if (i < list_energy.size()) fast_print_single(list_energy[i]); }; 
+                fast_print(); 
+            };
+            // fast_format("Energy Convergence");
+            // print_fromatob(0, 3);
+            // print_fromatob(4, 6);
+            // print_fromatob(7, 8);
+            // print_fromatob(9, 11);
+            // print_fromatob(12, 15);
+            // print_fromatob(16, 16);
             fast_print_iterator(list_energy, "Energy Convergence"); energy_idx = 0;
         }
     }
@@ -2416,7 +2497,7 @@ int main()
     {
         get_scene_params().use_substep = false;
         get_scene_params().num_substep = 10;
-        get_scene_params().constraint_iter_count = 8; // if larger than 8, then GPU may be locked in LaunchModeHetero
+        get_scene_params().constraint_iter_count = 2; // if larger than 8, then GPU may be locked in LaunchModeHetero
         get_scene_params().use_bending = true;
         get_scene_params().use_quadratic_bending_model = true;
         get_scene_params().print_xpbd_convergence = true;
@@ -2429,7 +2510,7 @@ int main()
     // Synchronous CPU Implementation
     {
         solver.restart_system();
-        solver.save_mesh_to_obj(""); 
+        // solver.save_mesh_to_obj(""); 
         fast_format("");
         fast_format("");
         fast_format("Sync CPU part");

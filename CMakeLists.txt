@@ -48,11 +48,10 @@ endif()
 
 add_executable(Example1 ${EXAMPLE_PATH}/example1_heft2002.cpp)
 add_executable(Example2 ${EXAMPLE_PATH}/example2_async_iter.cpp)
-add_executable(Example3 ${EXAMPLE_PATH}/example3_hybrid_cpu_gpu.cpp)
-add_executable(Test1 ${EXAMPLE_PATH}/test_1_waiting_events.cpp)
-# add_executable(TestHEFT2002 ${SRC_PATH}/heft_2002.cpp)
-if(APPLE)
-# add_executable(Simulation ${SRC_PATH}/simulation.cpp)
+
+if (APPLE)
+    add_executable(Example3 ${EXAMPLE_PATH}/example3_hybrid_cpu_gpu.cpp)
+    add_executable(Test1 ${EXAMPLE_PATH}/test_1_waiting_events.cpp)
 endif()
 
 
