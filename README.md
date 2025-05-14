@@ -4,7 +4,7 @@ Code for SIGGRAPH 2025 conference paper "Auto Task Scheduling for Cloth and Defo
 
 Authors: [Chengzhu He](https://chengzhuuwu.github.io/), [Zhendong Wang](https://wangzhendong619.github.io/), Zhaorui Meng, [Junfeng Yao](https://cdmc.xmu.edu.cn/), [Shihui Guo](https://www.humanplus.xyz/), [Huamin Wang](https://wanghmin.github.io/).
 
-[Download Paper](https://chengzhuuwu.github.io/files/ats_camera_ready.pdf)
+<!-- [Download Paper](https://chengzhuuwu.github.io/files/ats_camera_ready.pdf) -->
 
 <!-- <video src="movie.mp4.mp4" controls="controls" width="500" height="300"></video> -->
 
