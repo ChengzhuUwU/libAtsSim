@@ -3036,7 +3036,7 @@ void Scheduler::scheduler_dag()
             if (task.func_id == id_xpbd_predict_position) predict_position_tid = tid;
         }
 
-        // Find The Shortest Connection Between Devices
+        // Find the shortest connection of each task between deivices
         std::vector<std::vector<uint>> list_in(num_tasks);
         std::vector<std::vector<uint>> list_out(num_tasks);
         for (uint proc = 0; proc < num_procs; proc++)
