@@ -759,6 +759,7 @@ void CpuSolver::predict_position()
             xpbd_data->sa_x.data(), 
             xpbd_data->sa_v.data(), 
             xpbd_data->sa_x_start.data(),
+            xpbd_data->sa_x_tilde.data(),
             false, 
             nullptr, 
             mesh_data->sa_vert_mass.data(), 
@@ -799,8 +800,7 @@ void CpuSolver::compute_energy(const Buffer<Float3>& curr_position)
                 &get_scene_params(), 
                 mesh_data->sa_is_fixed.data(), 
                 mesh_data->sa_vert_mass.data(), 
-                xpbd_data->sa_x_start.data(), 
-                xpbd_data->sa_v_start.data());
+                xpbd_data->sa_x_tilde.data());
         });
     }
     
@@ -948,7 +948,7 @@ void CpuSolver::vbd_evaluate_inertia(Buffer<Float3>& sa_iter_position, const uin
         const uint vid = clusters[curr_prefix + i];
         Float4x3 Hf = Constrains::VBD::compute_inertia(
             vid, sa_iter_position.data(), 
-            xpbd_data->sa_x_start.data(), xpbd_data->sa_v.data(), 
+            xpbd_data->sa_x_tilde.data(),
             mesh_data->sa_is_fixed.data(), mesh_data->sa_vert_mass.data(), &get_scene_params(),
             get_scene_params().get_substep_dt());
         get_Hf()[vid] = Hf;

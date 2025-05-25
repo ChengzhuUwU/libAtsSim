@@ -896,6 +896,7 @@ void CpuSolver::predict_position()
             xpbd_data->sa_x.data(), 
             xpbd_data->sa_v.data(), 
             xpbd_data->sa_x_start.data(),
+            xpbd_data->sa_x_tilde.data(),
             false, 
             nullptr, 
             mesh_data->sa_vert_mass.data(), 
@@ -910,6 +911,7 @@ void GpuSolver::predict_position()
     fn_predict_position.bind_ptr(xpbd_data->sa_x);
     fn_predict_position.bind_ptr(xpbd_data->sa_v);
     fn_predict_position.bind_ptr(xpbd_data->sa_x_start);
+    fn_predict_position.bind_ptr(xpbd_data->sa_x_tilde);
     fn_predict_position.bind_constant(false);
     fn_predict_position.bind_ptr(xpbd_data->sa_x);
     fn_predict_position.bind_ptr(mesh_data->sa_vert_mass);
@@ -965,7 +967,7 @@ void CpuSolver::compute_energy(const Buffer<Float3>& curr_position)
         {
             return Constrains::Energy::compute_energy_inertia(vid, 
                 curr_position.data(), &get_scene_params(), mesh_data->sa_is_fixed.data(), mesh_data->sa_vert_mass.data(), 
-                xpbd_data->sa_x_start.data(), xpbd_data->sa_v_start.data());
+                xpbd_data->sa_x_tilde.data());
         });
     }
     
@@ -1058,8 +1060,7 @@ void GpuSolver::compute_energy(const Buffer<Float3>& curr_position)
         fn_compute_energy_inertia.bind_ptr(get_scene_params_array());
         fn_compute_energy_inertia.bind_ptr(mesh_data->sa_is_fixed);
         fn_compute_energy_inertia.bind_ptr(mesh_data->sa_vert_mass);
-        fn_compute_energy_inertia.bind_ptr(xpbd_data->sa_x_start);
-        fn_compute_energy_inertia.bind_ptr(xpbd_data->sa_v_start);
+        fn_compute_energy_inertia.bind_ptr(xpbd_data->sa_x_tilde);
 
         fn_compute_energy_inertia.launch_async(mesh_data->num_verts);
     }
@@ -1198,8 +1199,7 @@ void CpuSolver::vbd_evaluate_inertia(Buffer<Float3>& sa_iter_position, const uin
         const uint vid = clusters[curr_prefix + i];
         Float4x3 Hf = Constrains::VBD::compute_inertia(vid, 
             sa_iter_position.data(), 
-            xpbd_data->sa_x_start.data(), 
-            xpbd_data->sa_v.data(), 
+            xpbd_data->sa_x_tilde.data(),
             mesh_data->sa_is_fixed.data(), 
             mesh_data->sa_vert_mass.data(), 
             &get_scene_params(),
@@ -1217,8 +1217,7 @@ void GpuSolver::vbd_evaluate_inertia(Buffer<Float3>& sa_iter_position, const uin
     get_command_list().add_task(fn_evaluate_inertia);
     fn_evaluate_inertia.bind_ptr(get_Hf());
     fn_evaluate_inertia.bind_ptr(sa_iter_position);
-    fn_evaluate_inertia.bind_ptr(xpbd_data->sa_x_start);
-    fn_evaluate_inertia.bind_ptr(xpbd_data->sa_v);
+    fn_evaluate_inertia.bind_ptr(xpbd_data->sa_x_tilde);
     fn_evaluate_inertia.bind_ptr(mesh_data->sa_is_fixed);
     fn_evaluate_inertia.bind_ptr(mesh_data->sa_vert_mass);
     fn_evaluate_inertia.bind_ptr(get_scene_params_array());

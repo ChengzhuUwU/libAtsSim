@@ -321,7 +321,8 @@ inline uint get_index_from_color(const bool use_multi_color, const uint kernel_i
 inline void predict_position(
 	const uint vid,
 	// PTR(SceneParams) scene_params,
-	PTR(Float3) sa_iter_position, PTR(Float3) sa_vert_velocity, PTR(Float3) sa_iter_start_position, 
+	PTR(Float3) sa_x, PTR(Float3) sa_v, PTR(Float3) sa_x_start, 
+	PTR(Float3) sa_x_tilde,
 	const bool predict_for_collision, PTR(Float3) sa_next_position,
 	PTR(float) sa_vert_mass, 
 	PTR(uchar) sa_is_fixed,
@@ -334,8 +335,8 @@ inline void predict_position(
 	// const float radius = 0.2f;
 	
 	// Float3 x_prev = sa_iter_position[vid];
-	const Float3 x_prev = sa_iter_start_position[vid];
-	const Float3 v_prev = sa_vert_velocity[vid];
+	const Float3 x_prev = sa_x_start[vid];
+	const Float3 v_prev = sa_v[vid];
 
 	Float3 outer_acceleration = gravity; 
 
@@ -380,7 +381,8 @@ inline void predict_position(
 	//    x_prev \gets x , v \gets v + h f_ext / m , x \gets x + hv
 	// sa_iter_start_position[vid] = x_prev;
 	// sa_vert_velocity[vid] = v_pred;
-	sa_iter_position[vid] = x_pred;
+	sa_x[vid] = x_pred;
+	sa_x_tilde[vid] = x_pred;
 }
 inline void predict_position_vbd(
 	const uint vid,
@@ -2079,21 +2081,16 @@ namespace Energy
 inline float compute_energy_inertia(
 	const uint vid, const PTR(Float3) updatePosition, const PTR(SceneParams) scene, 
     const PTR(uchar) sa_is_fixed,
-    const PTR(float) sa_vert_mass, const PTR(Float3) sa_start_position, const PTR(Float3) sa_vert_velocity)
+    const PTR(float) sa_vert_mass, const PTR(Float3) sa_x_tilde)
 {
     float implicit_dt = scene->implicit_dt;
 	float num_stepstep = scene->num_substep;
 	float h = implicit_dt / num_stepstep;
     Float3 x_new = updatePosition[vid];
-    Float3 x_0 = sa_start_position[vid];
-    Float3 v_0 = sa_vert_velocity[vid];
+    Float3 x_tilde = sa_x_tilde[vid];
     float mass = sa_vert_mass[vid];
-    Float3 gravity = scene->gravity;
-    Float3 a_ext = gravity;
-    const bool is_fixed = sa_is_fixed[vid];
-    if (is_fixed) a_ext = Zero3;
     
-    Float3 y = x_0 + h * v_0 + h * h * a_ext;
+    Float3 y = x_tilde;
     return length_squared_vec(x_new - y) * mass / (2 * h * h);
 }
 
@@ -4026,12 +4023,11 @@ inline void extractHf(CREF(Float4x3) Hf, TREF(Float3) force, TREF(Float3x3) hess
 
 inline Float4x3 compute_inertia(
 	const uint vid, PTR(Float3) sa_iter_position, 
-	PTR(Float3) sa_iter_start_position, PTR(Float3) sa_vert_velocity,
+	PTR(Float3) sa_x_tilde,
 	PTR(uchar) sa_is_fixed, PTR(float) sa_vert_mass, PTR(SceneParams) scene_params,
 	const float substep_dt
 	)
 {
-	const Float3 gravity = scene_params->gravity;
 	// const Float3 floor = get_scene_params().floor;
 	// const float h = get_scene_params().implicit_dt;
 	const float h = substep_dt;
@@ -4039,15 +4035,13 @@ inline Float4x3 compute_inertia(
 	const float h_2_inv = 1.f / (h * h);
 
 	Float3 x_k = sa_iter_position[vid];
-	Float3 x_0 = sa_iter_start_position[vid];
-	Float3 v_0 = sa_vert_velocity[vid];
+	Float3 x_tilde = sa_x_tilde[vid];
 
 	bool is_fixed = sa_is_fixed[vid];
 	float mass = sa_vert_mass[vid];
-	Float3x3 mat = Identity3x3 * mass * h_2_inv; // A = M / h^2
-
-	Float3 outer_force = Zero3;
-	outer_force += mass * gravity; // G = mg
+	
+	Float3 gradient = -mass * h_2_inv * (x_k - x_tilde);
+	Float3x3 hessian = mass * h_2_inv * Identity3x3; // A = M / h^2
 
 	// if (use_floor)
 	// {
@@ -4056,13 +4050,14 @@ inline Float4x3 compute_inertia(
 
 	if (is_fixed)
 	{
-		mat += Identity3x3 * float(1E9);
+		gradient = Zero3;
+		hessian += Identity3x3 * float(1E9);
 		// sa_iter_position[vid] = x_0;
 	}
 
 	return makeHf(
-		-mass * h_2_inv * (x_k - x_0 - v_0 * h) + outer_force,
-		mat
+		gradient,
+		hessian
 	);
 };
 

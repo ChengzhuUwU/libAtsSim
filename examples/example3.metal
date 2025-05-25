@@ -81,6 +81,7 @@ kernel void predict_position(
 	PTR(Float3) sa_iter_position, 
     PTR(Float3) sa_vert_velocity, 
     PTR(Float3) sa_iter_start_position,
+    PTR(Float3) sa_x_tilde,
 
     CONSTANT(bool) predict_for_collision, 
     PTR(Float3) sa_next_position,
@@ -92,7 +93,7 @@ kernel void predict_position(
     uint vid [[thread_position_in_grid]])
 {
     Constrains::Core::predict_position(vid, 
-        sa_iter_position, sa_vert_velocity, sa_iter_start_position, 
+        sa_iter_position, sa_vert_velocity, sa_iter_start_position, sa_x_tilde,
         predict_for_collision, sa_next_position,
         sa_vert_mass, sa_is_fixed, substep_dt, fix_scene);
 }
@@ -333,15 +334,14 @@ kernel void compute_energy_inertia(
     const PTR(SceneParams) scene_params, 
     PTR(uchar) sa_is_fixed,
     PTR(float) sa_vert_mass,
-    PTR(Float3) sa_start_position,
-    PTR(Float3) sa_vert_start_velocity,
+    PTR(Float3) sa_x_tilde,
     
     uint vid [[thread_position_in_grid]],
     threadgroup_ids)
 {
     float energy = Constrains::Energy::compute_energy_inertia(vid, 
         updatePosition, scene_params, sa_is_fixed, sa_vert_mass, 
-        sa_start_position, sa_vert_start_velocity);
+        sa_x_tilde);
         
     reduce_add(energy);
     if(tid == 0) atomic_add(energyPtr[pcg_it], energy);
@@ -464,7 +464,7 @@ kernel void compute_energy_collision_vf(
 
 kernel void evaluate_inertia(
 	PTR(Float4x3) sa_hf, PTR(Float3) sa_iter_position, 
-	PTR(Float3) sa_iter_start_position, PTR(Float3) sa_vert_velocity,
+	PTR(Float3) sa_x_tilde,
 	PTR(uchar) sa_is_fixed, PTR(float) sa_vert_mass, PTR(SceneParams) scene_params,
 	CONSTANT(float) substep_dt,
 
@@ -477,7 +477,7 @@ kernel void evaluate_inertia(
 
 	sa_hf[vid] = Constrains::VBD::compute_inertia(
         vid, sa_iter_position, 
-        sa_iter_start_position, sa_vert_velocity, 
+        sa_x_tilde,
         sa_is_fixed, sa_vert_mass, scene_params,
         substep_dt);
 };
