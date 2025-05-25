@@ -25,7 +25,7 @@ endforeach()
 
 
 
-add_library(Scheduler SHARED ${SOURCES} ${HEADERS})
+add_library(Scheduler STATIC ${SOURCES} ${HEADERS})
 
 
 
