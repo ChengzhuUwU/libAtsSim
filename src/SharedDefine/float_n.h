@@ -89,7 +89,7 @@ using ElementOffset = Uchar4;
 
 // make by single scalar
 template<typename T, typename ScalarType>
-inline constexpr T make(CREF(ScalarType) scalar) {
+inline constexpr T make(ConstRef(ScalarType) scalar) {
 #if SIM_USE_SIMD || SIM_USE_GLM
     return T(scalar);
 #elif SIM_USE_EIGEN
@@ -223,9 +223,9 @@ inline constexpr Int4 makeInt4(const uint x) { return make<Int4>(x); }
 inline constexpr Uchar2 makeUchar2(const uchar x, const uchar y) { return make<Uchar2>(x, y); }
 inline constexpr Uchar4 makeUchar4(const uchar x, const uchar y, const uchar z, const uchar w) { return make<Uchar4>(x, y, z, w); }
  
-inline constexpr Float4 makeFloat4(CREF(Float3) vec) { return make<Float4>(vec.x, vec.y ,vec.z, 1.f); }
-inline constexpr Float4 makeFloat4(CREF(Float3) vec, const float w) { return make<Float4>(vec.x, vec.y ,vec.z, w); }
-inline constexpr Float3 makeFloat3(CREF(Float4) vec) { return make<Float3>(vec.x, vec.y ,vec.z); }
+inline constexpr Float4 makeFloat4(ConstRef(Float3) vec) { return make<Float4>(vec.x, vec.y ,vec.z, 1.f); }
+inline constexpr Float4 makeFloat4(ConstRef(Float3) vec, const float w) { return make<Float4>(vec.x, vec.y ,vec.z, w); }
+inline constexpr Float3 makeFloat3(ConstRef(Float4) vec) { return make<Float3>(vec.x, vec.y ,vec.z); }
 
 #define Float3_zero make<Float3>(0)
 #define Float3_one  make<Float3>(1)
@@ -243,7 +243,7 @@ inline constexpr Float3 makeFloat3(CREF(Float4) vec) { return make<Float3>(vec.x
 #define Zero3        make<Float3>(0.f, 0.f, 0.f)
 #define Zero4        make<Float4>(0.f, 0.f, 0.f, 0.f)
 
-CONSTEXPR Float4 ColorContainer[] = {
+ConstExpr Float4 ColorContainer[] = {
     {0.1211, 0.4648, 0.7031, 1.0}, 
     {0.9961, 0.4961, 0.0547, 1.0}, 
     {0.1719, 0.6250, 0.1719, 1.0}, 
@@ -271,23 +271,23 @@ inline Float4 get_default_color_by_id(uint idx){
 
 #ifdef METAL_CODE
 template<typename T>
-inline DEVICE atomic_float* to_atomic_float_ptr(DEVICE T* ptr){
-    return reinterpret_cast<DEVICE atomic_float*>(ptr);
+inline Device atomic_float* to_atomic_float_ptr(Device T* ptr){
+    return reinterpret_cast<Device atomic_float*>(ptr);
 }
 #endif
 
 
 #if SIM_USE_SIMD
 
-template<typename Vec> inline Vec normalize_vec(CREF(Vec) vec) {return simd::normalize(vec);}
-template<typename Vec> inline auto length_vec(CREF(Vec) vec) { return simd::fast::length(vec); }
-template<typename Vec> inline Vec reverse_vec(CREF(Vec) vec) { return 1.f / vec;}
-template<typename Vec> inline Vec abs_vec(CREF(Vec) vec) { return simd::abs(vec); }
+template<typename Vec> inline Vec normalize_vec(ConstRef(Vec) vec) {return simd::normalize(vec);}
+template<typename Vec> inline auto length_vec(ConstRef(Vec) vec) { return simd::fast::length(vec); }
+template<typename Vec> inline Vec reverse_vec(ConstRef(Vec) vec) { return 1.f / vec;}
+template<typename Vec> inline Vec abs_vec(ConstRef(Vec) vec) { return simd::abs(vec); }
 
-template<typename Vec> inline Vec cross_vec(CREF(Vec) vec1, CREF(Vec) vec2)   { return simd::cross(vec1, vec2);   }
-template<typename Vec> inline auto dot_vec(CREF(Vec) vec1, CREF(Vec) vec2)    { return simd::dot(vec1, vec2);     }
-template<typename Vec> inline Vec max_vec(CREF(Vec) vec1, CREF(Vec) vec2) { return simd::max(vec1, vec2); }
-template<typename Vec> inline Vec min_vec(CREF(Vec) vec1, CREF(Vec) vec2) { return simd::min(vec1, vec2); }
+template<typename Vec> inline Vec cross_vec(ConstRef(Vec) vec1, ConstRef(Vec) vec2)   { return simd::cross(vec1, vec2);   }
+template<typename Vec> inline auto dot_vec(ConstRef(Vec) vec1, ConstRef(Vec) vec2)    { return simd::dot(vec1, vec2);     }
+template<typename Vec> inline Vec max_vec(ConstRef(Vec) vec1, ConstRef(Vec) vec2) { return simd::max(vec1, vec2); }
+template<typename Vec> inline Vec min_vec(ConstRef(Vec) vec1, ConstRef(Vec) vec2) { return simd::min(vec1, vec2); }
 
 #ifdef METAL_CODE
 template<typename Vec> inline Vec max_vec_copy(const Vec vec1, const Vec vec2) {return simd::max(vec1, vec2);}
@@ -296,60 +296,60 @@ template<typename Vec> inline Vec min_vec_copy(const Vec vec1, const Vec vec2) {
 
 #elif SIM_USE_GLM
 
-template<typename Vec> inline Vec normalize_vec(CREF(Vec) vec) {return glm::normalize(vec);}
-template<typename Vec> inline auto length_vec(CREF(Vec) vec) { return glm::length(vec); }
-template<typename Vec> inline Vec reverse_vec(CREF(Vec) vec) { return 1.f / vec; }
-template<typename Vec> inline Vec abs_vec(CREF(Vec) vec) { return glm::abs(vec); }
+template<typename Vec> inline Vec normalize_vec(ConstRef(Vec) vec) {return glm::normalize(vec);}
+template<typename Vec> inline auto length_vec(ConstRef(Vec) vec) { return glm::length(vec); }
+template<typename Vec> inline Vec reverse_vec(ConstRef(Vec) vec) { return 1.f / vec; }
+template<typename Vec> inline Vec abs_vec(ConstRef(Vec) vec) { return glm::abs(vec); }
 
-template<typename Vec> inline Vec cross_vec(CREF(Vec) vec1, CREF(Vec) vec2)   { return glm::cross(vec1, vec2);   }
-template<typename Vec> inline auto dot_vec(CREF(Vec) vec1, CREF(Vec) vec2)    { return glm::dot(vec1, vec2);     }
-template<typename Vec> inline Vec max_vec(CREF(Vec) vec1, CREF(Vec) vec2) {return glm::max(vec1, vec2);}
-template<typename Vec> inline Vec min_vec(CREF(Vec) vec1, CREF(Vec) vec2) {return glm::min(vec1, vec2);}
+template<typename Vec> inline Vec cross_vec(ConstRef(Vec) vec1, ConstRef(Vec) vec2)   { return glm::cross(vec1, vec2);   }
+template<typename Vec> inline auto dot_vec(ConstRef(Vec) vec1, ConstRef(Vec) vec2)    { return glm::dot(vec1, vec2);     }
+template<typename Vec> inline Vec max_vec(ConstRef(Vec) vec1, ConstRef(Vec) vec2) {return glm::max(vec1, vec2);}
+template<typename Vec> inline Vec min_vec(ConstRef(Vec) vec1, ConstRef(Vec) vec2) {return glm::min(vec1, vec2);}
 
 #endif
 
-template<typename Vec> inline auto safe_length_vec(CREF(Vec) vec) { return length_vec(vec) + Epsilon; }
+template<typename Vec> inline auto safe_length_vec(ConstRef(Vec) vec) { return length_vec(vec) + Epsilon; }
 
 template<typename Vec, uint N = Meta::get_vec_length<Vec>()> 
-inline float sum_vec(CREF(Vec) vec) { 
+inline float sum_vec(ConstRef(Vec) vec) { 
     float value = vec[0];
     for(uint i = 1; i < N; i++){ value += vec[i];} 
     return value;
 }
 
 
-template<typename Vec, uint N> inline auto min_component_vec(CREF(Vec) vec) { 
+template<typename Vec, uint N> inline auto min_component_vec(ConstRef(Vec) vec) { 
     auto min_value = vec[0];
     for(uint i = 1; i < N; i++){ min_value = min_scalar(min_value, vec[i]);} 
     return min_value;
 }
-template<typename Vec, uint N> inline auto max_component_vec(CREF(Vec) vec) { 
+template<typename Vec, uint N> inline auto max_component_vec(ConstRef(Vec) vec) { 
     auto max_value = vec[0];
     for(uint i = 1; i < N; i++){ max_value = max_scalar(max_value, vec[i]); } 
     return max_value;
 }
 
 template<typename Vec, uint N>
-inline float infinity_norm_vec(CREF(Vec) vec){
+inline float infinity_norm_vec(ConstRef(Vec) vec){
     return max_component_vec<Vec, N>(abs_vec(vec));
 }
 
 template<typename Vec> 
-inline auto length_squared_vec(CREF(Vec) vec) { 
+inline auto length_squared_vec(ConstRef(Vec) vec) { 
     return dot_vec(vec, vec);
 }
 
 template<typename Vec>
-inline Vec clamp_vec(CREF(Vec) vec, CREF(Vec) lower, CREF(Vec) upper) {
+inline Vec clamp_vec(ConstRef(Vec) vec, ConstRef(Vec) lower, ConstRef(Vec) upper) {
     return max_vec(min_vec(vec, upper), lower);
 }
 template<typename Vec> 
-inline constexpr Vec lerp_vec(CREF(Vec) left, CREF(Vec) right, CREF(float) lerp_value) { 
+inline constexpr Vec lerp_vec(ConstRef(Vec) left, ConstRef(Vec) right, ConstRef(float) lerp_value) { 
     return left + lerp_value * (right - left);
 }
 
 template<typename Vec, uint N = Meta::get_vec_length<Vec>()> 
-inline bool is_inf_vec(CREF(Vec) vec) { 
+inline bool is_inf_vec(ConstRef(Vec) vec) { 
     bool is_inf = false; 
     for (uint i = 0; i < N; i++) {
         if(is_inf_scalar(vec[i])) {
@@ -359,7 +359,7 @@ inline bool is_inf_vec(CREF(Vec) vec) {
     return is_inf; 
 }
 template<typename Vec, uint N = Meta::get_vec_length<Vec>()> 
-inline bool is_nan_vec(CREF(Vec) vec) { 
+inline bool is_nan_vec(ConstRef(Vec) vec) { 
     bool is_nan = false; 
     for (uint i = 0; i < N; i++) {
         if(is_nan_scalar(vec[i])) {
@@ -368,13 +368,13 @@ inline bool is_nan_vec(CREF(Vec) vec) {
     } 
     return is_nan; 
 }
-inline bool is_inf_float3(CREF(Float3) vec) { return is_inf_vec<Float3>(vec); }
-inline bool is_inf_float4(CREF(Float4) vec) { return is_inf_vec<Float4>(vec); }
-inline bool is_nan_float3(CREF(Float3) vec) { return is_nan_vec<Float3>(vec); }
-inline bool is_nan_float4(CREF(Float4) vec) { return is_nan_vec<Float4>(vec); }
+inline bool is_inf_float3(ConstRef(Float3) vec) { return is_inf_vec<Float3>(vec); }
+inline bool is_inf_float4(ConstRef(Float4) vec) { return is_inf_vec<Float4>(vec); }
+inline bool is_nan_float3(ConstRef(Float3) vec) { return is_nan_vec<Float3>(vec); }
+inline bool is_nan_float4(ConstRef(Float4) vec) { return is_nan_vec<Float4>(vec); }
 
 template<typename Vec> 
-inline Vec project_vec(CREF(Vec) vec1, CREF(Vec) vec2) {
+inline Vec project_vec(ConstRef(Vec) vec1, ConstRef(Vec) vec2) {
     // #if SIM_USE_SIMD && !defined(METAL_CODE)
     //     return simd::project(vec1, vec2);
     // // #elif SIM_USE_EIGEN
@@ -389,32 +389,32 @@ inline Vec project_vec(CREF(Vec) vec1, CREF(Vec) vec2) {
 
 // bool
 #if SIM_USE_SIMD
-template<typename Vec> inline auto is_greater_than(CREF(Vec) vec1, CREF(Vec) vec2) { return vec1 > vec2; }
-template<typename Vec> inline auto is_greater_equal_than(CREF(Vec) vec1, CREF(Vec) vec2) { return vec1 >= vec2; }
-template<typename Vec> inline auto is_smaller_than(CREF(Vec) vec1, CREF(Vec) vec2) { return vec1 < vec2; }
-template<typename Vec> inline auto is_smaller_equal_than(CREF(Vec) vec1, CREF(Vec) vec2) { return vec1 <= vec2; }
+template<typename Vec> inline auto is_greater_than(ConstRef(Vec) vec1, ConstRef(Vec) vec2) { return vec1 > vec2; }
+template<typename Vec> inline auto is_greater_equal_than(ConstRef(Vec) vec1, ConstRef(Vec) vec2) { return vec1 >= vec2; }
+template<typename Vec> inline auto is_smaller_than(ConstRef(Vec) vec1, ConstRef(Vec) vec2) { return vec1 < vec2; }
+template<typename Vec> inline auto is_smaller_equal_than(ConstRef(Vec) vec1, ConstRef(Vec) vec2) { return vec1 <= vec2; }
 #elif SIM_USE_GLM
-template<typename Vec> inline auto is_greater_than(CREF(Vec) vec1, CREF(Vec) vec2) { return glm::greaterThan(vec1, vec2); }
-template<typename Vec> inline auto is_greater_equal_than(CREF(Vec) vec1, CREF(Vec) vec2) { return glm::greaterThanEqual(vec1, vec2); }
-template<typename Vec> inline auto is_smaller_than(CREF(Vec) vec1, CREF(Vec) vec2) { return glm::lessThan(vec1, vec2); }
-template<typename Vec> inline auto is_smaller_equal_than(CREF(Vec) vec1, CREF(Vec) vec2) { return glm::lessThanEqual(vec1, vec2); }
+template<typename Vec> inline auto is_greater_than(ConstRef(Vec) vec1, ConstRef(Vec) vec2) { return glm::greaterThan(vec1, vec2); }
+template<typename Vec> inline auto is_greater_equal_than(ConstRef(Vec) vec1, ConstRef(Vec) vec2) { return glm::greaterThanEqual(vec1, vec2); }
+template<typename Vec> inline auto is_smaller_than(ConstRef(Vec) vec1, ConstRef(Vec) vec2) { return glm::lessThan(vec1, vec2); }
+template<typename Vec> inline auto is_smaller_equal_than(ConstRef(Vec) vec1, ConstRef(Vec) vec2) { return glm::lessThanEqual(vec1, vec2); }
 #endif
 
 #if SIM_USE_SIMD
-template<typename Vec> inline bool all_vec(CREF(Vec) vec) {return simd::all(vec);}
-template<typename Vec> inline bool any_vec(CREF(Vec) vec) {return simd::any(vec);}
+template<typename Vec> inline bool all_vec(ConstRef(Vec) vec) {return simd::all(vec);}
+template<typename Vec> inline bool any_vec(ConstRef(Vec) vec) {return simd::any(vec);}
 #elif SIM_USE_GLM
-template<typename Vec> inline bool all_vec(CREF(Vec) vec) {return glm::all(vec);}
-template<typename Vec> inline bool any_vec(CREF(Vec) vec) {return glm::any(vec);}
+template<typename Vec> inline bool all_vec(ConstRef(Vec) vec) {return glm::all(vec);}
+template<typename Vec> inline bool any_vec(ConstRef(Vec) vec) {return glm::any(vec);}
 #endif
 
-template<typename Vec> inline Vec and_vec(CREF(Vec) vec1, CREF(Vec) vec2) {return vec1 && vec2;}
-template<typename Vec> inline Vec or_vec(CREF(Vec) vec1, CREF(Vec) vec2) {return vec1 || vec2;}
+template<typename Vec> inline Vec and_vec(ConstRef(Vec) vec1, ConstRef(Vec) vec2) {return vec1 && vec2;}
+template<typename Vec> inline Vec or_vec(ConstRef(Vec) vec1, ConstRef(Vec) vec2) {return vec1 || vec2;}
 
 
 inline float compute_edge_adj_face_angle(
-    const THREAD Float3& vec0, const THREAD Float3& vec1, const THREAD Float3& vec2, const THREAD Float3& vec3, 
-    THREAD Float3& normal1, THREAD Float3& normal2)
+    const Thread Float3& vec0, const Thread Float3& vec1, const Thread Float3& vec2, const Thread Float3& vec3, 
+    Thread Float3& normal1, Thread Float3& normal2)
 {
     normal1 = normalize_vec(cross_vec(vec0, vec1));
 	normal2 = normalize_vec(cross_vec(vec2, vec0));
@@ -451,13 +451,13 @@ inline Float3 inv_spherical_coordinates(Float3 vec){
     return Float3{x, y, z};
 }
 
-inline float compute_face_area(CREF(Float3) pos0, CREF(Float3) pos1, CREF(Float3) pos2){
+inline float compute_face_area(ConstRef(Float3) pos0, ConstRef(Float3) pos1, ConstRef(Float3) pos2){
     Float3 vec0 = pos1 - pos0;
     Float3 vec1 = pos2 - pos0;
     float area = length_vec(cross_vec(vec0, vec1)) * 0.5f;
     return area;
 }
-inline Float3 compute_face_normal(CREF(Float3) p1, CREF(Float3) p2, CREF(Float3) p3){
+inline Float3 compute_face_normal(ConstRef(Float3) p1, ConstRef(Float3) p2, ConstRef(Float3) p3){
 	Float3 s = p2 - p1;
 	Float3 t = p3 - p1;
 	Float3 n = normalize_vec(cross_vec(s, t));

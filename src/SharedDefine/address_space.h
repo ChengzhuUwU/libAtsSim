@@ -1,31 +1,31 @@
 #pragma once
 
 #ifdef  METAL_CODE
-    #define THREAD thread
-    #define TREF(T) thread T&
-    #define DEVICE device 
-    #define PTR(T) device T*
-    #define CONSTANT(T) constant T&
-    #define CREF(T) thread const T&
-    #define CONST(T) const T
-    #define THREADGROUP threadgroup
-    #define CONSTEXPR constant
+    #define Thread thread
+    #define ThreadRef(T) thread T&
+    #define Device device 
+    #define Pointer(T) device T*
+    #define Constant(T) constant T&
+    #define ConstRef(T) thread const T&
+    #define Const(T) const T
+    #define ThreadGroup threadgroup
+    #define ConstExpr constant
     #define CONSTIF if 
-    #define ARRAY(T) device T*
-    #define ARRAYREF(T) device T*
+    #define Array(T) device T*
+    #define ArrayRef(T) device T*
 #else
-    #define THREAD 
-    #define TREF(T) T&
-    #define DEVICE 
-    #define PTR(T) T*
-    #define CONSTANT(T) const T&
-    #define CONST(T) const T
-    #define CREF(T) const T&
-    #define THREADGROUP
-    #define CONSTEXPR constexpr
+    #define Thread 
+    #define ThreadRef(T) T&
+    #define Device 
+    #define Pointer(T) T*
+    #define Constant(T) const T&
+    #define Const(T) const T
+    #define ConstRef(T) const T&
+    #define ThreadGroup
+    #define ConstExpr constexpr
     #define CONSTIF if constexpr
-    #define ARRAY(T) SharedArray<T>
-    #define ARRAYREF(T) SharedArray<T>&
+    #define Array(T) SharedArray<T>
+    #define ArrayRef(T) SharedArray<T>&
 #endif
 
 #ifdef  METAL_CODE
@@ -58,8 +58,8 @@ using uint = unsigned int;
 #define SIM_USE_GLM true
 #endif
 
-// #define GPU_PREFIX CONSTANT(uint) prefix,
+// #define GPU_PREFIX Constant(uint) prefix,
 #define GPU_PREFIX 
 
 template <typename T>
-THREAD T tothread(DEVICE T& data) { return data; }
+Thread T tothread(Device T& data) { return data; }

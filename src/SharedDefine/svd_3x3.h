@@ -8,10 +8,10 @@ namespace sim
 
 namespace Local
 {
-    CONSTEXPR float _gamma  = 5.828427124 ;  // FOUR_GAMMA_SQUARED = sqrt(8)+3;
-CONSTEXPR float _cstar  = 0.923879532 ;  // cos(pi/8)
-CONSTEXPR float _sstar  = 0.3826834323;  // sin(p/8)
-CONSTEXPR float EPSILON = 1e-6;
+    ConstExpr float _gamma  = 5.828427124 ;  // FOUR_GAMMA_SQUARED = sqrt(8)+3;
+ConstExpr float _cstar  = 0.923879532 ;  // cos(pi/8)
+ConstExpr float _sstar  = 0.3826834323;  // sin(p/8)
+ConstExpr float EPSILON = 1e-6;
 
 // #include <cuda.h>
 // #include "math.h" // CUDA math library
@@ -24,7 +24,7 @@ float accurateSqrt(float x)
 }
 
 inline
-void condSwap(bool c, THREAD float &X, THREAD float &Y)
+void condSwap(bool c, Thread float &X, Thread float &Y)
 {
     // used in step 2
     float Z = X;
@@ -33,7 +33,7 @@ void condSwap(bool c, THREAD float &X, THREAD float &Y)
 }
 
 inline
-void condNegSwap(bool c, THREAD float &X, THREAD float &Y)
+void condNegSwap(bool c, Thread float &X, Thread float &Y)
 {
     // used in step 2 and 3
     float Z = -X;
@@ -51,9 +51,9 @@ void multAB(float a11, float a12, float a13,
           float b21, float b22, float b23,
           float b31, float b32, float b33,
           //
-          THREAD float &m11, THREAD float &m12, THREAD float &m13,
-          THREAD float &m21, THREAD float &m22, THREAD float &m23,
-          THREAD float &m31, THREAD float &m32, THREAD float &m33)
+          Thread float &m11, Thread float &m12, Thread float &m13,
+          Thread float &m21, Thread float &m22, Thread float &m23,
+          Thread float &m31, Thread float &m32, Thread float &m33)
 {
 
     m11=a11*b11 + a12*b21 + a13*b31; m12=a11*b12 + a12*b22 + a13*b32; m13=a11*b13 + a12*b23 + a13*b33;
@@ -71,9 +71,9 @@ void multAtB(float a11, float a12, float a13,
           float b21, float b22, float b23,
           float b31, float b32, float b33,
           //
-          THREAD float &m11, THREAD float &m12, THREAD float &m13,
-          THREAD float &m21, THREAD float &m22, THREAD float &m23,
-          THREAD float &m31, THREAD float &m32, THREAD float &m33)
+          Thread float &m11, Thread float &m12, Thread float &m13,
+          Thread float &m21, Thread float &m22, Thread float &m23,
+          Thread float &m31, Thread float &m32, Thread float &m33)
 {
   m11=a11*b11 + a21*b21 + a31*b31; m12=a11*b12 + a21*b22 + a31*b32; m13=a11*b13 + a21*b23 + a31*b33;
   m21=a12*b11 + a22*b21 + a32*b31; m22=a12*b12 + a22*b22 + a32*b32; m23=a12*b13 + a22*b23 + a32*b33;
@@ -81,10 +81,10 @@ void multAtB(float a11, float a12, float a13,
 }
 
 inline
-void quatToMat3(const THREAD float * qV,
-THREAD float &m11, THREAD float &m12, THREAD float &m13,
-THREAD float &m21, THREAD float &m22, THREAD float &m23,
-THREAD float &m31, THREAD float &m32, THREAD float &m33
+void quatToMat3(const Thread float * qV,
+Thread float &m11, Thread float &m12, Thread float &m13,
+Thread float &m21, Thread float &m22, Thread float &m23,
+Thread float &m31, Thread float &m32, Thread float &m33
 )
 {
     float w = qV[3];
@@ -108,7 +108,7 @@ THREAD float &m31, THREAD float &m32, THREAD float &m33
 }
 
 inline
-void approximateGivensQuaternion(float a11, float a12, float a22, THREAD float &ch, THREAD float &sh)
+void approximateGivensQuaternion(float a11, float a12, float a22, Thread float &ch, Thread float &sh)
 {
 /*
      * Given givens angle computed by approximateGivensAngles,
@@ -124,10 +124,10 @@ void approximateGivensQuaternion(float a11, float a12, float a22, THREAD float &
 
 inline
 void jacobiConjugation( const int x, const int y, const int z,
-                        THREAD float &s11,
-                        THREAD float &s21, THREAD float &s22,
-                        THREAD float &s31, THREAD float &s32, THREAD float &s33,
-                        THREAD float * qV)
+                        Thread float &s11,
+                        Thread float &s21, Thread float &s22,
+                        Thread float &s31, Thread float &s32, Thread float &s33,
+                        Thread float * qV)
 {
     float ch,sh;
     approximateGivensQuaternion(s11,s21,s22,ch,sh);
@@ -185,11 +185,11 @@ float dist2(float x, float y, float z)
 // finds transformation that diagonalizes a symmetric matrix
 inline
 void jacobiEigenanlysis( // symmetric matrix
-                                THREAD float &s11,
-                                THREAD float &s21, THREAD float &s22,
-                                THREAD float &s31, THREAD float &s32, THREAD float &s33,
+                                Thread float &s11,
+                                Thread float &s21, Thread float &s22,
+                                Thread float &s31, Thread float &s32, Thread float &s33,
                                 // quaternion representation of V
-                                THREAD float * qV)
+                                Thread float * qV)
 {
     qV[3]=1; qV[0]=0;qV[1]=0;qV[2]=0; // follow same indexing convention as GLM
     for (int i=0;i<10;i++)
@@ -206,13 +206,13 @@ void jacobiEigenanlysis( // symmetric matrix
 
 inline
 void sortSingularValues(// matrix that we want to decompose
-                            THREAD float &b11, THREAD float &b12, THREAD float &b13,
-                            THREAD float &b21, THREAD float &b22, THREAD float &b23,
-                            THREAD float &b31, THREAD float &b32, THREAD float &b33,
+                            Thread float &b11, Thread float &b12, Thread float &b13,
+                            Thread float &b21, Thread float &b22, Thread float &b23,
+                            Thread float &b31, Thread float &b32, Thread float &b33,
                           // sort V simultaneously
-                            THREAD float &v11, THREAD float &v12, THREAD float &v13,
-                            THREAD float &v21, THREAD float &v22, THREAD float &v23,
-                            THREAD float &v31, THREAD float &v32, THREAD float &v33)
+                            Thread float &v11, Thread float &v12, Thread float &v13,
+                            Thread float &v21, Thread float &v22, Thread float &v23,
+                            Thread float &v31, Thread float &v32, Thread float &v33)
 {
     float rho1 = dist2(b11,b21,b31);
     float rho2 = dist2(b12,b22,b23);
@@ -235,7 +235,7 @@ void sortSingularValues(// matrix that we want to decompose
 }
 
 inline
-void QRGivensQuaternion(float a1, float a2, THREAD float &ch, THREAD float &sh)
+void QRGivensQuaternion(float a1, float a2, Thread float &ch, Thread float &sh)
 {
     // a1 = pivot point on diagonal
     // a2 = lower triangular entry we want to annihilate
@@ -257,13 +257,13 @@ void QRDecomposition(// matrix that we want to decompose
                             float b21, float b22, float b23,
                             float b31, float b32, float b33,
                             // output Q
-                            THREAD float &q11, THREAD float &q12, THREAD float &q13,
-                            THREAD float &q21, THREAD float &q22, THREAD float &q23,
-                            THREAD float &q31, THREAD float &q32, THREAD float &q33,
+                            Thread float &q11, Thread float &q12, Thread float &q13,
+                            Thread float &q21, Thread float &q22, Thread float &q23,
+                            Thread float &q31, Thread float &q32, Thread float &q33,
                             // output R
-                            THREAD float &r11, THREAD float &r12, THREAD float &r13,
-                            THREAD float &r21, THREAD float &r22, THREAD float &r23,
-                            THREAD float &r31, THREAD float &r32, THREAD float &r33)
+                            Thread float &r11, Thread float &r12, Thread float &r13,
+                            Thread float &r21, Thread float &r22, Thread float &r23,
+                            Thread float &r31, Thread float &r32, Thread float &r33)
 {
     float ch1,sh1,ch2,sh2,ch3,sh3;
     float a,b;
@@ -322,17 +322,17 @@ void svd_built_in(// input A
         float a21, float a22, float a23,
         float a31, float a32, float a33,
         // output U
-        THREAD float &u11, THREAD float &u12, THREAD float &u13,
-        THREAD float &u21, THREAD float &u22, THREAD float &u23,
-        THREAD float &u31, THREAD float &u32, THREAD float &u33,
+        Thread float &u11, Thread float &u12, Thread float &u13,
+        Thread float &u21, Thread float &u22, Thread float &u23,
+        Thread float &u31, Thread float &u32, Thread float &u33,
         // output S
-        THREAD float &s11, THREAD float &s12, THREAD float &s13,
-        THREAD float &s21, THREAD float &s22, THREAD float &s23,
-        THREAD float &s31, THREAD float &s32, THREAD float &s33,
+        Thread float &s11, Thread float &s12, Thread float &s13,
+        Thread float &s21, Thread float &s22, Thread float &s23,
+        Thread float &s31, Thread float &s32, Thread float &s33,
         // output V
-        THREAD float &v11, THREAD float &v12, THREAD float &v13,
-        THREAD float &v21, THREAD float &v22, THREAD float &v23,
-        THREAD float &v31, THREAD float &v32, THREAD float &v33)
+        Thread float &v11, Thread float &v12, Thread float &v13,
+        Thread float &v21, Thread float &v22, Thread float &v23,
+        Thread float &v31, Thread float &v32, Thread float &v33)
 {
     // normal equations matrix
     float ATA11, ATA12, ATA13;
@@ -368,7 +368,7 @@ void svd_built_in(// input A
 
 }
 
-inline void svd(CREF(Float3x3) F, TREF(Float3x3) U, TREF(Float3) Sigma, TREF(Float3x3) V)
+inline void svd(ConstRef(Float3x3) F, ThreadRef(Float3x3) U, ThreadRef(Float3) Sigma, ThreadRef(Float3x3) V)
 {
     Matrix3x3f tmpF(F);
     Matrix3x3f tmpU;

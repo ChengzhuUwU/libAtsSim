@@ -6,7 +6,7 @@
 namespace SimGeometry{
 
 // 点-边 的垂足
-inline Float3 foot_ve(CREF(Float3) target, CREF(Float3) line_start, CREF(Float3) line_end){
+inline Float3 foot_ve(ConstRef(Float3) target, ConstRef(Float3) line_start, ConstRef(Float3) line_end){
 	Float3 delta_A = target - line_start; // A -> P
 	// Float3 delta_B = target - line_end; // B -> P
 	Float3 delta_AB = line_end - line_start; // A -> B
@@ -29,10 +29,10 @@ inline Float3 foot_ve(CREF(Float3) target, CREF(Float3) line_start, CREF(Float3)
 namespace DistanceType{
 
 // int Point_Triangle_Distance_Type(
-//     CREF(Float3) p, 
-//     CREF(Float3) t0, 
-//     CREF(Float3) t1,
-//     CREF(Float3) t2)
+//     ConstRef(Float3) p, 
+//     ConstRef(Float3) t0, 
+//     ConstRef(Float3) t1,
+//     ConstRef(Float3) t2)
 // {
 //     Float3x2 basis;
 //     Float3 e0 = t1 - t0;
@@ -89,10 +89,10 @@ namespace DistanceType{
 
 // a more robust implementation of http://geomalgorithms.com/a07-_distance.html
 inline int Edge_Edge_Distance_Type(
-    CREF(Float3) ea0,
-    CREF(Float3) ea1,
-    CREF(Float3) eb0,
-    CREF(Float3) eb1)
+    ConstRef(Float3) ea0,
+    ConstRef(Float3) ea1,
+    ConstRef(Float3) eb0,
+    ConstRef(Float3) eb1)
 {
     Float3 u = ea1 - ea0;
     Float3 v = eb1 - eb0;
@@ -171,19 +171,19 @@ inline int Edge_Edge_Distance_Type(
 } // namespace DistanceType
 
 inline void Point_Point_Distance(
-	CREF(Float3) a, 
-    CREF(Float3) b, 
-    TREF(REAL) dist2)
+	ConstRef(Float3) a, 
+    ConstRef(Float3) b, 
+    ThreadRef(REAL) dist2)
 {
     dist2 = length_squared_vec(a - b);
 }
 
 inline void Point_Edge_Distance(
-	CREF(Float3) p, 
-    CREF(Float3) e0, 
-    CREF(Float3) e1, 
-    TREF(REAL) dist2
-	// ,TREF(Float3) outerPoint, TREF(Float3) innerPoint
+	ConstRef(Float3) p, 
+    ConstRef(Float3) e0, 
+    ConstRef(Float3) e1, 
+    ThreadRef(REAL) dist2
+	// ,ThreadRef(Float3) outerPoint, ThreadRef(Float3) innerPoint
 	)
 {
     // if constexpr (dim == 2) {
@@ -240,11 +240,11 @@ inline void Point_Edge_Distance(
 
 
 static inline void Edge_Edge_Distance(
-    CREF(Float3) ea0, // ea
-    CREF(Float3) ea1,
-    CREF(Float3) eb0, // eb
-    CREF(Float3) eb1,
-    TREF(REAL)  dist2)
+    ConstRef(Float3) ea0, // ea
+    ConstRef(Float3) ea1,
+    ConstRef(Float3) eb0, // eb
+    ConstRef(Float3) eb1,
+    ThreadRef(REAL)  dist2)
 {
     Float3 b = cross_vec(ea1 - ea0, eb1 - eb0);
     REAL aTb = dot_vec(eb0 - ea0, b); // ea上一点到eb上的投影长度
@@ -252,11 +252,11 @@ static inline void Edge_Edge_Distance(
 }
 
 inline void Edge_Edge_Distance_Unclassified(
-    CREF(Float3) ea0,
-    CREF(Float3) ea1,
-    CREF(Float3) eb0,
-    CREF(Float3) eb1,
-    TREF(REAL) dist2)
+    ConstRef(Float3) ea0,
+    ConstRef(Float3) ea1,
+    ConstRef(Float3) eb0,
+    ConstRef(Float3) eb1,
+    ThreadRef(REAL) dist2)
 {
     switch (DistanceType::Edge_Edge_Distance_Type(ea0, ea1, eb0, eb1)) {
     case 0: {
@@ -529,7 +529,7 @@ inline void Edge_Edge_Distance_Unclassified(
 //     return d;
 // }
 
-// inline Float3 get_barycentric_coords(ARRAY(Float2) metarial_position, const Float2 &point, const Face& face)
+// inline Float3 get_barycentric_coords(Array(Float2) metarial_position, const Float2 &point, const Face& face)
 // {
 //     // Compute vectors
 //     Float2 v0 = (metarial_position[face[0]] - metarial_position[face[2]]);

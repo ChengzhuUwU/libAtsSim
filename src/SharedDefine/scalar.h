@@ -27,65 +27,65 @@ using REAL = float;
 //     return n.f;
 // }
 
-template<typename T> inline constexpr T abs_scalar(CONST(T) value) { return value > T(0) ? value : -value; }
-template<typename T> inline constexpr T lerp_scalar(CONST(T) left, CONST(T) right, CONST(T) lerp_value) { return left + lerp_value * (right - left);}
-// inline constexpr uint abs_scalar(CONST(int) value) { return value > (0) ? value : -value; }
-// inline constexpr float abs_scalar(CONST(float) value) { return value > (0.f) ? value : -value; }
+template<typename T> inline constexpr T abs_scalar(Const(T) value) { return value > T(0) ? value : -value; }
+template<typename T> inline constexpr T lerp_scalar(Const(T) left, Const(T) right, Const(T) lerp_value) { return left + lerp_value * (right - left);}
+// inline constexpr uint abs_scalar(Const(int) value) { return value > (0) ? value : -value; }
+// inline constexpr float abs_scalar(Const(float) value) { return value > (0.f) ? value : -value; }
 
 
-template<typename T1, typename T2> inline constexpr T1 max_scalar(CONST(T1) left, CONST(T2) right) { return left > right ? left : right; }
-template<typename T1, typename T2> inline constexpr T1 min_scalar(CONST(T1) left, CONST(T2) right) { return left < right ? left : right; }
+template<typename T1, typename T2> inline constexpr T1 max_scalar(Const(T1) left, Const(T2) right) { return left > right ? left : right; }
+template<typename T1, typename T2> inline constexpr T1 min_scalar(Const(T1) left, Const(T2) right) { return left < right ? left : right; }
 
-template<typename T1, typename T2, typename T3> inline constexpr T1 max_scalar(CONST(T1) v1, CONST(T2) v2, CONST(T3) v3) 
+template<typename T1, typename T2, typename T3> inline constexpr T1 max_scalar(Const(T1) v1, Const(T2) v2, Const(T3) v3) 
 { return (v1 >= v2 && v1 >= v3) ? v1 : (v2 >= v1 && v2 >= v3) ? v2 : v3; }
-template<typename T1, typename T2, typename T3> inline constexpr T1 min_scalar(CONST(T1) v1, CONST(T2) v2, CONST(T3) v3) 
+template<typename T1, typename T2, typename T3> inline constexpr T1 min_scalar(Const(T1) v1, Const(T2) v2, Const(T3) v3) 
 { return (v1 <= v2 && v1 <= v3) ? v1 : (v2 <= v1 && v2 <= v3) ? v2 : v3; }
-template<typename T1, typename T2, typename T3, typename T4> inline constexpr T1 max_scalar(CONST(T1) v1, CONST(T2) v2, CONST(T3) v3, CONST(T4) v4) 
+template<typename T1, typename T2, typename T3, typename T4> inline constexpr T1 max_scalar(Const(T1) v1, Const(T2) v2, Const(T3) v3, Const(T4) v4) 
 { return (v1 >= v2 && v1 >= v3 && v1 >= v4) ? v1 : (v2 >= v1 && v2 >= v3 && v2 >= v4) ? v2 : (v3 >= v1 && v3 >= v2 && v3 >= v4) ? v3 : v4; }
-template<typename T1, typename T2, typename T3, typename T4> inline constexpr T1 min_scalar(CONST(T1) v1, CONST(T2) v2, CONST(T3) v3, CONST(T4) v4) 
+template<typename T1, typename T2, typename T3, typename T4> inline constexpr T1 min_scalar(Const(T1) v1, Const(T2) v2, Const(T3) v3, Const(T4) v4) 
 { return (v1 <= v2 && v1 <= v3 && v1 <= v4) ? v1 : (v2 <= v1 && v2 <= v3 && v2 <= v4) ? v2 : (v3 <= v1 && v3 <= v2 && v3 <= v4) ? v3 : v4; }
 
-template<typename T> inline constexpr void swap_scalar(TREF(T) left, TREF(T) right) { T tmp = left; left = right; right = tmp; }
-template<typename T1, typename T2, typename T3>  inline constexpr T1 clamp_scalar(CONST(T1) value, CONST(T2) lower, CONST(T3) upper) { return max_scalar(min_scalar(value, upper), lower);}
+template<typename T> inline constexpr void swap_scalar(ThreadRef(T) left, ThreadRef(T) right) { T tmp = left; left = right; right = tmp; }
+template<typename T1, typename T2, typename T3>  inline constexpr T1 clamp_scalar(Const(T1) value, Const(T2) lower, Const(T3) upper) { return max_scalar(min_scalar(value, upper), lower);}
 
 
 #if SIM_USE_SIMD
-                     inline constexpr int floor_scalar(CONST(float) value)  { return simd::floor(value); }
-template<typename T> inline constexpr T sign_scalar(CONST(T) value)  { return simd::sign(value); }
-template<typename T> inline constexpr T sin_scalar(CONST(T) value)   { return simd::sin(value); }
-template<typename T> inline constexpr T cos_scalar(CONST(T) value)   { return simd::cos(value); }
-template<typename T> inline constexpr T tan_scalar(CONST(T) value)   { return simd::tan(value); }
-template<typename T> inline constexpr T asin_scalar(CONST(T) value)   { return simd::asin(value); }
-template<typename T> inline constexpr T acos_scalar(CONST(T) value)   { return simd::acos(value); }
-template<typename T> inline constexpr T atan_scalar(CONST(T) value)   { return simd::atan(value); }
-template<typename T> inline constexpr T atan2_scalar(CONST(T) y, CONST(T) x)   { return x != T(0) ? simd::atan2(y, x) : T(0); }
-template<typename T> inline constexpr T sqrt_scalar(CONST(T) value)  { return simd::sqrt(value); }
-template<typename T> inline constexpr T rsqrt_scalar(CONST(T) value) { return simd::rsqrt(value); }
-template<typename T> inline constexpr T is_inf_scalar(CONST(T) value) { return simd::isinf(value); }
-template<typename T> inline constexpr T is_nan_scalar(CONST(T) value) { return simd::isnan(value); }
-template<typename T1, typename T2> inline constexpr T1 pow_scalar(CONST(T1) x, CONST(T2) y) {return simd::pow(x, y);}
+                     inline constexpr int floor_scalar(Const(float) value)  { return simd::floor(value); }
+template<typename T> inline constexpr T sign_scalar(Const(T) value)  { return simd::sign(value); }
+template<typename T> inline constexpr T sin_scalar(Const(T) value)   { return simd::sin(value); }
+template<typename T> inline constexpr T cos_scalar(Const(T) value)   { return simd::cos(value); }
+template<typename T> inline constexpr T tan_scalar(Const(T) value)   { return simd::tan(value); }
+template<typename T> inline constexpr T asin_scalar(Const(T) value)   { return simd::asin(value); }
+template<typename T> inline constexpr T acos_scalar(Const(T) value)   { return simd::acos(value); }
+template<typename T> inline constexpr T atan_scalar(Const(T) value)   { return simd::atan(value); }
+template<typename T> inline constexpr T atan2_scalar(Const(T) y, Const(T) x)   { return x != T(0) ? simd::atan2(y, x) : T(0); }
+template<typename T> inline constexpr T sqrt_scalar(Const(T) value)  { return simd::sqrt(value); }
+template<typename T> inline constexpr T rsqrt_scalar(Const(T) value) { return simd::rsqrt(value); }
+template<typename T> inline constexpr T is_inf_scalar(Const(T) value) { return simd::isinf(value); }
+template<typename T> inline constexpr T is_nan_scalar(Const(T) value) { return simd::isnan(value); }
+template<typename T1, typename T2> inline constexpr T1 pow_scalar(Const(T1) x, Const(T2) y) {return simd::pow(x, y);}
 
 #elif SIM_USE_GLM
-                     inline constexpr int floor_scalar(CONST(float) value)  { return glm::floor(value); }
-template<typename T> inline T sign_scalar(CONST(T) value)  { return glm::sign(value);}
-template<typename T> inline constexpr T sin_scalar(CONST(T) value)   { return glm::sin(value); }
-template<typename T> inline constexpr T cos_scalar(CONST(T) value)   { return glm::cos(value); }
-template<typename T> inline constexpr T tan_scalar(CONST(T) value)   { return glm::tan(value); }
-template<typename T> inline constexpr T asin_scalar(CONST(T) value)   { return glm::asin(value); }
-template<typename T> inline constexpr T acos_scalar(CONST(T) value)   { return glm::acos(value); }
-template<typename T> inline constexpr T atan_scalar(CONST(T) value)   { return glm::atan(value); }
-template<typename T> inline constexpr T atan2_scalar(CONST(T) y, CONST(T) x)   { return x != T(0) ? glm::atan2(y, x) : T(0); }
-template<typename T> inline constexpr T sqrt_scalar(CONST(T) value)  { return glm::sqrt(value);}
-template<typename T> inline constexpr T rsqrt_scalar(CONST(T) value) { return 1.f / glm::sqrt(value);}
-template<typename T> inline constexpr T is_inf_scalar(CONST(T) value) { return glm::isinf(value); }
-template<typename T> inline constexpr T is_nan_scalar(CONST(T) value) { return glm::isnan(value); }
-template<typename T1, typename T2> inline constexpr T1 pow_scalar(CONST(T1) x, CONST(T2) y)  {return glm::pow(x, y);}
+                     inline constexpr int floor_scalar(Const(float) value)  { return glm::floor(value); }
+template<typename T> inline T sign_scalar(Const(T) value)  { return glm::sign(value);}
+template<typename T> inline constexpr T sin_scalar(Const(T) value)   { return glm::sin(value); }
+template<typename T> inline constexpr T cos_scalar(Const(T) value)   { return glm::cos(value); }
+template<typename T> inline constexpr T tan_scalar(Const(T) value)   { return glm::tan(value); }
+template<typename T> inline constexpr T asin_scalar(Const(T) value)   { return glm::asin(value); }
+template<typename T> inline constexpr T acos_scalar(Const(T) value)   { return glm::acos(value); }
+template<typename T> inline constexpr T atan_scalar(Const(T) value)   { return glm::atan(value); }
+template<typename T> inline constexpr T atan2_scalar(Const(T) y, Const(T) x)   { return x != T(0) ? atan2(y, x) : T(0); }
+template<typename T> inline constexpr T sqrt_scalar(Const(T) value)  { return glm::sqrt(value);}
+template<typename T> inline constexpr T rsqrt_scalar(Const(T) value) { return 1.f / glm::sqrt(value);}
+template<typename T> inline constexpr T is_inf_scalar(Const(T) value) { return glm::isinf(value); }
+template<typename T> inline constexpr T is_nan_scalar(Const(T) value) { return glm::isnan(value); }
+template<typename T1, typename T2> inline constexpr T1 pow_scalar(Const(T1) x, Const(T2) y)  {return glm::pow(x, y);}
 
 #endif
 
-template<typename T> inline constexpr T square_scalar(CONST(T) value) { return value * value; }
+template<typename T> inline constexpr T square_scalar(Const(T) value) { return value * value; }
 
-template<typename T> inline constexpr T is_equal_scalar(CONST(T) left, CONST(T) right)   { return abs_scalar(left - right) < Epsilon; }
+template<typename T> inline constexpr T is_equal_scalar(Const(T) left, Const(T) right)   { return abs_scalar(left - right) < Epsilon; }
 
 
 

@@ -33,23 +33,23 @@ namespace Core
 {
 
 inline float caulc_alpha_tilde(
-	CONST(float) dt, CONST(float) stiff)
+	Const(float) dt, Const(float) stiff)
 {
 	return 1.f / (stiff * dt * dt);
 }
 inline float caulc_gamma_tilde(
-	CONST(float) dt, CONST(float) damping, CONST(float) stiff)
+	Const(float) dt, Const(float) damping, Const(float) stiff)
 {
 	return damping / (stiff * dt);
 }
 
 template<uint NumVerts>
 inline float get_delta_xpbd_template(
-	THREAD Float3* dx,
-	const THREAD Float3* gradient,
-	const THREAD float* weight,
-	CONST(float) C, CONST(float) lambda,
-	CONST(float) alpha_tilde)
+	Thread Float3* dx,
+	const Thread Float3* gradient,
+	const Thread float* weight,
+	Const(float) C, Const(float) lambda,
+	Const(float) alpha_tilde)
 {
 	// const float alpha_tilde = 1.f / (stiff * dt * dt);
 	float denom = alpha_tilde;
@@ -72,12 +72,12 @@ inline float get_delta_xpbd_template(
 }
 template<uint NumVerts>
 inline float get_delta_xpbd_template_with_damping(
-	THREAD Float3* dx,
-	const THREAD Float3* gradient,
-	const THREAD Float3* h_vel,
-	const THREAD float* weight,
-	CONST(float) C, CONST(float) lambda, 
-	CONST(float) alpha_tilde, CONST(float) gamma_tilde)
+	Thread Float3* dx,
+	const Thread Float3* gradient,
+	const Thread Float3* h_vel,
+	const Thread float* weight,
+	Const(float) C, Const(float) lambda, 
+	Const(float) alpha_tilde, Const(float) gamma_tilde)
 {
 	float denom = 0.0f; float sum_h_vel_g = 0.0f;
 	for (uint i = 0; i < NumVerts; i++) 
@@ -101,11 +101,11 @@ inline float get_delta_xpbd_template_with_damping(
 	return delta_lambda;
 }
 inline float get_delta_xpbd_1(
-	TREF(Float3) dx1, 
-	CREF(Float3) gradient1, 
-	CONST(float) weight1, 
-	CONST(float) C, CONST(float) lambda,
-	CONST(float) alpha_tilde)
+	ThreadRef(Float3) dx1, 
+	ConstRef(Float3) gradient1, 
+	Const(float) weight1, 
+	Const(float) C, Const(float) lambda,
+	Const(float) alpha_tilde)
 {
 	const float denom = 
 		weight1 * length_squared_vec(gradient1) + alpha_tilde;
@@ -119,11 +119,11 @@ inline float get_delta_xpbd_1(
 	return delta_lambda;
 }
 inline float get_delta_xpbd_2(
-	TREF(Float3) dx1, TREF(Float3) dx2,
-	CREF(Float3) gradient1, CREF(Float3) gradient2,
-	CONST(float) weight1, CONST(float) weight2,
-	CONST(float) C, CONST(float) lambda,
-	CONST(float) alpha_tilde)
+	ThreadRef(Float3) dx1, ThreadRef(Float3) dx2,
+	ConstRef(Float3) gradient1, ConstRef(Float3) gradient2,
+	Const(float) weight1, Const(float) weight2,
+	Const(float) C, Const(float) lambda,
+	Const(float) alpha_tilde)
 {
 	// const float alpha_tilde = 1.f / (stiff * dt * dt);
 	const float denom = 
@@ -141,11 +141,11 @@ inline float get_delta_xpbd_2(
 	return delta_lambda;
 }
 inline float get_additional_delta_xpbd_2(
-	TREF(Float3) dx1, TREF(Float3) dx2,
-	CREF(Float3) gradient1, CREF(Float3) gradient2,
-	CONST(float) weight1, CONST(float) weight2,
-	CONST(float) C, CONST(float) lambda,
-	CONST(float) alpha_tilde)
+	ThreadRef(Float3) dx1, ThreadRef(Float3) dx2,
+	ConstRef(Float3) gradient1, ConstRef(Float3) gradient2,
+	Const(float) weight1, Const(float) weight2,
+	Const(float) C, Const(float) lambda,
+	Const(float) alpha_tilde)
 {
 	const float denom = 
 		weight1 * length_squared_vec(gradient1) +
@@ -161,12 +161,12 @@ inline float get_additional_delta_xpbd_2(
 	return delta_lambda;
 }
 inline float get_additional_delta_xpbd_2_with_damping(
-	TREF(Float3) dx1, TREF(Float3) dx2,
-	CREF(Float3) gradient1, CREF(Float3) gradient2,
-	CREF(Float3) h_vel_1, CREF(Float3) h_vel_2,
-	CONST(float) weight1, CONST(float) weight2,
-	CONST(float) C, CONST(float) lambda,
-	CONST(float) alpha_tilde, CONST(float) gamma_tilde)
+	ThreadRef(Float3) dx1, ThreadRef(Float3) dx2,
+	ConstRef(Float3) gradient1, ConstRef(Float3) gradient2,
+	ConstRef(Float3) h_vel_1, ConstRef(Float3) h_vel_2,
+	Const(float) weight1, Const(float) weight2,
+	Const(float) C, Const(float) lambda,
+	Const(float) alpha_tilde, Const(float) gamma_tilde)
 {
 	const float denom = 
 		(weight1 * length_squared_vec(gradient1) +
@@ -185,11 +185,11 @@ inline float get_additional_delta_xpbd_2_with_damping(
 	return delta_lambda;
 }
 inline float get_delta_xpbd_3(
-	TREF(Float3) dx_0, TREF(Float3) dx_1, TREF(Float3) dx_2,
-	CREF(Float3) gradient_0, CREF(Float3) gradient_1, CREF(Float3) gradient_2,
-	CONST(float) w_0, CONST(float) w_1, CONST(float) w_2,
-	CONST(float) C, CONST(float) lambda,
-	CONST(float) alpha_tilde)
+	ThreadRef(Float3) dx_0, ThreadRef(Float3) dx_1, ThreadRef(Float3) dx_2,
+	ConstRef(Float3) gradient_0, ConstRef(Float3) gradient_1, ConstRef(Float3) gradient_2,
+	Const(float) w_0, Const(float) w_1, Const(float) w_2,
+	Const(float) C, Const(float) lambda,
+	Const(float) alpha_tilde)
 {
 	// const float alpha_tilde = 1.f / (stiff * dt * dt);
 	const float denom = 
@@ -209,11 +209,11 @@ inline float get_delta_xpbd_3(
 	return delta_lambda;
 }
 inline float get_delta_xpbd_4(
-	TREF(Float3) dx_0, TREF(Float3) dx_1, TREF(Float3) dx_2, TREF(Float3) dx_3,
-	CREF(Float3) gradient_0, CREF(Float3) gradient_1, CREF(Float3) gradient_2, CREF(Float3) gradient_3,
-	CONST(float) w_0, CONST(float) w_1, CONST(float) w_2, CONST(float) w_3,
-	CONST(float) C, CONST(float) lambda,
-	CONST(float) alpha_tilde)
+	ThreadRef(Float3) dx_0, ThreadRef(Float3) dx_1, ThreadRef(Float3) dx_2, ThreadRef(Float3) dx_3,
+	ConstRef(Float3) gradient_0, ConstRef(Float3) gradient_1, ConstRef(Float3) gradient_2, ConstRef(Float3) gradient_3,
+	Const(float) w_0, Const(float) w_1, Const(float) w_2, Const(float) w_3,
+	Const(float) C, Const(float) lambda,
+	Const(float) alpha_tilde)
 {
 	// const float alpha_tilde = 1.f / (stiff * dt * dt);
 	const float denom = 
@@ -235,11 +235,11 @@ inline float get_delta_xpbd_4(
 	return delta_lambda;
 }
 inline float get_additional_delta_x_xpbd_4(
-	TREF(Float3) dx_0, TREF(Float3) dx_1, TREF(Float3) dx_2, TREF(Float3) dx_3,
-	CREF(Float3) gradient_0, CREF(Float3) gradient_1, CREF(Float3) gradient_2, CREF(Float3) gradient_3,
-	CONST(float) w_0, CONST(float) w_1, CONST(float) w_2, CONST(float) w_3,
-	CONST(float) C, CONST(float) lambda,
-	CONST(float) alpha_tilde)
+	ThreadRef(Float3) dx_0, ThreadRef(Float3) dx_1, ThreadRef(Float3) dx_2, ThreadRef(Float3) dx_3,
+	ConstRef(Float3) gradient_0, ConstRef(Float3) gradient_1, ConstRef(Float3) gradient_2, ConstRef(Float3) gradient_3,
+	Const(float) w_0, Const(float) w_1, Const(float) w_2, Const(float) w_3,
+	Const(float) C, Const(float) lambda,
+	Const(float) alpha_tilde)
 {
 	// const float alpha_tilde = 1.f / (stiff * dt * dt);
 	const float denom = 
@@ -261,12 +261,12 @@ inline float get_additional_delta_x_xpbd_4(
 	return delta_lambda;
 }
 inline float get_additional_delta_x_xpbd_4_with_damping(
-	TREF(Float3) dx_0, TREF(Float3) dx_1, TREF(Float3) dx_2, TREF(Float3) dx_3,
-	CREF(Float3) gradient_0, CREF(Float3) gradient_1, CREF(Float3) gradient_2, CREF(Float3) gradient_3,
-	CREF(Float3) hv_0, CREF(Float3) hv_1, CREF(Float3) hv_2, CREF(Float3) hv_3,
-	CONST(float) w_0, CONST(float) w_1, CONST(float) w_2, CONST(float) w_3,
-	CONST(float) C, CONST(float) lambda,
-	CONST(float) alpha_tilde, CONST(float) gamma_tilde)
+	ThreadRef(Float3) dx_0, ThreadRef(Float3) dx_1, ThreadRef(Float3) dx_2, ThreadRef(Float3) dx_3,
+	ConstRef(Float3) gradient_0, ConstRef(Float3) gradient_1, ConstRef(Float3) gradient_2, ConstRef(Float3) gradient_3,
+	ConstRef(Float3) hv_0, ConstRef(Float3) hv_1, ConstRef(Float3) hv_2, ConstRef(Float3) hv_3,
+	Const(float) w_0, Const(float) w_1, Const(float) w_2, Const(float) w_3,
+	Const(float) C, Const(float) lambda,
+	Const(float) alpha_tilde, Const(float) gamma_tilde)
 {
 	// const float alpha_tilde = 1.f / (stiff * dt * dt);
 	const float denom = 
@@ -293,9 +293,9 @@ inline float get_additional_delta_x_xpbd_4_with_damping(
 }
 
 inline void get_force_from_xpbd_system_3(
-	CREF(Float3) gradient_0, CREF(Float3) gradient_1, CREF(Float3) gradient_2,
-	CONST(float) C, CONST(float) stiff,
-	TREF(Float3) force_0, TREF(Float3) force_1, TREF(Float3) force_2)
+	ConstRef(Float3) gradient_0, ConstRef(Float3) gradient_1, ConstRef(Float3) gradient_2,
+	Const(float) C, Const(float) stiff,
+	ThreadRef(Float3) force_0, ThreadRef(Float3) force_1, ThreadRef(Float3) force_2)
 {	
 	force_0 = -stiff * C * gradient_0;
 	force_1 = -stiff * C * gradient_1;
@@ -305,7 +305,7 @@ inline void get_force_from_xpbd_system_3(
 
 
 
-inline uint get_index_from_color(const bool use_multi_color, const uint kernel_index, const uint cluster_idx, PTR(uint) cluster)
+inline uint get_index_from_color(const bool use_multi_color, const uint kernel_index, const uint cluster_idx, Pointer(uint) cluster)
 {
 	uint mapped_index = kernel_index;
 	if (use_multi_color)
@@ -320,12 +320,12 @@ inline uint get_index_from_color(const bool use_multi_color, const uint kernel_i
 
 inline void predict_position(
 	const uint vid,
-	// PTR(SceneParams) scene_params,
-	PTR(Float3) sa_x, PTR(Float3) sa_v, PTR(Float3) sa_x_start, 
-	PTR(Float3) sa_x_tilde,
-	const bool predict_for_collision, PTR(Float3) sa_next_position,
-	PTR(float) sa_vert_mass, 
-	PTR(uchar) sa_is_fixed,
+	// Pointer(SceneParams) scene_params,
+	Pointer(Float3) sa_x, Pointer(Float3) sa_v, Pointer(Float3) sa_x_start, 
+	Pointer(Float3) sa_x_tilde,
+	const bool predict_for_collision, Pointer(Float3) sa_next_position,
+	Pointer(float) sa_vert_mass, 
+	Pointer(uchar) sa_is_fixed,
 	const float substep_dt,
 	const bool fix_scene)
 {
@@ -386,12 +386,12 @@ inline void predict_position(
 }
 inline void predict_position_vbd(
 	const uint vid,
-	PTR(SceneParams) scene_params,
-	PTR(Float3) sa_iter_position, PTR(Float3) sa_iter_start_position, 
-	PTR(Float3) sa_vert_velocity, PTR(Float3) sa_vert_prev_velocity,
-	const bool predict_for_collision, PTR(Float3) sa_next_position,
-	PTR(float) sa_vert_mass, 
-	PTR(uchar) sa_is_fixed,
+	Pointer(SceneParams) scene_params,
+	Pointer(Float3) sa_iter_position, Pointer(Float3) sa_iter_start_position, 
+	Pointer(Float3) sa_vert_velocity, Pointer(Float3) sa_vert_prev_velocity,
+	const bool predict_for_collision, Pointer(Float3) sa_next_position,
+	Pointer(float) sa_vert_mass, 
+	Pointer(uchar) sa_is_fixed,
 	const float h,
 	const bool fix_scene)
 {
@@ -425,10 +425,10 @@ inline void predict_position_vbd(
 }
 
 inline void update_obstacle_position_in_substep(const uint vid,
-	PTR(Float3) sa_start_position, 
-	PTR(Float3) sa_next_position,
-	PTR(Float3) sa_substep_position, 
-	PTR(Float3) sa_substep_velocity, 
+	Pointer(Float3) sa_start_position, 
+	Pointer(Float3) sa_next_position,
+	Pointer(Float3) sa_substep_position, 
+	Pointer(Float3) sa_substep_velocity, 
 	const float alpha, const float substep_dt)
 {
 	const Float3 start_pos = sa_start_position[vid];
@@ -438,9 +438,9 @@ inline void update_obstacle_position_in_substep(const uint vid,
 	// sa_substep_velocity[vid] = delta / substep_dt;
 }
 inline void update_obstacle_normal_in_substep(const uint fid,
-	PTR(Int3) sa_faces, 
-	PTR(Float3) sa_substep_position, 
-	PTR(Float3) sa_face_normal)
+	Pointer(Int3) sa_faces, 
+	Pointer(Float3) sa_substep_position, 
+	Pointer(Float3) sa_face_normal)
 {
 	const Int3 face = sa_faces[fid];
 	const Float3 vert_pos[3] = {
@@ -455,10 +455,10 @@ inline void update_obstacle_normal_in_substep(const uint fid,
 }
 // inline void attach_fixpoint_to_obstacle(
 // 	const uint vid,
-// 	PTR(Float3) sa_iter_position1,
-// 	PTR(Float3) sa_iter_position2,
-// 	PTR(Float3) sa_substep_position_obstacle,
-// 	PTR(XpbdData::FixPointAttach) sa_fixpoint_attach_info)
+// 	Pointer(Float3) sa_iter_position1,
+// 	Pointer(Float3) sa_iter_position2,
+// 	Pointer(Float3) sa_substep_position_obstacle,
+// 	Pointer(XpbdData::FixPointAttach) sa_fixpoint_attach_info)
 // {
 // 	auto attach = sa_fixpoint_attach_info[vid];
 // 	if (attach.attach_vid != -1u)
@@ -472,7 +472,7 @@ inline void update_obstacle_normal_in_substep(const uint fid,
 
 inline void store_previous_position(
 	const uint vid,
-	PTR(Float3) sa_iter_position, PTR(Float3) sa_prev_1_iter_position, PTR(Float3) sa_prev_2_iter_position)
+	Pointer(Float3) sa_iter_position, Pointer(Float3) sa_prev_1_iter_position, Pointer(Float3) sa_prev_2_iter_position)
 {
 	Float3 prev_pos = sa_prev_1_iter_position[vid];
 	Float3 curr_pos = sa_iter_position[vid];
@@ -482,8 +482,8 @@ inline void store_previous_position(
 
 inline void under_relaxation_and_store_previous_position(
 	const uint vid,
-	const PTR(uint) sa_vert_adj_constraints,
-	PTR(Float3) sa_iter_position, PTR(Float3) sa_prev_1_iter_position, PTR(Float3) sa_prev_2_iter_position)
+	const Pointer(uint) sa_vert_adj_constraints,
+	Pointer(Float3) sa_iter_position, Pointer(Float3) sa_prev_1_iter_position, Pointer(Float3) sa_prev_2_iter_position)
 {
 	Float3 prev_pos = sa_prev_1_iter_position[vid];
 	Float3 curr_pos = sa_iter_position[vid];
@@ -501,8 +501,8 @@ inline void under_relaxation_and_store_previous_position(
 }
 inline void over_relaxation(
 	const uint vid,
-	const PTR(uint) sa_vert_adj_constraints,
-	PTR(Float3) sa_iter_position, PTR(Float3) sa_prev_1_iter_position, PTR(Float3) sa_prev_2_iter_position)
+	const Pointer(uint) sa_vert_adj_constraints,
+	Pointer(Float3) sa_iter_position, Pointer(Float3) sa_prev_1_iter_position, Pointer(Float3) sa_prev_2_iter_position)
 {
 	Float3 prev_pos = sa_prev_1_iter_position[vid];
 	Float3 curr_pos = sa_iter_position[vid];
@@ -518,8 +518,8 @@ inline void over_relaxation(
 }
 inline void under_relaxation(
 	const uint vid,
-	const PTR(uint) sa_vert_adj_constraints,
-	PTR(Float3) sa_iter_position, PTR(Float3) sa_prev_1_iter_position)
+	const Pointer(uint) sa_vert_adj_constraints,
+	Pointer(Float3) sa_iter_position, Pointer(Float3) sa_prev_1_iter_position)
 {
 	Float3 prev_pos = sa_prev_1_iter_position[vid];
 	Float3 curr_pos = sa_iter_position[vid];
@@ -536,11 +536,11 @@ inline void under_relaxation(
 
 inline void update_velocity(
 	const uint vid, 
-	PTR(Float3) sa_vert_velocity, 
-	PTR(Float3) sa_iter_position, 
-	PTR(Float3) sa_iter_start_position, 
-	PTR(Float3) sa_start_position, 
-	PTR(Float3) sa_velocity_start, 
+	Pointer(Float3) sa_vert_velocity, 
+	Pointer(Float3) sa_iter_position, 
+	Pointer(Float3) sa_iter_start_position, 
+	Pointer(Float3) sa_start_position, 
+	Pointer(Float3) sa_velocity_start, 
 	const float substep_dt,
 	const float damping,
 	const bool fix_scene
@@ -583,9 +583,9 @@ inline void update_velocity(
 }
 inline void velocity_damping_laplacian(
 	const uint vid, 
-	PTR(Float3) sa_start_velocity, 
-	PTR(Float3) sa_vert_velocity, 
-	PTR(uint) sa_vert_adj_verts,
+	Pointer(Float3) sa_start_velocity, 
+	Pointer(Float3) sa_vert_velocity, 
+	Pointer(uint) sa_vert_adj_verts,
 	const float weight
 )
 {
@@ -609,13 +609,13 @@ inline void velocity_damping_laplacian(
 
 
 inline void update_velocity_and_predict_position(const uint vid, 
-	PTR(Float3) sa_vert_velocity, 
-	PTR(Float3) sa_iter_position, 
-	PTR(Float3) sa_iter_start_position, 
-	PTR(Float3) sa_start_position, 
-	PTR(Float3) sa_start_velocity, 
-	PTR(uchar) sa_is_fixed, 
-	PTR(SceneParams) scene_params, 
+	Pointer(Float3) sa_vert_velocity, 
+	Pointer(Float3) sa_iter_position, 
+	Pointer(Float3) sa_iter_start_position, 
+	Pointer(Float3) sa_start_position, 
+	Pointer(Float3) sa_start_velocity, 
+	Pointer(uchar) sa_is_fixed, 
+	Pointer(SceneParams) scene_params, 
 	const float substep_dt,
 	const bool fix_scene)
 {
@@ -652,16 +652,16 @@ inline void update_velocity_and_predict_position(const uint vid,
 
 inline void reset_constraints(
 	const uint index,
-	PTR(float) lambda_ground_collision_cloth,  
-	PTR(float) lambda_ground_collision_tet,  
-	PTR(float) lambda_stretch_mass_spring,  
-	PTR(float) lambda_triangle_stretch_term,
-	PTR(float) lambda_triangle_shear_term,  
-	PTR(float) lambda_bending, 				
-	PTR(float) lambda_tet_neohookean_hydrostatic_term, 				
-	PTR(float) lambda_tet_neohookean_distortion_term,
-	PTR(float) lambda_cloth_balloon,
-	PTR(float) sa_cloth_volumn,
+	Pointer(float) lambda_ground_collision_cloth,  
+	Pointer(float) lambda_ground_collision_tet,  
+	Pointer(float) lambda_stretch_mass_spring,  
+	Pointer(float) lambda_triangle_stretch_term,
+	Pointer(float) lambda_triangle_shear_term,  
+	Pointer(float) lambda_bending, 				
+	Pointer(float) lambda_tet_neohookean_hydrostatic_term, 				
+	Pointer(float) lambda_tet_neohookean_distortion_term,
+	Pointer(float) lambda_cloth_balloon,
+	Pointer(float) sa_cloth_volumn,
 	const uint num_cloth, const uint num_verts_cloth, const uint num_verts_tet, const uint num_edges_total, const uint num_faces_total, const uint num_bending_edges_total, const uint num_tets_total
 )
 {
@@ -675,12 +675,12 @@ inline void reset_constraints(
 }
 
 template <typename ConstaintType, uint N = Meta::get_vec_length<ConstaintType>()>
-inline void assemble_to_position(DEVICE Float3* sa_iter_position, DEVICE ATOMIC_FLAG* sa_vert_mutex, CREF(ConstaintType) constraint, THREAD Float3* dx, const bool use_atomic)
+inline void assemble_to_position(Device Float3* sa_iter_position, Device ATOMIC_FLAG* sa_vert_mutex, ConstRef(ConstaintType) constraint, Thread Float3* dx, const bool use_atomic)
 {
 	if (use_atomic) 
 	{
 		#ifdef METAL_CODE
-			PTR(ATOMIC_FLOAT) atomic_iter_position = (PTR(ATOMIC_FLOAT))sa_iter_position;
+			Pointer(ATOMIC_FLOAT) atomic_iter_position = (Pointer(ATOMIC_FLOAT))sa_iter_position;
 			for (uint i = 0; i < N; i++) 
 			{
 				atomic_add(atomic_iter_position, constraint[i], dx[i]);
@@ -703,11 +703,11 @@ inline void assemble_to_position(DEVICE Float3* sa_iter_position, DEVICE ATOMIC_
 
 
 inline void copy_position_to_2_devices(const uint vid, 
-	DEVICE Float3* sa_iter_position,
-	DEVICE Float3* sa_begin_position_cpu, // CPU
-	DEVICE Float3* sa_begin_position_gpu, // GPU
-	DEVICE Float3* sa_iter_position_cpu, // CPU
-	DEVICE Float3* sa_iter_position_gpu // GPU)
+	Device Float3* sa_iter_position,
+	Device Float3* sa_begin_position_cpu, // CPU
+	Device Float3* sa_begin_position_gpu, // GPU
+	Device Float3* sa_iter_position_cpu, // CPU
+	Device Float3* sa_iter_position_gpu // GPU)
 )
 {
 	const Float3 pos = sa_iter_position[vid];
@@ -719,11 +719,11 @@ inline void copy_position_to_2_devices(const uint vid,
 
 inline void assemble_result_from_2_devices(
 	const uint vid, 
-	DEVICE Float3* sa_iter_position,
-	DEVICE Float3* sa_begin_position_cpu, // CPU
-	DEVICE Float3* sa_begin_position_gpu, // GPU
-	DEVICE Float3* sa_iter_position_cpu, // CPU
-	DEVICE Float3* sa_iter_position_gpu, // GPU
+	Device Float3* sa_iter_position,
+	Device Float3* sa_begin_position_cpu, // CPU
+	Device Float3* sa_begin_position_gpu, // GPU
+	Device Float3* sa_iter_position_cpu, // CPU
+	Device Float3* sa_iter_position_gpu, // GPU
 	const float weight)
 {
 	Float3 pos_self = sa_iter_position_gpu[vid];
@@ -804,9 +804,9 @@ inline void assemble_result_from_2_devices(
 
 
 inline void copy_current_position_to_2_constraints(
-	const uint vid, const DEVICE Float3* sa_iter_position, 
-	DEVICE Float3* sa_iter_position_1, 
-	DEVICE Float3* sa_iter_position_2
+	const uint vid, const Device Float3* sa_iter_position, 
+	Device Float3* sa_iter_position_1, 
+	Device Float3* sa_iter_position_2
 	)
 {
 	const Float3 curr_pos = sa_iter_position[vid];
@@ -816,10 +816,10 @@ inline void copy_current_position_to_2_constraints(
 
 inline void read_and_solve_conflict(
 	const uint vid, 
-	DEVICE Float3* sa_begin_position_self, 
-	DEVICE Float3* sa_begin_position_other,
-	DEVICE Float3* sa_iter_position_self, 
-	DEVICE Float3* sa_iter_position_other, 
+	Device Float3* sa_begin_position_self, 
+	Device Float3* sa_begin_position_other,
+	Device Float3* sa_iter_position_self, 
+	Device Float3* sa_iter_position_other, 
 	const float weight
 	)
 {
@@ -894,7 +894,7 @@ enum BendingType{
 };
 
 // dCdx Is The Inverse Direction To 'normal'
-inline void get_collision_C_and_dCdx(CONST(float) C, CREF(Float3) normal, CONST(float) stiff, TREF(float) energy, TREF(Float3) gradient)
+inline void get_collision_C_and_dCdx(Const(float) C, ConstRef(Float3) normal, Const(float) stiff, ThreadRef(float) energy, ThreadRef(Float3) gradient)
 {
 
 #define COLLISION_GRADIANT_MODE_ORIG_XPBD 1
@@ -916,11 +916,11 @@ inline void get_collision_C_and_dCdx(CONST(float) C, CREF(Float3) normal, CONST(
 
 
 inline void solve_ground_collision_template(
-	const uint vid, PTR(SceneParams) scene_params, 
-	PTR(Float3) sa_iter_position, 
-	PTR(Float3) sa_iter_start_position,
-	PTR(float) lambda_ground_collision,
-	PTR(float) sa_mass_inv
+	const uint vid, Pointer(SceneParams) scene_params, 
+	Pointer(Float3) sa_iter_position, 
+	Pointer(Float3) sa_iter_start_position,
+	Pointer(float) lambda_ground_collision,
+	Pointer(float) sa_mass_inv
 	)
 {
 	Float3 x_k = sa_iter_position[vid];
@@ -984,9 +984,9 @@ inline void solve_ground_collision_template(
 }
 
 inline void solve_stretch_mass_spring_template(
-	const uint eid, const PTR(Float3) input_position, PTR(Float3) output_position, PTR(Float3) start_position,
-	PTR(ATOMIC_FLAG) sa_vert_mutex, PTR(float) lambda_stretch_mass_spring,
-	PTR(float) sa_vert_mass_inv, PTR(Int2) sa_edges, PTR(float) sa_edge_rest_state_length, 
+	const uint eid, const Pointer(Float3) input_position, Pointer(Float3) output_position, Pointer(Float3) start_position,
+	Pointer(ATOMIC_FLAG) sa_vert_mutex, Pointer(float) lambda_stretch_mass_spring,
+	Pointer(float) sa_vert_mass_inv, Pointer(Int2) sa_edges, Pointer(float) sa_edge_rest_state_length, 
 	const float stiffness_spring, const float substep_dt, const bool use_atomic)
 {
 	Int2 edge = sa_edges[eid];
@@ -1063,9 +1063,9 @@ inline void solve_stretch_mass_spring_template(
 
 template <bool compute_energy, bool compute_gradient, bool compute_hessian>
 inline void core_bending_quadratic(
-    THREAD float* energy, THREAD Float3* force, THREAD Float3x3* hessian,
-    const THREAD Float3 vert_pos[3],
-    CREF(Float4x4) m_Q,   
+    Thread float* energy, Thread Float3* force, Thread Float3x3* hessian,
+    const Thread Float3 vert_pos[3],
+    ConstRef(Float4x4) m_Q,   
     const float stiffness
 )
 {
@@ -1128,9 +1128,9 @@ inline void core_bending_quadratic(
 }
 template <bool compute_energy, bool compute_gradient, bool compute_hessian>
 inline void stretch_mass_spring(
-    THREAD float* energy, THREAD Float3* force, THREAD Float3x3* hessian,
-    const THREAD Float3 vert_pos[2], 
-    CREF(float) edge_rest_length, 
+    Thread float* energy, Thread Float3* force, Thread Float3x3* hessian,
+    const Thread Float3 vert_pos[2], 
+    ConstRef(float) edge_rest_length, 
     const float stiffness_spring
 )
 {
@@ -1171,12 +1171,12 @@ inline void stretch_mass_spring(
 // Also Called As Isometric Bending
 inline void solve_bending_quadratic_template(
 	const uint eid, 
-	const PTR(Float3) input_position, PTR(Float3) output_position, 
-	PTR(Float3) sa_start_position, 
-	PTR(ATOMIC_FLAG) sa_vert_mutex,
-	PTR(float) lambda_bending, 
-	PTR(float) sa_vert_mass_inv, PTR(Int4) sa_bending_edges, PTR(Float2) sa_bending_edge_adj_faces_area, 
-	PTR(Float4x4) sa_bending_edge_Q, PTR(float) sa_bending_edge_rest_state_angle,
+	const Pointer(Float3) input_position, Pointer(Float3) output_position, 
+	Pointer(Float3) sa_start_position, 
+	Pointer(ATOMIC_FLAG) sa_vert_mutex,
+	Pointer(float) lambda_bending, 
+	Pointer(float) sa_vert_mass_inv, Pointer(Int4) sa_bending_edges, Pointer(Float2) sa_bending_edge_adj_faces_area, 
+	Pointer(Float4x4) sa_bending_edge_Q, Pointer(float) sa_bending_edge_rest_state_angle,
 	const float stiffness_bending_quadratic, const float stiffness_bending_DBA, const float substep_dt, const bool use_atomic)
 {
 	Int4 edge = sa_bending_edges[eid];
@@ -1234,11 +1234,11 @@ inline float fast_acos(const float dot) { return (-0.6981317 * dot * dot - 0.872
 
 // Muller 2007
 inline void solve_bending_DAB_template(
-	const uint eid, const PTR(Float3) input_position, PTR(Float3) sa_iter_position, 
-	PTR(Float3) sa_start_position, 
-	PTR(ATOMIC_FLAG) sa_vert_mutex, PTR(float) lambda_bending, 
-	PTR(float) sa_vert_mass_inv, PTR(Int4) sa_bending_edges, PTR(Float2) sa_bending_edge_adj_faces_area, 
-	PTR(Float4x4) sa_bending_edge_Q, PTR(float) sa_bending_edge_rest_state_angle,
+	const uint eid, const Pointer(Float3) input_position, Pointer(Float3) sa_iter_position, 
+	Pointer(Float3) sa_start_position, 
+	Pointer(ATOMIC_FLAG) sa_vert_mutex, Pointer(float) lambda_bending, 
+	Pointer(float) sa_vert_mass_inv, Pointer(Int4) sa_bending_edges, Pointer(Float2) sa_bending_edge_adj_faces_area, 
+	Pointer(Float4x4) sa_bending_edge_Q, Pointer(float) sa_bending_edge_rest_state_angle,
 	const float stiffness_bending_quadratic, const float stiffness_bending_DAB, const float substep_dt, const bool use_atomic
 )
 {
@@ -1386,20 +1386,20 @@ inline void solve_bending_DAB_template(
 //         Engine/Source/Runtime/Experimental/Chaos/Private/Chaos/XPBDBendingElement.isph
 //
 using FVector3f = Float3;
-CONSTEXPR float FLOAT_SMALL_NUMBER = 1e-8f;
+ConstExpr float FLOAT_SMALL_NUMBER = 1e-8f;
 
-static inline FVector3f SafeDivide(CREF(Float3) Numerator, const float Denominator)
+static inline FVector3f SafeDivide(ConstRef(Float3) Numerator, const float Denominator)
 {
 	if (Denominator <= FLOAT_SMALL_NUMBER) return Zero3;
 	else return Numerator / Denominator;
 }
-// static inline FVector3f VectorGetSafeNormal(CREF(Float3) vec)
+// static inline FVector3f VectorGetSafeNormal(ConstRef(Float3) vec)
 // {
 // 	const float squaredLength = length_squared_vec(vec);
 // 	if (squaredLength <= FLOAT_SMALL_NUMBER) return Zero3;
 // 	else return vec / sqrt_scalar(squaredLength);
 // }
-static inline FVector3f VectorGetSafeNormal(CREF(Float3) Vector)
+static inline FVector3f VectorGetSafeNormal(ConstRef(Float3) Vector)
 {
 	const float SquareSum = length_squared_vec(Vector);
 
@@ -1416,8 +1416,8 @@ static inline FVector3f VectorGetSafeNormal(CREF(Float3) Vector)
 	return Vector * Scale;
 }
 
-inline float CalcGradientsAndAngle(CREF(Float3) P1, CREF(Float3) P2, CREF(Float3) P3, CREF(Float3) P4, 
-	TREF(Float3) Grad1, TREF(Float3) Grad2, TREF(Float3) Grad3, TREF(Float3) Grad4)
+inline float CalcGradientsAndAngle(ConstRef(Float3) P1, ConstRef(Float3) P2, ConstRef(Float3) P3, ConstRef(Float3) P4, 
+	ThreadRef(Float3) Grad1, ThreadRef(Float3) Grad2, ThreadRef(Float3) Grad3, ThreadRef(Float3) Grad4)
 {
 	const FVector3f SharedEdgeNormalized = VectorGetSafeNormal(P2 - P1);
 
@@ -1456,11 +1456,11 @@ inline float CalcGradientsAndAngle(CREF(Float3) P1, CREF(Float3) P2, CREF(Float3
 }
 
 inline void solve_bending_DAB_template_v2(
-	const uint eid, const PTR(Float3) input_position, PTR(Float3) sa_iter_position, 
-	PTR(Float3) sa_start_position, 
-	PTR(ATOMIC_FLAG) sa_vert_mutex, PTR(float) lambda_bending, 
-	PTR(float) sa_vert_mass_inv, PTR(Int4) sa_bending_edges, PTR(Float2) sa_bending_edge_adj_faces_area, 
-	PTR(Float4x4) sa_bending_edge_Q, PTR(float) sa_bending_edge_rest_state_angle,
+	const uint eid, const Pointer(Float3) input_position, Pointer(Float3) sa_iter_position, 
+	Pointer(Float3) sa_start_position, 
+	Pointer(ATOMIC_FLAG) sa_vert_mutex, Pointer(float) lambda_bending, 
+	Pointer(float) sa_vert_mass_inv, Pointer(Int4) sa_bending_edges, Pointer(Float2) sa_bending_edge_adj_faces_area, 
+	Pointer(Float4x4) sa_bending_edge_Q, Pointer(float) sa_bending_edge_rest_state_angle,
 	const float stiffness_bending_quadratic, const float stiffness_bending_DAB, const float substep_dt, const bool use_atomic
 )
 {
@@ -1599,9 +1599,9 @@ inline void solve_bending_DAB_template_v2(
 
 
 inline void solve_tetrahedral_fem_NeoHookean_template(
-	const uint tet_id, const PTR(Float3) input_position, PTR(Float3) output_position, PTR(Float3) start_position, 
-	PTR(ATOMIC_FLAG) sa_vert_mutex, PTR(float) lambda_tet_neohookean_hydrostatic_term, PTR(float) lambda_tet_neohookean_deviatoric_term, 
-	PTR(float) sa_vert_mass_inv, PTR(Int4) sa_tets, PTR(float) sa_tet_volumn, PTR(Float3x3) sa_Dm_inv, 
+	const uint tet_id, const Pointer(Float3) input_position, Pointer(Float3) output_position, Pointer(Float3) start_position, 
+	Pointer(ATOMIC_FLAG) sa_vert_mutex, Pointer(float) lambda_tet_neohookean_hydrostatic_term, Pointer(float) lambda_tet_neohookean_deviatoric_term, 
+	Pointer(float) sa_vert_mass_inv, Pointer(Int4) sa_tets, Pointer(float) sa_tet_volumn, Pointer(Float3x3) sa_Dm_inv, 
 	const float m_first_lame, const float m_second_lame, const float substep_dt, const bool use_atomic
 	)
 {
@@ -1661,15 +1661,15 @@ inline void solve_tetrahedral_fem_NeoHookean_template(
 			{
 				const float C = J - 1.0f;
 
-				const THREAD Float3& f1 = get(F, 0);
-				const THREAD Float3& f2 = get(F, 1);
-				const THREAD Float3& f3 = get(F, 2);
+				const Thread Float3& f1 = get(F, 0);
+				const Thread Float3& f2 = get(F, 1);
+				const Thread Float3& f3 = get(F, 2);
 				const Float3x3 dJdF = makeFloat3x3( cross_vec(f2, f3), cross_vec(f3, f1), cross_vec(f1, f2) );
 				const Float3x3 gradient_234 = dJdF * Dm_inv_T;
 
-				const THREAD Float3& g2 = get(gradient_234, 0);
-				const THREAD Float3& g3 = get(gradient_234, 1);
-				const THREAD Float3& g4 = get(gradient_234, 2);
+				const Thread Float3& g2 = get(gradient_234, 0);
+				const Thread Float3& g3 = get(gradient_234, 1);
+				const Thread Float3& g4 = get(gradient_234, 2);
 				const Float3 g1 = -(g2 + g3 + g4); 
 
 				const float delta_lambda = Constrains::Core::get_additional_delta_x_xpbd_4(
@@ -1695,9 +1695,9 @@ inline void solve_tetrahedral_fem_NeoHookean_template(
 				vert_pos[3] - vert_pos[0]);
 			const Float3x3 F = Ds * Dm_inv;
 
-			const THREAD Float3& f1 = get(F, 0);
-			const THREAD Float3& f2 = get(F, 1);
-			const THREAD Float3& f3 = get(F, 2);
+			const Thread Float3& f1 = get(F, 0);
+			const Thread Float3& f2 = get(F, 1);
+			const Thread Float3& f3 = get(F, 2);
 
 			const float tr = length_squared_vec(f1) + length_squared_vec(f2) + length_squared_vec(f3);
 			// const float J = determinant_mat(F); // det
@@ -1706,9 +1706,9 @@ inline void solve_tetrahedral_fem_NeoHookean_template(
 				const float C = tr - 3.0f;
 				const Float3x3 gradient_234 = 2.0f * F * dFdx;
 
-				const THREAD Float3& g2 = get(gradient_234, 0);
-				const THREAD Float3& g3 = get(gradient_234, 1);
-				const THREAD Float3& g4 = get(gradient_234, 2);
+				const Thread Float3& g2 = get(gradient_234, 0);
+				const Thread Float3& g3 = get(gradient_234, 1);
+				const Thread Float3& g4 = get(gradient_234, 2);
 				const Float3 g1 = -(g2 + g3 + g4); 
 
 				const float delta_lambda = Constrains::Core::get_additional_delta_x_xpbd_4(
@@ -1751,9 +1751,9 @@ inline void solve_tetrahedral_fem_NeoHookean_template(
 			// };
 
 			const Float3x3 F = Ds * Dm_inv;
-			const THREAD Float3& f1 = get(F, 0);
-			const THREAD Float3& f2 = get(F, 1);
-			const THREAD Float3& f3 = get(F, 2);
+			const Thread Float3& f1 = get(F, 0);
+			const Thread Float3& f2 = get(F, 1);
+			const Thread Float3& f3 = get(F, 2);
 			
 			const float tr = length_squared_vec(f1) + length_squared_vec(f2) + length_squared_vec(f3);
 			
@@ -1765,9 +1765,9 @@ inline void solve_tetrahedral_fem_NeoHookean_template(
 
 			const float C_D = tr - 3.0f;
 			const Float3x3 gradient_D = 2.0f * F * Dm_inv_T;
-			const THREAD Float3& g2 = get(gradient_D, 0);
-			const THREAD Float3& g3 = get(gradient_D, 1);
-			const THREAD Float3& g4 = get(gradient_D, 2);
+			const Thread Float3& g2 = get(gradient_D, 0);
+			const Thread Float3& g3 = get(gradient_D, 1);
+			const Thread Float3& g4 = get(gradient_D, 2);
 			// const float inv_rs = 1.0f / rs;
 			// const Float3 g2 = inv_rs * f1 * Dm_inv_T;
 			// const Float3 g3 = inv_rs * f2 * Dm_inv_T;
@@ -1803,16 +1803,16 @@ inline void solve_tetrahedral_fem_NeoHookean_template(
 			
 			
 			const Float3x3 F = Ds * Dm_inv;
-			const THREAD Float3& f1 = get(F, 0);
-			const THREAD Float3& f2 = get(F, 1);
-			const THREAD Float3& f3 = get(F, 2);
+			const Thread Float3& f1 = get(F, 0);
+			const Thread Float3& f2 = get(F, 1);
+			const Thread Float3& f3 = get(F, 2);
 			
 			const float C_H = determinant_mat(F) - 1.0f;// - m_second_lame / m_first_lame;
 
 			const Float3x3 gradient_H = makeFloat3x3( cross_vec(f2, f3), cross_vec(f3, f1), cross_vec(f1, f2) ) * Dm_inv_T;
-			const THREAD Float3& g2 = get(gradient_H, 0);
-			const THREAD Float3& g3 = get(gradient_H, 1);
-			const THREAD Float3& g4 = get(gradient_H, 2);
+			const Thread Float3& g2 = get(gradient_H, 0);
+			const Thread Float3& g3 = get(gradient_H, 1);
+			const Thread Float3& g4 = get(gradient_H, 2);
 			// const Float3 g2 = cross_vec(f2, f3) * Dm_inv_T;
 			// const Float3 g3 = cross_vec(f3, f1) * Dm_inv_T;
 			// const Float3 g4 = cross_vec(f1, f2) * Dm_inv_T;
@@ -1838,9 +1838,9 @@ inline void solve_tetrahedral_fem_NeoHookean_template(
 };
 
 inline void solve_tetrahedral_fem_StVK_template(
-	const uint tet_id, const PTR(Float3) input_position, PTR(Float3) output_position, PTR(Float3) sa_start_position,
-	PTR(ATOMIC_FLAG) sa_vert_mutex, PTR(float) lambda_tet_neohookean_hydrostatic_term, PTR(float) lambda_tet_neohookean_deviatoric_term, 
-	PTR(float) sa_vert_mass_inv, PTR(Int4) sa_tets, PTR(float) sa_tet_volumn, PTR(Float3x3) sa_Dm_inv, 
+	const uint tet_id, const Pointer(Float3) input_position, Pointer(Float3) output_position, Pointer(Float3) sa_start_position,
+	Pointer(ATOMIC_FLAG) sa_vert_mutex, Pointer(float) lambda_tet_neohookean_hydrostatic_term, Pointer(float) lambda_tet_neohookean_deviatoric_term, 
+	Pointer(float) sa_vert_mass_inv, Pointer(Int4) sa_tets, Pointer(float) sa_tet_volumn, Pointer(Float3x3) sa_Dm_inv, 
 	const float m_first_lame, const float m_second_lame, const float substep_dt, const bool use_atomic
 	)
 {
@@ -1860,7 +1860,7 @@ inline void solve_tetrahedral_fem_StVK_template(
 	const float tet_volumn = sa_tet_volumn[tet_id];
 	const Float3x3 Dm_inv = sa_Dm_inv[tet_id];
 	const Float3x3 Dm_inv_T = transpose_mat(Dm_inv);
-	// const THREAD Float3x3& dFdx = Dm_inv_T;
+	// const Thread Float3x3& dFdx = Dm_inv_T;
 
 	const float lambda_hydrostatic = lambda_tet_neohookean_hydrostatic_term[tet_id]; 
 	const float lambda_deviatoric  = lambda_tet_neohookean_deviatoric_term[tet_id];
@@ -1890,9 +1890,9 @@ inline void solve_tetrahedral_fem_StVK_template(
 			const Float3x3 P = m_first_lame * trace_eps * F;
 			const Float3x3 gradient_234 = tet_volumn * P * Dm_inv_T;
 
-			const THREAD Float3& g2 = get(gradient_234, 0);
-			const THREAD Float3& g3 = get(gradient_234, 1);
-			const THREAD Float3& g4 = get(gradient_234, 2);
+			const Thread Float3& g2 = get(gradient_234, 0);
+			const Thread Float3& g3 = get(gradient_234, 1);
+			const Thread Float3& g4 = get(gradient_234, 2);
 			const Float3 g1 = -(g2 + g3 + g4); 
 
 			const float delta_lambda = Constrains::Core::get_additional_delta_x_xpbd_4(
@@ -1927,9 +1927,9 @@ inline void solve_tetrahedral_fem_StVK_template(
 			const Float3x3 P = 2.0f * m_second_lame * F * epsilon;
 			const Float3x3 gradient_234 = tet_volumn * P * Dm_inv_T;
 
-			const THREAD Float3& g2 = get(gradient_234, 0);
-			const THREAD Float3& g3 = get(gradient_234, 1);
-			const THREAD Float3& g4 = get(gradient_234, 2);
+			const Thread Float3& g2 = get(gradient_234, 0);
+			const Thread Float3& g3 = get(gradient_234, 1);
+			const Thread Float3& g4 = get(gradient_234, 2);
 			const Float3 g1 = -(g2 + g3 + g4); 
 
 			const float delta_lambda = Constrains::Core::get_additional_delta_x_xpbd_4(
@@ -1951,9 +1951,9 @@ inline void solve_tetrahedral_fem_StVK_template(
 
 
 inline Float2 solve_cloth_balloon_get_volumn_pass(
-	const uint fid, const PTR(Float3) input_position, PTR(Float3) output_position, 
-	PTR(ATOMIC_FLAG) sa_vert_mutex, 
-	PTR(float) sa_vert_mass_inv, PTR(Int3) sa_faces, 
+	const uint fid, const Pointer(Float3) input_position, Pointer(Float3) output_position, 
+	Pointer(ATOMIC_FLAG) sa_vert_mutex, 
+	Pointer(float) sa_vert_mass_inv, Pointer(Int3) sa_faces, 
 	const float balloon_scale_rate, const float stiffness_pressure, const float substep_dt, const bool use_atomic
 )
 {
@@ -1993,7 +1993,7 @@ inline Float2 solve_cloth_balloon_get_volumn_pass(
 //
 inline void solve_cloth_balloon_save_global_volumn(
 	const uint cloth_idx, const Float2 reduce_result, 
-	PTR(float) sa_cloth_volumn, PTR(float) lambda_cloth_balloon)
+	Pointer(float) sa_cloth_volumn, Pointer(float) lambda_cloth_balloon)
 {
 #ifdef METAL_CODE
 	atomic_add(sa_cloth_volumn[cloth_idx * 2 + 1], reduce_result[0]);
@@ -2006,8 +2006,8 @@ inline void solve_cloth_balloon_save_global_volumn(
 
 inline void solve_cloth_balloon_update_lambda(
 	const uint cloth_idx, 
-	PTR(float) sa_cloth_volumn, 
-	PTR(float) lambda_cloth_balloon, 
+	Pointer(float) sa_cloth_volumn, 
+	Pointer(float) lambda_cloth_balloon, 
 	const float balloon_scale_rate, 
 	const float stiffness_pressure, 
 	const float substep_dt)
@@ -2029,11 +2029,11 @@ inline void solve_cloth_balloon_update_lambda(
 
 inline void solve_cloth_balloon_modify_verts_pass(
 	const uint vid, 
-	PTR(uint) sa_vert_adj_faces,
-	PTR(Float3) input_position, PTR(Float3) output_position, 
+	Pointer(uint) sa_vert_adj_faces,
+	Pointer(Float3) input_position, Pointer(Float3) output_position, 
 	const uint cloth_idx,
-	PTR(float) lambda_cloth_balloon,
-	PTR(float) sa_vert_mass_inv, PTR(Int3) sa_faces, const uint num_verts_total, const bool use_atomic
+	Pointer(float) lambda_cloth_balloon,
+	Pointer(float) sa_vert_mass_inv, Pointer(Int3) sa_faces, const uint num_verts_total, const bool use_atomic
 )
 {
 	const uint num_adj = sa_vert_adj_faces[vid];
@@ -2079,9 +2079,9 @@ namespace Energy
 {
 
 inline float compute_energy_inertia(
-	const uint vid, const PTR(Float3) updatePosition, const PTR(SceneParams) scene, 
-    const PTR(uchar) sa_is_fixed,
-    const PTR(float) sa_vert_mass, const PTR(Float3) sa_x_tilde)
+	const uint vid, const Pointer(Float3) updatePosition, const Pointer(SceneParams) scene, 
+    const Pointer(uchar) sa_is_fixed,
+    const Pointer(float) sa_vert_mass, const Pointer(Float3) sa_x_tilde)
 {
     float implicit_dt = scene->implicit_dt;
 	float num_stepstep = scene->num_substep;
@@ -2095,8 +2095,8 @@ inline float compute_energy_inertia(
 }
 
 inline float compute_energy_stretch_mass_spring(
-	const uint eid, const PTR(Float3) input_position,
-	PTR(Int2) sa_edges, PTR(float) sa_edge_rest_state_length, const float stiffness_spring) 
+	const uint eid, const Pointer(Float3) input_position,
+	Pointer(Int2) sa_edges, Pointer(float) sa_edge_rest_state_length, const float stiffness_spring) 
 {
 	Int2 edge = sa_edges[eid];
 	float energy = 0.f;
@@ -2124,9 +2124,9 @@ inline float compute_energy_stretch_mass_spring(
 
 
 inline float compute_energy_bending(
-	BendingType bending_type, const uint eid, const PTR(Float3) input_position, 
-	 PTR(Int4) sa_bending_edges, PTR(Int2) sa_bending_edge_adj_faces, PTR(float)  sa_face_area, 
-	PTR(Float4x4) sa_bending_edge_Q, PTR(float) sa_bending_edge_rest_state_angle,
+	BendingType bending_type, const uint eid, const Pointer(Float3) input_position, 
+	 Pointer(Int4) sa_bending_edges, Pointer(Int2) sa_bending_edge_adj_faces, Pointer(float)  sa_face_area, 
+	Pointer(Float4x4) sa_bending_edge_Q, Pointer(float) sa_bending_edge_rest_state_angle,
 	const float stiffness_bending_quadratic, const float stiffness_bending_DAB, const bool use_xpbd)
 {
 	Int4 edge = sa_bending_edges[eid];	
@@ -2211,9 +2211,9 @@ inline float compute_energy_bending(
 }
 
 inline float compute_energy_stress_neohookean(
-	const uint tet_id, const PTR(Float3) input_position,
-    const PTR(Int4) sa_tets, 
-    const PTR(Float3x3) sa_Dm_inv, const PTR(float) sa_tet_volumn,
+	const uint tet_id, const Pointer(Float3) input_position,
+    const Pointer(Int4) sa_tets, 
+    const Pointer(Float3x3) sa_Dm_inv, const Pointer(float) sa_tet_volumn,
     const float m_first_lame, const float m_second_lame
     )
 {
@@ -2228,7 +2228,7 @@ inline float compute_energy_stress_neohookean(
 	const float tet_volumn = sa_tet_volumn[tet_id];
 	const Float3x3 Dm_inv = sa_Dm_inv[tet_id];
 	// const Float3x3 Dm_inv_T = transpose_mat(Dm_inv);
-	// const THREAD Float3x3& dFdx = Dm_inv_T;
+	// const Thread Float3x3& dFdx = Dm_inv_T;
 
 	const Float3x3 Ds = makeFloat3x3(
 		vert_pos[1] - vert_pos[0], 
@@ -2236,9 +2236,9 @@ inline float compute_energy_stress_neohookean(
 		vert_pos[3] - vert_pos[0]);
 	const Float3x3 F = Ds * Dm_inv;
 
-	const THREAD Float3& f1 = get(F, 0);
-	const THREAD Float3& f2 = get(F, 1);
-	const THREAD Float3& f3 = get(F, 2);
+	const Thread Float3& f1 = get(F, 0);
+	const Thread Float3& f2 = get(F, 1);
+	const Thread Float3& f3 = get(F, 2);
 
 	const float tr = length_squared_vec(f1) + length_squared_vec(f2) + length_squared_vec(f3);
 	const float J = determinant_mat(F); // det
@@ -2250,9 +2250,9 @@ inline float compute_energy_stress_neohookean(
 }
 
 inline float compute_energy_collision_vv(
-	const uint pair_idx, const PTR(Float3) input_position, 
-	PTR(ProximityVV) collision_self_vv,
-	PTR(uint) collision_count,
+	const uint pair_idx, const Pointer(Float3) input_position, 
+	Pointer(ProximityVV) collision_self_vv,
+	Pointer(uint) collision_count,
 	const float thickness)
 {
 	if (pair_idx >= collision_count[0]) return 0.0f;
@@ -2282,10 +2282,10 @@ inline float compute_energy_collision_vv(
 }
 inline float compute_energy_collision_vf(
 	const uint pair_idx, 
-	const PTR(Float3) input_position, 
-	const PTR(Float3) obstacle_position, 
-	PTR(ProximityVF) collision_self_vf,
-	PTR(uint) collision_count,
+	const Pointer(Float3) input_position, 
+	const Pointer(Float3) obstacle_position, 
+	Pointer(ProximityVF) collision_self_vf,
+	Pointer(uint) collision_count,
 	const float thickness)
 {
 	if (pair_idx >= collision_count[0]) return 0.0f;
@@ -2330,9 +2330,9 @@ inline float compute_energy_collision_vf(
 namespace SpatialHashing
 {
 
-CONSTEXPR float spacing = 0.01f;
-CONSTEXPR float spacing_inv = 1.f / spacing;
-CONSTEXPR uint table_devide_num_verts = 5;
+ConstExpr float spacing = 0.01f;
+ConstExpr float spacing_inv = 1.f / spacing;
+ConstExpr uint table_devide_num_verts = 5;
 
 inline int fn_intCoord(float coord) 
 { 
@@ -2347,7 +2347,7 @@ inline uint fn_hashCoord(int x, int y, int z, const uint table_size)
 						int64(z * 283923481) ) % table_size; 
 };
 
-inline uint spatial_hashing_function(const THREAD Float3& pos, const THREAD uint& table_size)
+inline uint spatial_hashing_function(const Thread Float3& pos, const Thread uint& table_size)
 {
     int h = fn_hashCoord(fn_intCoord(pos.x), fn_intCoord(pos.y), fn_intCoord(pos.z), table_size);
     return h;
@@ -2358,14 +2358,14 @@ inline uint get_morton_key_by_int_xyz(int int_x, int int_y, int int_z)
     const uint key = (int_x << 20) | (int_y << 10) | (int_z);
     return key;
 }
-inline uint get_morton_key_by_position(CREF(Float3) vert_pos)
+inline uint get_morton_key_by_position(ConstRef(Float3) vert_pos)
 {
     int int_x = SpatialHashing::fn_intCoord(vert_pos.x); // 0~99
     int int_y = SpatialHashing::fn_intCoord(vert_pos.y);
     int int_z = SpatialHashing::fn_intCoord(vert_pos.z);
     return get_morton_key_by_int_xyz(int_x, int_y, int_z);
 }
-inline bool try_to_access_h_by_key(TREF(uint) h, PTR(uint) hash_table_belongs, CONST(uint) key, const uint table_size)
+inline bool try_to_access_h_by_key(ThreadRef(uint) h, Pointer(uint) hash_table_belongs, Const(uint) key, const uint table_size)
 {
     if (hash_table_belongs[h] != key)
     {
@@ -2384,7 +2384,7 @@ inline bool try_to_access_h_by_key(TREF(uint) h, PTR(uint) hash_table_belongs, C
         return true;
     }
 }
-inline Float3 get_normed_position_for_spatial_hashing(CREF(Float3) vert_pos, const AABB aabb)
+inline Float3 get_normed_position_for_spatial_hashing(ConstRef(Float3) vert_pos, const AABB aabb)
 {
 	return vert_pos - aabb.min_pos;
 }
@@ -2392,19 +2392,19 @@ inline Float3 get_normed_position_for_spatial_hashing(CREF(Float3) vert_pos, con
 
 inline void reset_collision_system(
 	const uint vid,
-	PTR(uint) collision_count,
-	PTR(Int4) collision_count_indirect_cmd_buffer,
+	Pointer(uint) collision_count,
+	Pointer(Int4) collision_count_indirect_cmd_buffer,
 
-	PTR(uint) num_verts_in_cluster,
-	PTR(Int4) uncolored_verts_indirect_cmd_buffer,
-	PTR(uint) uncolored_verts_count,
+	Pointer(uint) num_verts_in_cluster,
+	Pointer(Int4) uncolored_verts_indirect_cmd_buffer,
+	Pointer(uint) uncolored_verts_count,
 
-	PTR(uint) hash_table_count,
-	PTR(uint) hash_table_prefix,
-	PTR(uint) hash_table_belongs,
+	Pointer(uint) hash_table_count,
+	Pointer(uint) hash_table_prefix,
+	Pointer(uint) hash_table_belongs,
 
-	PTR(uint) vert_VV_num_broad_phase,
-	PTR(uint) vert_VV_num_narrow_phase,
+	Pointer(uint) vert_VV_num_broad_phase,
+	Pointer(uint) vert_VV_num_narrow_phase,
 
 	const bool reset_coloring_system,
 	const bool reset_hash_table,
@@ -2446,8 +2446,8 @@ inline void reset_collision_system(
 }
 inline void reset_broad_narrow_count(
 	const uint vid,
-	PTR(uint) vert_VV_num_broad_phase,
-	PTR(uint) vert_VV_num_narrow_phase
+	Pointer(uint) vert_VV_num_broad_phase,
+	Pointer(uint) vert_VV_num_narrow_phase
 )
 {
 	{
@@ -2458,8 +2458,8 @@ inline void reset_broad_narrow_count(
 
 inline void get_normalized_position(
 	const uint vid, 
-	PTR(Float3) curr_position, 
-	PTR(Float3) norm_position, 
+	Pointer(Float3) curr_position, 
+	Pointer(Float3) norm_position, 
 	const AABB global_aabb)
 {
 	const Float3 vert_pos = curr_position[vid];
@@ -2467,8 +2467,8 @@ inline void get_normalized_position(
 }
 inline void set_hash_table_flag(
 	const uint cell_id, 
-	PTR(uchar) hash_table_flag, 
-	PTR(uint) hash_table_cell_accessed_count)
+	Pointer(uchar) hash_table_flag, 
+	Pointer(uint) hash_table_cell_accessed_count)
 {
 	const uchar accessed_count = hash_table_cell_accessed_count[cell_id];
 	if (accessed_count != 0)
@@ -2480,12 +2480,12 @@ inline void set_hash_table_flag(
 
 inline void fill_in_hash_table(
 	const uint vid,
-	PTR(Float3) sa_iter_position,
-	PTR(uint) hash_table_count,
-	PTR(uint) hash_table_belongs,
-    PTR(uint) hash_table_cell_accessed_count,
-	PTR(uint) hash_table_vert_offset,
-	PTR(AABB) sa_block_aabb,
+	Pointer(Float3) sa_iter_position,
+	Pointer(uint) hash_table_count,
+	Pointer(uint) hash_table_belongs,
+    Pointer(uint) hash_table_cell_accessed_count,
+	Pointer(uint) hash_table_vert_offset,
+	Pointer(AABB) sa_block_aabb,
 	const uint table_size)
 {
 	
@@ -2533,18 +2533,18 @@ inline void fill_in_hash_table(
 
 inline uint scan_hash_table(
 	const uint cell_id, 
-	PTR(uint) hash_table_count)
+	Pointer(uint) hash_table_count)
 {
 	return hash_table_count[cell_id];
 }
 
 inline void insert_vert_into_hash_table(const uint vid,
-	PTR(Float3) sa_iter_position,
-	PTR(uint) hash_table_vert_offset,
-	PTR(uint) hash_table_prefix,
-	PTR(uint) hash_table_belongs,
-	PTR(uint) hash_table,
-	PTR(AABB) sa_block_aabb,
+	Pointer(Float3) sa_iter_position,
+	Pointer(uint) hash_table_vert_offset,
+	Pointer(uint) hash_table_prefix,
+	Pointer(uint) hash_table_belongs,
+	Pointer(uint) hash_table,
+	Pointer(AABB) sa_block_aabb,
 	const uint table_size)
 {
 	Float3 vert_pos = sa_iter_position[vid];
@@ -2562,24 +2562,24 @@ inline void insert_vert_into_hash_table(const uint vid,
 	hash_table[insert_idx] = vid;
 }
 
-// CONSTEXPR uint max_vv_num = 64;
-// CONSTEXPR uint max_vf_num = 64;
+// ConstExpr uint max_vv_num = 64;
+// ConstExpr uint max_vf_num = 64;
 
 // #define QUERY_RANGE_SCALE_TO_THICKNESS 1.0f
 #define QUERY_RANGE_SCALE_TO_THICKNESS 1.2
 
 
 inline void spatial_hashing_query_vv(const uint vid,
-	PTR(Float3) sa_iter_position,
-	PTR(Float3) sa_predict_position,
-	PTR(uint) hash_table_count,
-	PTR(uint) hash_table_prefix,
-	PTR(uint) hash_table_belongs,
-    PTR(uchar) hash_table_flag,
-	PTR(uint) hash_table,
-	PTR(uint) vert_VV_num_broad_phase,
-	PTR(uint) broad_phase_list,
-	PTR(AABB) sa_block_aabb,
+	Pointer(Float3) sa_iter_position,
+	Pointer(Float3) sa_predict_position,
+	Pointer(uint) hash_table_count,
+	Pointer(uint) hash_table_prefix,
+	Pointer(uint) hash_table_belongs,
+    Pointer(uchar) hash_table_flag,
+	Pointer(uint) hash_table,
+	Pointer(uint) vert_VV_num_broad_phase,
+	Pointer(uint) broad_phase_list,
+	Pointer(AABB) sa_block_aabb,
 	const uint table_size,
 	const uint max_vv_num,
 	const float query_range)
@@ -2668,11 +2668,11 @@ namespace Constrains
 
 inline void prepare_position_for_collision_detection(
 	const uint vid,
-	PTR(Float3) sa_position_cloth,
-	PTR(Float3) sa_position_tet,
-	PTR(uint) sa_surface_verts,
-	PTR(Float3) sa_position_for_detection_bg,
-	PTR(Float3) sa_position_for_detection_ed,
+	Pointer(Float3) sa_position_cloth,
+	Pointer(Float3) sa_position_tet,
+	Pointer(uint) sa_surface_verts,
+	Pointer(Float3) sa_position_for_detection_bg,
+	Pointer(Float3) sa_position_for_detection_ed,
 	const uint num_verts_cloth
 )
 {	
@@ -2692,8 +2692,8 @@ namespace NarrowPhase
 ///////////////////////////////////////////////////////////////////////
 // find the distance from a line segment (v1, v2) to a point (v0)
 ///////////////////////////////////////////////////////////////////////
-inline REAL pointLineDistance(CREF(Float3) v0, CREF(Float3) v1, CREF(Float3) v2, 
-	CREF(Float3) e1hat, CONST(float) projection)
+inline REAL pointLineDistance(ConstRef(Float3) v0, ConstRef(Float3) v1, ConstRef(Float3) v2, 
+	ConstRef(Float3) e1hat, Const(float) projection)
 {
 	const Float3 e0 = v0 - v1;
 	const Float3 e1 = v2 - v1;
@@ -2718,8 +2718,8 @@ inline REAL pointLineDistance(CREF(Float3) v0, CREF(Float3) v1, CREF(Float3) v2,
 // get the linear interpolation coordinates from v0 to the line segment
 // between v1 and v2
 ///////////////////////////////////////////////////////////////////////
-inline Float2 getLerp(CREF(Float3) v0, CREF(Float3) v1, CREF(Float3) v2,
-	CREF(Float3) e1hat, CONST(float) projection)
+inline Float2 getLerp(ConstRef(Float3) v0, ConstRef(Float3) v1, ConstRef(Float3) v2,
+	ConstRef(Float3) e1hat, Const(float) projection)
 {
 	// const Float3 e0 = v0 - v1;
 	const Float3 e1 = v2 - v1;
@@ -2738,8 +2738,8 @@ inline Float2 getLerp(CREF(Float3) v0, CREF(Float3) v1, CREF(Float3) v2,
 
 template <bool ignore_vert_projection_not_in_triangle>
 inline bool template_vf(
-	const Float3 vert_pos[4], CONST(float) min_distance,
-	TREF(float) distance, TREF(Float3) t, TREF(Float4) weight)
+	const Float3 vert_pos[4], Const(float) min_distance,
+	ThreadRef(float) distance, ThreadRef(Float3) t, ThreadRef(Float4) weight)
 {
     const Float3 e1 = vert_pos[2] - vert_pos[1];
     const Float3 e2 = vert_pos[3] - vert_pos[2];
@@ -2818,22 +2818,22 @@ inline bool template_vf(
 
 
 inline void narrow_phase_vv_self_collision_from_collision_pair(const uint index,
-	PTR(Float3) sa_detection_position_bg,
-	PTR(Float3) sa_detection_position_ed,
-	PTR(Float3) sa_detection_rest_position, 
-	// PTR(uint) sa_indices_map, 
+	Pointer(Float3) sa_detection_position_bg,
+	Pointer(Float3) sa_detection_position_ed,
+	Pointer(Float3) sa_detection_rest_position, 
+	// Pointer(uint) sa_indices_map, 
 
-	PTR(uint) vert_VV_num_broad_phase,
-	PTR(uint) broad_phase_list,
+	Pointer(uint) vert_VV_num_broad_phase,
+	Pointer(uint) broad_phase_list,
 	
-	PTR(Int2) narrow_phase_list_indices_vv,
-	PTR(ProximityVV) narrow_phase_list_pair_vv,
-	PTR(uint) collision_count,
-	PTR(Int4) self_collision_indirect_cmd_buffer,
-	PTR(uint) vert_VV_num_narrow_phase,
-	PTR(uint) vert_VV_prefix_narrow_phase,
-	PTR(uchar) collision_pair_offset_in_vert,
-	PTR(uint) vert_adj_pairs,
+	Pointer(Int2) narrow_phase_list_indices_vv,
+	Pointer(ProximityVV) narrow_phase_list_pair_vv,
+	Pointer(uint) collision_count,
+	Pointer(Int4) self_collision_indirect_cmd_buffer,
+	Pointer(uint) vert_VV_num_narrow_phase,
+	Pointer(uint) vert_VV_prefix_narrow_phase,
+	Pointer(uchar) collision_pair_offset_in_vert,
+	Pointer(uint) vert_adj_pairs,
 
 	const float thickness_1,
 	const float thickness_2,
@@ -2883,20 +2883,20 @@ inline void narrow_phase_vv_self_collision_from_collision_pair(const uint index,
 	}
 }
 inline void narrow_phase_vv_self_collision_codim_from_collision_pair(const uint index,
-	PTR(Float3) sa_detection_position_left,
-	PTR(Float3) sa_detection_position_right,
+	Pointer(Float3) sa_detection_position_left,
+	Pointer(Float3) sa_detection_position_right,
 
-	PTR(uint) vert_VV_num_broad_phase,
-	PTR(uint) broad_phase_list,
+	Pointer(uint) vert_VV_num_broad_phase,
+	Pointer(uint) broad_phase_list,
 	
-	PTR(Int2) narrow_phase_list_indices_vv,
-	PTR(ProximityVV) narrow_phase_list_pair_vv,
-	PTR(uint) collision_count,
-	PTR(Int4) self_collision_indirect_cmd_buffer,
-	PTR(uint) vert_VV_num_narrow_phase,
-	PTR(uint) vert_VV_prefix_narrow_phase,
-	PTR(uchar) collision_pair_offset_in_vert,
-	PTR(uint) vert_adj_pairs,
+	Pointer(Int2) narrow_phase_list_indices_vv,
+	Pointer(ProximityVV) narrow_phase_list_pair_vv,
+	Pointer(uint) collision_count,
+	Pointer(Int4) self_collision_indirect_cmd_buffer,
+	Pointer(uint) vert_VV_num_narrow_phase,
+	Pointer(uint) vert_VV_prefix_narrow_phase,
+	Pointer(uchar) collision_pair_offset_in_vert,
+	Pointer(uint) vert_adj_pairs,
 
 	const uint object2_vid_prefix,
 	const float thickness_1,
@@ -2945,27 +2945,27 @@ inline void narrow_phase_vv_self_collision_codim_from_collision_pair(const uint 
 inline void narrow_phase_vf_obstacle_collision_from_collision_pair(
 	const uint index, 
 	
-	PTR(Float3) sa_detection_position_bg,
-	PTR(Float3) sa_detection_position_ed,
-	PTR(Float3) sa_obstacle_position,
+	Pointer(Float3) sa_detection_position_bg,
+	Pointer(Float3) sa_detection_position_ed,
+	Pointer(Float3) sa_obstacle_position,
 	
-	PTR(float) sa_detection_vert_area,
-	PTR(Float3) sa_obs_vert_normal,
-	PTR(Float3) sa_obs_face_normal,
-	PTR(Int3) sa_obstacle_faces,
+	Pointer(float) sa_detection_vert_area,
+	Pointer(Float3) sa_obs_vert_normal,
+	Pointer(Float3) sa_obs_face_normal,
+	Pointer(Int3) sa_obstacle_faces,
 
-	PTR(uint) vert_VV_num_broad_phase,
-	PTR(uint) broad_phase_list,
+	Pointer(uint) vert_VV_num_broad_phase,
+	Pointer(uint) broad_phase_list,
 
-	PTR(Int4) narrow_phase_list_indices_vf,
-	PTR(ProximityVF) narrow_phase_list_pair_vf,
-	PTR(uint) collision_count,
-	PTR(Int4) indirect_command_buffer,
+	Pointer(Int4) narrow_phase_list_indices_vf,
+	Pointer(ProximityVF) narrow_phase_list_pair_vf,
+	Pointer(uint) collision_count,
+	Pointer(Int4) indirect_command_buffer,
 	
-	PTR(uint) vert_VV_num_narrow_phase,
-	PTR(uint) vert_VV_prefix_narrow_phase,
-	PTR(uchar) collision_pair_offset_in_vert,
-	PTR(uint) vert_adj_verts_vv,
+	Pointer(uint) vert_VV_num_narrow_phase,
+	Pointer(uint) vert_VV_prefix_narrow_phase,
+	Pointer(uchar) collision_pair_offset_in_vert,
+	Pointer(uint) vert_adj_verts_vv,
 
 	const uint max_vf_broad_phase_num,
 	const uint max_vf_narrow_phase_num,
@@ -3044,30 +3044,30 @@ inline void narrow_phase_vf_obstacle_collision_from_collision_pair(
 
 
 inline uint narrow_phase_scan_get_num(const uint vid,
-	PTR(uint) vert_VV_num_narrow_phase)
+	Pointer(uint) vert_VV_num_narrow_phase)
 {
 	const uint num_vf = vert_VV_num_narrow_phase[vid];
 	// if (num_vf > 96) { vert_VV_num_narrow_phase[vid] = 0; return 0; } // Filtering The Max Collision Num
 	return num_vf; 
 }
 inline void narrow_phase_scan_write_prefix(const uint vid, 
-	CONST(uint) scan_result, CONST(uint) self_result, 
-	PTR(uint) vert_VV_prefix_narrow_phase)
+	Const(uint) scan_result, Const(uint) self_result, 
+	Pointer(uint) vert_VV_prefix_narrow_phase)
 {
     vert_VV_prefix_narrow_phase[vid + 1] = scan_result; 
 }
 inline uint fn_atomic_add_num_collision_in_block(
-	PTR(uint) collision_count, const uint num_vf_in_block)
+	Pointer(uint) collision_count, const uint num_vf_in_block)
 {
     return atomic_add(collision_count[6], num_vf_in_block);
 }
 
 template <typename ElementType, uint N = Meta::get_vec_length<ElementType>()>
 inline void self_collision_fill_in(const uint pair_idx,
-	PTR(uchar) collision_pair_offset_in_vert, 
-	PTR(ElementType) narrow_phase_list,
-	PTR(uint) vert_prefix_narrow_phase,
-	PTR(uint) vert_adj_elements)
+	Pointer(uchar) collision_pair_offset_in_vert, 
+	Pointer(ElementType) narrow_phase_list,
+	Pointer(uint) vert_prefix_narrow_phase,
+	Pointer(uint) vert_adj_elements)
 {
 	const ElementType tet = narrow_phase_list[pair_idx];
 
@@ -3082,10 +3082,10 @@ inline void self_collision_fill_in(const uint pair_idx,
 }
 template <typename ElementType> //, uint N = Meta::get_vec_length<ElementType>()>
 inline void obstacle_collision_fill_in(const uint pair_idx,
-	PTR(uchar) collision_pair_offset_in_vert, 
-	PTR(ElementType) narrow_phase_list,
-	PTR(uint) vert_prefix_narrow_phase,
-	PTR(uint) vert_adj_elements)
+	Pointer(uchar) collision_pair_offset_in_vert, 
+	Pointer(ElementType) narrow_phase_list,
+	Pointer(uint) vert_prefix_narrow_phase,
+	Pointer(uint) vert_adj_elements)
 {
 	const ElementType tet = narrow_phase_list[pair_idx];
 	{
@@ -3150,29 +3150,29 @@ inline float f1(const float u, const float h, const float epsilon_v)
 	}
 }
 
-// inline void get_friction(CREF(Float3) normal, CREF(Float3) relative_vel)
+// inline void get_friction(ConstRef(Float3) normal, ConstRef(Float3) relative_vel)
 // {
 // }
 
 // Self-Collision
 inline void solve_self_collision_vv_per_collision_pair_template_cloth(
 	const uint pair_idx, 
-	PTR(Float3) substep_start_position_cloth, 
-	PTR(Float3) substep_start_position_tet, 
-	PTR(Float3) iter_position_cloth, 
-	PTR(Float3) iter_position_tet, 
-	PTR(Float3) output_position_cloth, 
-	PTR(Float3) output_position_tet,
+	Pointer(Float3) substep_start_position_cloth, 
+	Pointer(Float3) substep_start_position_tet, 
+	Pointer(Float3) iter_position_cloth, 
+	Pointer(Float3) iter_position_tet, 
+	Pointer(Float3) output_position_cloth, 
+	Pointer(Float3) output_position_tet,
 
-	PTR(uint) sa_surface_verts, 
-	PTR(float) sa_vert_mass_inv_cloth, 
-	PTR(float) sa_vert_mass_inv_tet, 
-	PTR(ATOMIC_FLAG) sa_vert_mutex_cloth,
-	PTR(ATOMIC_FLAG) sa_vert_mutex_tet,
+	Pointer(uint) sa_surface_verts, 
+	Pointer(float) sa_vert_mass_inv_cloth, 
+	Pointer(float) sa_vert_mass_inv_tet, 
+	Pointer(ATOMIC_FLAG) sa_vert_mutex_cloth,
+	Pointer(ATOMIC_FLAG) sa_vert_mutex_tet,
 
-	PTR(ProximityVV) self_collision_pair_vv,
-	PTR(float) lambda_self_collision,
-	PTR(float) lambda_self_collision_friction,
+	Pointer(ProximityVV) self_collision_pair_vv,
+	Pointer(float) lambda_self_collision,
+	Pointer(float) lambda_self_collision_friction,
 
 	const float substep_dt, 
 	const bool use_atomic,
@@ -3245,22 +3245,22 @@ inline void solve_self_collision_vv_per_collision_pair_template_cloth(
 }
 inline void solve_self_collision_vv_per_collision_pair_template_tet(
 	const uint pair_idx, 
-	PTR(Float3) substep_start_position_cloth, 
-	PTR(Float3) substep_start_position_tet, 
-	PTR(Float3) iter_position_cloth, 
-	PTR(Float3) iter_position_tet, 
-	PTR(Float3) output_position_cloth, 
-	PTR(Float3) output_position_tet,
+	Pointer(Float3) substep_start_position_cloth, 
+	Pointer(Float3) substep_start_position_tet, 
+	Pointer(Float3) iter_position_cloth, 
+	Pointer(Float3) iter_position_tet, 
+	Pointer(Float3) output_position_cloth, 
+	Pointer(Float3) output_position_tet,
 
-	PTR(uint) sa_surface_verts, 
-	PTR(float) sa_vert_mass_inv_cloth, 
-	PTR(float) sa_vert_mass_inv_tet, 
-	PTR(ATOMIC_FLAG) sa_vert_mutex_cloth,
-	PTR(ATOMIC_FLAG) sa_vert_mutex_tet,
+	Pointer(uint) sa_surface_verts, 
+	Pointer(float) sa_vert_mass_inv_cloth, 
+	Pointer(float) sa_vert_mass_inv_tet, 
+	Pointer(ATOMIC_FLAG) sa_vert_mutex_cloth,
+	Pointer(ATOMIC_FLAG) sa_vert_mutex_tet,
 
-	PTR(ProximityVV) self_collision_pair_vv,
-	PTR(float) lambda_self_collision,
-	PTR(float) lambda_self_collision_friction,
+	Pointer(ProximityVV) self_collision_pair_vv,
+	Pointer(float) lambda_self_collision,
+	Pointer(float) lambda_self_collision_friction,
 
 	const float substep_dt, 
 	const bool use_atomic,
@@ -3336,22 +3336,22 @@ inline void solve_self_collision_vv_per_collision_pair_template_tet(
 }
 inline void solve_self_collision_vv_per_collision_pair_template_cross(
 	const uint pair_idx, 
-	PTR(Float3) substep_start_position_cloth, 
-	PTR(Float3) substep_start_position_tet, 
-	PTR(Float3) iter_position_cloth, 
-	PTR(Float3) iter_position_tet, 
-	PTR(Float3) output_position_cloth, 
-	PTR(Float3) output_position_tet,
+	Pointer(Float3) substep_start_position_cloth, 
+	Pointer(Float3) substep_start_position_tet, 
+	Pointer(Float3) iter_position_cloth, 
+	Pointer(Float3) iter_position_tet, 
+	Pointer(Float3) output_position_cloth, 
+	Pointer(Float3) output_position_tet,
 
-	PTR(uint) sa_surface_verts, 
-	PTR(float) sa_vert_mass_inv_cloth, 
-	PTR(float) sa_vert_mass_inv_tet, 
-	PTR(ATOMIC_FLAG) sa_vert_mutex_cloth,
-	PTR(ATOMIC_FLAG) sa_vert_mutex_tet,
+	Pointer(uint) sa_surface_verts, 
+	Pointer(float) sa_vert_mass_inv_cloth, 
+	Pointer(float) sa_vert_mass_inv_tet, 
+	Pointer(ATOMIC_FLAG) sa_vert_mutex_cloth,
+	Pointer(ATOMIC_FLAG) sa_vert_mutex_tet,
 
-	PTR(ProximityVV) self_collision_pair_vv,
-	PTR(float) lambda_self_collision,
-	PTR(float) lambda_self_collision_friction,
+	Pointer(ProximityVV) self_collision_pair_vv,
+	Pointer(float) lambda_self_collision,
+	Pointer(float) lambda_self_collision_friction,
 
 	const float substep_dt, 
 	const bool use_atomic,
@@ -3439,7 +3439,7 @@ inline void solve_self_collision_vv_per_collision_pair_template_cross(
 				// const Float3 relative_vel_in_tangent_space = relative_vel - dot_vec(relative_vel, normal) * normal; // == project_vec(relative_vel, normal); ;
 
 				const Float3 delta_x_in_tangent_space = substep_dt * relative_vel_in_tangent_space;
-				const THREAD Float3& x_t = delta_x_in_tangent_space;
+				const Thread Float3& x_t = delta_x_in_tangent_space;
 
 				const float C_f = length_vec(x_t);
 				if (C_f > Epsilon)
@@ -3480,16 +3480,16 @@ inline void solve_self_collision_vv_per_collision_pair_template_cross(
 
 inline void solve_self_collision_vv_per_collision_pair_template(
 	const uint pair_idx, 
-	PTR(Float3) substep_start_position, 
-	PTR(Float3) input_position, 
-	PTR(Float3) output_position, 
+	Pointer(Float3) substep_start_position, 
+	Pointer(Float3) input_position, 
+	Pointer(Float3) output_position, 
 	
-	PTR(float) sa_vert_mass_inv, 
-	PTR(ATOMIC_FLAG) sa_vert_mutex,
+	Pointer(float) sa_vert_mass_inv, 
+	Pointer(ATOMIC_FLAG) sa_vert_mutex,
 
-	PTR(ProximityVV) self_collision_pair_vv,
-	PTR(float) lambda_self_collision,
-	PTR(float) lambda_self_collision_friction,
+	Pointer(ProximityVV) self_collision_pair_vv,
+	Pointer(float) lambda_self_collision,
+	Pointer(float) lambda_self_collision_friction,
 
 	const float substep_dt, 
 	const bool use_atomic,
@@ -3573,16 +3573,16 @@ inline void solve_self_collision_vv_per_collision_pair_template(
 }
 inline void solve_self_collision_vf_per_collision_pair_template(
 	const uint pair_idx, 
-	PTR(Float3) substep_start_position, 
-	PTR(Float3) input_position, 
-	PTR(Float3) output_position, 
+	Pointer(Float3) substep_start_position, 
+	Pointer(Float3) input_position, 
+	Pointer(Float3) output_position, 
 	
-	PTR(float) sa_vert_mass_inv, 
-	PTR(ATOMIC_FLAG) sa_vert_mutex,
+	Pointer(float) sa_vert_mass_inv, 
+	Pointer(ATOMIC_FLAG) sa_vert_mutex,
 
-	PTR(ProximityVF) self_collision_pair_vf,
-	PTR(float) lambda_self_collision,
-	PTR(float) lambda_self_collision_friction,
+	Pointer(ProximityVF) self_collision_pair_vf,
+	Pointer(float) lambda_self_collision,
+	Pointer(float) lambda_self_collision_friction,
 
 	const float substep_dt, 
 	const bool use_atomic,
@@ -3677,30 +3677,30 @@ inline void solve_self_collision_vf_per_collision_pair_template(
 // Obstacle-Collision: VF Only
 inline void solve_obstacle_collision_vf_template_cloth(
 	const uint i, 
-	PTR(Float3) iter_position_cloth, 
-	PTR(Float3) iter_position_tet, 
-	PTR(Float3) sa_obstacle_start_position,
-	PTR(Float3) sa_obstacle_velocity,
+	Pointer(Float3) iter_position_cloth, 
+	Pointer(Float3) iter_position_tet, 
+	Pointer(Float3) sa_obstacle_start_position,
+	Pointer(Float3) sa_obstacle_velocity,
 
-	PTR(Float3) output_position_cloth, 
-	PTR(Float3) output_position_tet,
+	Pointer(Float3) output_position_cloth, 
+	Pointer(Float3) output_position_tet,
 
-	PTR(Float3) substep_start_position_cloth, 
-	PTR(Float3) substep_start_position_tet,
+	Pointer(Float3) substep_start_position_cloth, 
+	Pointer(Float3) substep_start_position_tet,
 
-	PTR(uint) sa_surface_verts, 
-	PTR(float) sa_vert_mass_inv_cloth, 
-	PTR(float) sa_vert_mass_inv_tet, 
-	PTR(ATOMIC_FLAG) sa_vert_mutex_cloth,
-	PTR(ATOMIC_FLAG) sa_vert_mutex_tet,
+	Pointer(uint) sa_surface_verts, 
+	Pointer(float) sa_vert_mass_inv_cloth, 
+	Pointer(float) sa_vert_mass_inv_tet, 
+	Pointer(ATOMIC_FLAG) sa_vert_mutex_cloth,
+	Pointer(ATOMIC_FLAG) sa_vert_mutex_tet,
 
-	PTR(uint) vert_VV_num_narrow_phase, 
-	PTR(uint) vert_VV_prefix_narrow_phase, 
-	PTR(uint) vert_adj_elements,
-	PTR(ProximityVF) narrow_phase_list_vf,
+	Pointer(uint) vert_VV_num_narrow_phase, 
+	Pointer(uint) vert_VV_prefix_narrow_phase, 
+	Pointer(uint) vert_adj_elements,
+	Pointer(ProximityVF) narrow_phase_list_vf,
 
-	PTR(float) lambda_obstacle_collision_n,
-	PTR(float) lambda_obstacle_collision_f,
+	Pointer(float) lambda_obstacle_collision_n,
+	Pointer(float) lambda_obstacle_collision_f,
 
 	const uint max_vv_per_vert_narrow_obstacle_collision,
 	const float thickness, 
@@ -3789,7 +3789,7 @@ inline void solve_obstacle_collision_vf_template_cloth(
 
 							// const float mu_kinetic = 0.5f;
 							// const float mu_static = 0.6f;
-							// const THREAD float& d = C_f; // (thickness - proj);
+							// const Thread float& d = C_f; // (thickness - proj);
 							// if (C_f < d * mu_static)
 							// {
 							// 	dx -= vel_proj;
@@ -3839,30 +3839,30 @@ inline void solve_obstacle_collision_vf_template_cloth(
 }
 inline void solve_obstacle_collision_vf_template_tet(
 	const uint surface_id, 
-	PTR(Float3) iter_position_cloth, 
-	PTR(Float3) iter_position_tet, 
-	PTR(Float3) sa_obstacle_start_position,
-	PTR(Float3) sa_obstacle_velocity,
+	Pointer(Float3) iter_position_cloth, 
+	Pointer(Float3) iter_position_tet, 
+	Pointer(Float3) sa_obstacle_start_position,
+	Pointer(Float3) sa_obstacle_velocity,
 
-	PTR(Float3) output_position_cloth, 
-	PTR(Float3) output_position_tet,
+	Pointer(Float3) output_position_cloth, 
+	Pointer(Float3) output_position_tet,
 
-	PTR(Float3) substep_start_position_cloth, 
-	PTR(Float3) substep_start_position_tet,
+	Pointer(Float3) substep_start_position_cloth, 
+	Pointer(Float3) substep_start_position_tet,
 
-	PTR(uint) sa_surface_verts, 
-	PTR(float) sa_vert_mass_inv_cloth, 
-	PTR(float) sa_vert_mass_inv_tet, 
-	PTR(ATOMIC_FLAG) sa_vert_mutex_cloth,
-	PTR(ATOMIC_FLAG) sa_vert_mutex_tet,
+	Pointer(uint) sa_surface_verts, 
+	Pointer(float) sa_vert_mass_inv_cloth, 
+	Pointer(float) sa_vert_mass_inv_tet, 
+	Pointer(ATOMIC_FLAG) sa_vert_mutex_cloth,
+	Pointer(ATOMIC_FLAG) sa_vert_mutex_tet,
 
-	PTR(uint) vert_VV_num_narrow_phase, 
-	PTR(uint) vert_VV_prefix_narrow_phase, 
-	PTR(uint) vert_adj_elements,
-	PTR(ProximityVF) narrow_phase_list_vf,
+	Pointer(uint) vert_VV_num_narrow_phase, 
+	Pointer(uint) vert_VV_prefix_narrow_phase, 
+	Pointer(uint) vert_adj_elements,
+	Pointer(ProximityVF) narrow_phase_list_vf,
 
-	PTR(float) lambda_obstacle_collision,
-	PTR(float) lambda_obstacle_collision_friction,
+	Pointer(float) lambda_obstacle_collision,
+	Pointer(float) lambda_obstacle_collision_friction,
 
 	const uint max_vv_per_vert_narrow_obstacle_collision,
 	const float thickness, 
@@ -3961,9 +3961,9 @@ namespace VBD
 
 template <bool compute_energy, bool compute_gradient, bool compute_hessian>
 inline void local_core_bending_quadratic(
-    THREAD float* energy, THREAD Float3* force, THREAD Float3x3* hessian,
-    const THREAD Float3 vert_pos[3],
-    CREF(Float4x4) m_Q,   
+    Thread float* energy, Thread Float3* force, Thread Float3x3* hessian,
+    const Thread Float3 vert_pos[3],
+    ConstRef(Float4x4) m_Q,   
     const float stiffness
 )
 {
@@ -4011,20 +4011,20 @@ inline void local_core_bending_quadratic(
                                make<Float3>(0.f, 0.f, 0.f),  \
                                make<Float3>(0.f ,0.f, 0.f))
 
-inline Float4x3 makeHf(CREF(Float3) force, CREF(Float3x3) hessian)
+inline Float4x3 makeHf(ConstRef(Float3) force, ConstRef(Float3x3) hessian)
 {
 	return makeFloat4x3(get_column(hessian, 0), get_column(hessian, 1), get_column(hessian, 2), force);
 }
-inline void extractHf(CREF(Float4x3) Hf, TREF(Float3) force, TREF(Float3x3) hessian)
+inline void extractHf(ConstRef(Float4x3) Hf, ThreadRef(Float3) force, ThreadRef(Float3x3) hessian)
 {
 	hessian = makeFloat3x3(get(Hf, 0), get(Hf, 1), get(Hf, 2));
 	force = get(Hf, 3);
 }
 
 inline Float4x3 compute_inertia(
-	const uint vid, PTR(Float3) sa_iter_position, 
-	PTR(Float3) sa_x_tilde,
-	PTR(uchar) sa_is_fixed, PTR(float) sa_vert_mass, PTR(SceneParams) scene_params,
+	const uint vid, Pointer(Float3) sa_iter_position, 
+	Pointer(Float3) sa_x_tilde,
+	Pointer(uchar) sa_is_fixed, Pointer(float) sa_vert_mass, Pointer(SceneParams) scene_params,
 	const float substep_dt
 	)
 {
@@ -4062,9 +4062,9 @@ inline Float4x3 compute_inertia(
 };
 
 inline Float4x3 compute_stretch_fem(
-	const uint vid, PTR(Float3) sa_iter_position, 
-	PTR(uint) sa_vert_adj_faces_csr, 
-	PTR(Int3) sa_faces, PTR(Float2x2) sa_inv_duv, PTR(float) sa_face_area,
+	const uint vid, Pointer(Float3) sa_iter_position, 
+	Pointer(uint) sa_vert_adj_faces_csr, 
+	Pointer(Int3) sa_faces, Pointer(Float2x2) sa_inv_duv, Pointer(float) sa_face_area,
 	const float stiffness_stretch
 	)
 {
@@ -4100,10 +4100,10 @@ inline Float4x3 compute_stretch_fem(
 };
 
 inline Float4x3 compute_stretch_mass_spring(
-	const uint vid, PTR(Float3) sa_iter_position, 
-	PTR(uint) sa_vert_adj_edges_csr, 
-	PTR(Int2) sa_edges, 
-	PTR(float) sa_rest_length,
+	const uint vid, Pointer(Float3) sa_iter_position, 
+	Pointer(uint) sa_vert_adj_edges_csr, 
+	Pointer(Int2) sa_edges, 
+	Pointer(float) sa_rest_length,
 	const float stiffness_stretch
 	) 
 {
@@ -4154,9 +4154,9 @@ inline Float4x3 compute_stretch_mass_spring(
 };
 
 inline Float4x3 compute_bending_quadratic(
-	const uint vid, PTR(Float3) sa_iter_position,
-	PTR(uint) sa_vert_adj_bending_edges_csr,
-	PTR(Int4) sa_bending_edges, PTR(Float4x4) sa_bending_edge_Q, const float stiffness_quadratic_bending
+	const uint vid, Pointer(Float3) sa_iter_position,
+	Pointer(uint) sa_vert_adj_bending_edges_csr,
+	Pointer(Int4) sa_bending_edges, Pointer(Float4x4) sa_bending_edge_Q, const float stiffness_quadratic_bending
 	)
 {
 	const uint curr_prefix = sa_vert_adj_bending_edges_csr[vid];
@@ -4201,8 +4201,8 @@ inline Float4x3 compute_bending_quadratic(
 
 inline Float4x3 compute_ground_collision(
 	const uint vid,
-	PTR(Float3) sa_iter_position, const float stiffness_collision,
-	const float thickness_vv_obstacle, PTR(SceneParams) scene_param
+	Pointer(Float3) sa_iter_position, const float stiffness_collision,
+	const float thickness_vv_obstacle, Pointer(SceneParams) scene_param
 	)
 {
 	const Float3 normal = makeFloat3(0, 1, 0);
@@ -4231,9 +4231,9 @@ inline Float4x3 compute_ground_collision(
 	return hf;
 };
 inline Float4x3 compute_obstacle_collision(
-	const uint vid, PTR(Float3) sa_iter_position, PTR(Float3) sa_obstacle_substep_position,
-	PTR(uint) vert_VV_prefix_narrow_phase, PTR(uint) vert_VV_num_narrow_phase, PTR(uint) vert_adj_elements,
-	PTR(ProximityVF) narrow_phase_list_pair_vf, const float thickness_vv_obstacle, const float stiffness_collision
+	const uint vid, Pointer(Float3) sa_iter_position, Pointer(Float3) sa_obstacle_substep_position,
+	Pointer(uint) vert_VV_prefix_narrow_phase, Pointer(uint) vert_VV_num_narrow_phase, Pointer(uint) vert_adj_elements,
+	Pointer(ProximityVF) narrow_phase_list_pair_vf, const float thickness_vv_obstacle, const float stiffness_collision
 	)
 {
 	const uint curr_prefix = vert_VV_prefix_narrow_phase[vid];
@@ -4278,9 +4278,9 @@ inline Float4x3 compute_obstacle_collision(
 	return hf;
 };
 inline Float4x3 compute_self_collision(
-	const uint vid, PTR(Float3) sa_iter_position, 
-	PTR(uint) vert_VV_prefix_narrow_phase, PTR(uint) vert_VV_num_narrow_phase, PTR(uint) vert_adj_elements,
-	PTR(ProximityVV) narrow_phase_list_pair_vv, const float thickness_vv_cloth, const float stiffness_collision
+	const uint vid, Pointer(Float3) sa_iter_position, 
+	Pointer(uint) vert_VV_prefix_narrow_phase, Pointer(uint) vert_VV_num_narrow_phase, Pointer(uint) vert_adj_elements,
+	Pointer(ProximityVV) narrow_phase_list_pair_vv, const float thickness_vv_cloth, const float stiffness_collision
 	)
 {
 	const uint curr_prefix = vert_VV_prefix_narrow_phase[vid];

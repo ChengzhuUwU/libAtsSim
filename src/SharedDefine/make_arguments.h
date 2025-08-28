@@ -69,7 +69,7 @@ inline Int4 make_indirect_command_buffer(const uint num_threads, const uint bloc
 /// Usage :
 ///
 /// #define GET_PTRS_IN_ARGS_FUNC(...) std::vector<void*> get() { return std::vector<void*>({ __VA_ARGS__ }); }
-/// #define SET_PTRS_IN_ARGS_FROM_CLOTH_FUNC(num, ...) void set(TREF(ClothData) cloth, PtrType ptr_type){ APPLY_GET_PTR_MACRO_IMPL(cloth, ptr_type, num, __VA_ARGS__) }
+/// #define SET_PTRS_IN_ARGS_FROM_CLOTH_FUNC(num, ...) void set(ThreadRef(ClothData) cloth, PtrType ptr_type){ APPLY_GET_PTR_MACRO_IMPL(cloth, ptr_type, num, __VA_ARGS__) }
 /// Then : 
 /// GET_PTRS_IN_ARGS_FUNC(num_verts, num_faces, num_edges, num_bending_edges)
 /// SET_PTRS_IN_ARGS_FROM_CLOTH_FUNC(4, num_verts, num_faces, num_edges, num_bending_edges) 
@@ -77,7 +77,7 @@ inline Int4 make_indirect_command_buffer(const uint num_threads, const uint bloc
 ///
 
            
-template<typename T> PTR(T) get_ptr(ARRAYREF(T) input_array, PtrType ptr_type) { 
+template<typename T> Pointer(T) get_ptr(ArrayRef(T) input_array, PtrType ptr_type) { 
 #ifdef METAL_CODE
     return input_array;
 #elif __APPLE__
@@ -94,19 +94,19 @@ inline uint get_ptr(uint value, PtrType ptr_type) { return value; }
 
 
 
-template<typename T> T get_cst(CREF(T) input_value) { 
+template<typename T> T get_cst(ConstRef(T) input_value) { 
     return input_value;
 }
 
 #ifdef METAL_CODE
-// template<typename T> inline void set_ptr(ARRAYREF(T) input_array, PTR(T)& gpu, PTR(T)& cpu){}
-// template<typename T> inline void set_cst(CREF(T) input_value, TREF(T) gpu, TREF(T) cpu){}
+// template<typename T> inline void set_ptr(ArrayRef(T) input_array, Pointer(T)& gpu, Pointer(T)& cpu){}
+// template<typename T> inline void set_cst(ConstRef(T) input_value, ThreadRef(T) gpu, ThreadRef(T) cpu){}
 #else
-// template<typename T> inline void set_ptr(ARRAYREF(T) input_array, PTR(T)& gpu, PTR(T)& cpu){ 
+// template<typename T> inline void set_ptr(ArrayRef(T) input_array, Pointer(T)& gpu, Pointer(T)& cpu){ 
 //     gpu = (T*)input_array.buffer() -> gpuAddress(); 
 //     cpu = input_array.ptr();
 // }
-// template<typename T> inline void set_cst(CREF(T) input_value, TREF(T) gpu, TREF(T) cpu){ 
+// template<typename T> inline void set_cst(ConstRef(T) input_value, ThreadRef(T) gpu, ThreadRef(T) cpu){ 
 //     gpu = input_value;
 //     cpu = input_value;
 // }

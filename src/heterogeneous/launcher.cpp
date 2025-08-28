@@ -23,6 +23,16 @@
 namespace Launcher 
 {
 
+template <typename T>
+T max_scalar(const T& left, const T& right)
+{
+    return left < right ? right : left;
+}
+template <typename T>
+T min_scalar(const T& left, const T& right)
+{
+    return left < right ? left : right;
+}
 
 
 template <typename T, typename FuncGetSuccNodes>
@@ -304,7 +314,7 @@ void Scheduler::print_sort_by_ranku(){
 //     bool operator == (const FunctionImplementation& right) const {
 //         return imp_id == right.imp_id && id == right.id;
 //     }
-//     friend bool operator==(CREF(FunctionImplementation) left, CREF(FunctionImplementation) right){
+//     friend bool operator==(ConstRef(FunctionImplementation) left, ConstRef(FunctionImplementation) right){
 //         return left.imp_id == right.imp_id && left.id == right.id;
 //     }
 // };  
@@ -2278,7 +2288,7 @@ void Scheduler::compute_ranku(uint num_procs)
                     auto tmp_succ = fn_compute_max_cost(succnode);
                     max_succ_cost = tmp_succ.second;
                     float val = max_succ_cost + ranku[succnode];
-                    max_successor_ranku = std::max(max_successor_ranku, val);
+                    max_successor_ranku = max_scalar(max_successor_ranku, val);
                     
                 }
                 if (max_successor_ranku < 0.f) std::cerr << "Expected maximum successor ranku to be greater or equal to 0 but was {" << max_successor_ranku << "}\n";
@@ -2300,7 +2310,7 @@ void Scheduler::compute_ranku(uint num_procs)
                     auto tmp_succ = fn_compute_min_cost(succnode);
                     min_succ_cost = tmp_succ.second;
                     float val = min_succ_cost + ranku[succnode];
-                    min_successor_ranku = std::min(min_successor_ranku, val);
+                    min_successor_ranku = min_scalar(min_successor_ranku, val);
                 }
                 if(min_successor_ranku < 0.f || min_successor_ranku == inf) std::cerr << "Expected maximum successor ranku to be greater or equal to 0 but was {" << min_successor_ranku << "}\n";
                 ranku[node] = min_cost + min_successor_ranku;
@@ -2418,8 +2428,8 @@ void insertAndMergeTask(std::vector<ScheduleEvent>& proc_schedules, const Schedu
         if (!(it->end < bg || it->start > ed)) 
         {
             // 更新合并后的区间
-            bg = std::min(bg, it->start);
-            ed = std::max(ed, it->end);
+            bg = min_scalar(bg, it->start);
+            ed = max_scalar(ed, it->end);
             // 删除当前重叠的任务
             it = proc_schedules.erase(it);
         } else {  ++it; }
@@ -2592,7 +2602,7 @@ ScheduleEvent Scheduler::_compute_eft_extend(uint node, uint proc)
         {
             // EST(n_i, p_j) = max{ T_available, max( AFT(n_m) + c_mi) } , p_j in Processors, n_m in Predecessors of n_i
             float ready_time_t = fn_get_ready_time_from_pred(pred_node, node);
-            ready_time = std::max(ready_time, ready_time_t);
+            ready_time = max_scalar(ready_time, ready_time_t);
         }
     }
     
@@ -3496,7 +3506,7 @@ void Scheduler::make_wait_events()
                 }
                 /// 没有else: 之前就等待过该task了 -> 合并等待
                 // else{
-                //     target_signal = std::min(target_signal, i);
+                //     target_signal = min_scalar(target_signal, i);
                 // }
             }
         }     
@@ -4179,7 +4189,7 @@ float Scheduler::get_theoretical_time()
         if (curr_sum_cpu >= curr_sum_gpu) 
         {
             float prev_sum_gpu = std::accumulate(ptr_gpu + i, ptr_gpu + list_computation_matrix_gpu.size(), 0.f);
-            curr_min_time = std::min(curr_sum_cpu, prev_sum_gpu);
+            curr_min_time = min_scalar(curr_sum_cpu, prev_sum_gpu);
             break;
         }
     }
@@ -4190,7 +4200,7 @@ float Scheduler::get_scheduled_end_time()
     float end_time = 0.0f; 
     for (uint proc = 0; proc < proc_schedules.size(); proc++)
     {
-        end_time = std::max(proc_schedules[proc].empty() ? 0.f : proc_schedules[proc].back().end, end_time);
+        end_time = max_scalar(proc_schedules[proc].empty() ? 0.f : proc_schedules[proc].back().end, end_time);
     }
     return end_time;
 }

@@ -12,50 +12,50 @@ struct AABB{
         min_pos = make<Float3>(Float_max);
         max_pos = make<Float3>(Float_min);
     }
-    AABB(CREF(AABB) aabb){
+    AABB(ConstRef(AABB) aabb){
         min_pos = aabb.min_pos;
         max_pos = aabb.max_pos;
     }
-    // AABB(volatile CREF(AABB) aabb){
+    // AABB(volatile ConstRef(AABB) aabb){
     //     min_pos = aabb.min_pos;
     //     max_pos = aabb.max_pos;
     // }
 #ifdef METAL_CODE
-    AABB(DEVICE const AABB& aabb){
+    AABB(Device const AABB& aabb){
         min_pos = aabb.min_pos;
         max_pos = aabb.max_pos;
     }
-    AABB(DEVICE const Float3& pos){
+    AABB(Device const Float3& pos){
         min_pos = pos;
         max_pos = pos;
     }
-    // AABB(DEVICE volatile const AABB& aabb){
+    // AABB(Device volatile const AABB& aabb){
     //     min_pos = aabb.min_pos;
     //     max_pos = aabb.max_pos;
     // }
 #endif
-    AABB(CREF(Float3) pos){
+    AABB(ConstRef(Float3) pos){
         min_pos = pos;
         max_pos = pos;
     }
-    AABB(CREF(Float3) pos1, CREF(Float3) pos2){
+    AABB(ConstRef(Float3) pos1, ConstRef(Float3) pos2){
         min_pos = min_vec(pos1, pos2);
         max_pos = max_vec(pos1, pos2);
     }
-    AABB(CREF(Float3) pos1, CREF(Float3) pos2, CREF(Float3) pos3){
+    AABB(ConstRef(Float3) pos1, ConstRef(Float3) pos2, ConstRef(Float3) pos3){
         min_pos = min_vec(min_vec(pos1, pos2), pos3);
         max_pos = max_vec(max_vec(pos1, pos2), pos3);
     }
     
     // for ccd
-    AABB(CREF(Float3) v0, CREF(Float3) v1, 
-         CREF(Float3) v2, CREF(Float3) v3)
+    AABB(ConstRef(Float3) v0, ConstRef(Float3) v1, 
+         ConstRef(Float3) v2, ConstRef(Float3) v3)
     {
         min_pos = min_vec(min_vec(v0, v1), min_vec(v2, v3));
         max_pos = max_vec(max_vec(v0, v1), max_vec(v2, v3));
     }
-    AABB(CREF(Float3) v0, CREF(Float3) v1, CREF(Float3) v2, 
-         CREF(Float3) v3, CREF(Float3) v4, CREF(Float3) v5)
+    AABB(ConstRef(Float3) v0, ConstRef(Float3) v1, ConstRef(Float3) v2, 
+         ConstRef(Float3) v3, ConstRef(Float3) v4, ConstRef(Float3) v5)
     {
         Float3 min_pos_t0 = min_vec(min_vec(v0, v1), v2);
         Float3 min_pos_t1 = min_vec(min_vec(v3, v4), v5);
@@ -77,17 +77,17 @@ struct AABB{
         Float3 wid = range();
         return wid.x * wid.y + wid.z;
     }
-    AABB operator+(CREF(AABB) input_aabb) const{
+    AABB operator+(ConstRef(AABB) input_aabb) const{
         AABB tmp;
         tmp.min_pos = min_vec(min_pos, input_aabb.min_pos);
         tmp.max_pos = max_vec(max_pos, input_aabb.max_pos);
         return tmp;
     }
-    void operator+=(CREF(AABB) input_aabb){
+    void operator+=(ConstRef(AABB) input_aabb){
         min_pos = min_vec(min_pos, input_aabb.min_pos);
         max_pos = max_vec(max_pos, input_aabb.max_pos);
     }
-    void operator+=(CREF(Float3) input_vec){
+    void operator+=(ConstRef(Float3) input_vec){
         min_pos = min_vec(min_pos, input_vec);
         max_pos = max_vec(max_pos, input_vec);
     }
@@ -100,14 +100,14 @@ struct AABB{
         max_pos += make<Float3>(eps);
         return *this;
     }
-    bool is_overlap(CREF(Float3) vert_pos){
+    bool is_overlap(ConstRef(Float3) vert_pos){
         return all_vec(is_greater_equal_than(vert_pos, min_pos) && is_smaller_equal_than(vert_pos, max_pos));
     }
-    bool is_overlap(CREF(Float2x3) edge_pos){
+    bool is_overlap(ConstRef(Float2x3) edge_pos){
 	    Float3 foot = SimGeometry::foot_ve(center(), get(edge_pos, 0), get(edge_pos, 1));
         return is_overlap(foot);
     }
-    bool is_overlap(CREF(AABB) aabb){
+    bool is_overlap(ConstRef(AABB) aabb){
         if (min_pos.x >= aabb.max_pos.x || aabb.min_pos.x >= max_pos.x)
             return false;
         if (min_pos.y >= aabb.max_pos.y || aabb.min_pos.y >= max_pos.y)

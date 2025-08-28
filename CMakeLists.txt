@@ -42,7 +42,6 @@ add_subdirectory(${SRC_PATH})
 if(APPLE)
 list(APPEND MAIN_LIBS Scheduler)
 link_libraries(${MAIN_LIBS}) 
-include_directories(${CMAKE_CURRENT_SOURCE_DIR}/src)
 endif()
 
 

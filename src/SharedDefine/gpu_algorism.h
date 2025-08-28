@@ -19,22 +19,22 @@
 #ifdef METAL_CODE
     // https://github.com/KhronosGroup/SPIRV-Cross/blob/68d401117c85219ee6b2aba9a0cded314c55798f/reference/opt/shaders-msl/comp/shader_ballot.msl22.comp#L46
     // FIXME: This won't include higher bits if Apple ever supports 64 lanes in an SIMD-group.
-    uint cast_vote_to_mask(CREF(simd_vote) mask) { return static_cast<simd_vote::vote_t>(mask); }
-    template<typename T> inline T warp_reduce_sum(CREF(T) value)  { return simd_sum(value); }
-    template<typename T> inline T warp_prefix_sum_inclusive(CREF(T) value)  { return simd_prefix_inclusive_sum(value); }
-    template<typename T> inline T warp_prefix_sum_exclusive(CREF(T) value)  { return simd_prefix_exclusive_sum(value); }
-    template<typename T> inline T warp_shuffle(CREF(T) value, CREF(uint) lane_id)      { return simd_shuffle(value, lane_id); }
-    template<typename T> inline T warp_shuffle_down(CREF(T) value, CREF(uint) delta)   { return simd_shuffle_down(value, delta); }
+    uint cast_vote_to_mask(ConstRef(simd_vote) mask) { return static_cast<simd_vote::vote_t>(mask); }
+    template<typename T> inline T warp_reduce_sum(ConstRef(T) value)  { return simd_sum(value); }
+    template<typename T> inline T warp_prefix_sum_inclusive(ConstRef(T) value)  { return simd_prefix_inclusive_sum(value); }
+    template<typename T> inline T warp_prefix_sum_exclusive(ConstRef(T) value)  { return simd_prefix_exclusive_sum(value); }
+    template<typename T> inline T warp_shuffle(ConstRef(T) value, ConstRef(uint) lane_id)      { return simd_shuffle(value, lane_id); }
+    template<typename T> inline T warp_shuffle_down(ConstRef(T) value, ConstRef(uint) delta)   { return simd_shuffle_down(value, delta); }
     inline uint warp_vote()                     { return cast_vote_to_mask(simd_vote()); }
-    inline uint warp_ballot(CREF(bool) value)   { return cast_vote_to_mask(simd_ballot(value)); }
+    inline uint warp_ballot(ConstRef(bool) value)   { return cast_vote_to_mask(simd_ballot(value)); }
 #else
-    template<typename T> inline T warp_reduce_sum(CREF(T) value){ return (value); }
-    template<typename T> inline T warp_prefix_sum_inclusive(CREF(T) value)  { return (value); }
-    template<typename T> inline T warp_prefix_sum_exclusive(CREF(T) value)  { return (value); }
-    template<typename T> inline T warp_shuffle(CREF(T) value, CREF(uint) lane_id)     { return (value); }
-    template<typename T> inline T warp_shuffle_down(CREF(T) value, CREF(uint) delta)  { return (value); }
+    template<typename T> inline T warp_reduce_sum(ConstRef(T) value){ return (value); }
+    template<typename T> inline T warp_prefix_sum_inclusive(ConstRef(T) value)  { return (value); }
+    template<typename T> inline T warp_prefix_sum_exclusive(ConstRef(T) value)  { return (value); }
+    template<typename T> inline T warp_shuffle(ConstRef(T) value, ConstRef(uint) lane_id)     { return (value); }
+    template<typename T> inline T warp_shuffle_down(ConstRef(T) value, ConstRef(uint) delta)  { return (value); }
     inline uint warp_vote()                     { return 0; }
-    inline uint warp_ballot(CREF(bool) value)   { return (value); } // Vote true or false Into A 32-bits Mask
+    inline uint warp_ballot(ConstRef(bool) value)   { return (value); } // Vote true or false Into A 32-bits Mask
 #endif
 
 
@@ -215,7 +215,7 @@
 
 
 // Usage Template : 
-//      THREADGROUP Int4 cache_scan[blockDim]; // 4 MB
+//      ThreadGroup Int4 cache_scan[blockDim]; // 4 MB
 //      cache_scan[tid] = value;
 //      THREAD_GROUP_SYNC;
 //
@@ -228,7 +228,7 @@
 
 
 // template<typename T, typename ReduceFunc>
-// inline void reduce_block(THREAD T& val, threadgroup T* cache_reduce, uint tid, uint lid, uint wid, ReduceFunc reduce_op)  
+// inline void reduce_block(Thread T& val, threadgroup T* cache_reduce, uint tid, uint lid, uint wid, ReduceFunc reduce_op)  
 // {
 //     val = reduce_op(val);                                
 //     if(wid == 0 ) cache_reduce[tid] = 0;

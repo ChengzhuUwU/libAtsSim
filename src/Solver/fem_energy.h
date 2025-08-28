@@ -12,7 +12,7 @@ namespace FEM
     ///
     /// \details This implementation is based on SVD. It checks the determinant to avoid any reflection.
     template <typename Derived>
-    inline Float3x3 extractRotation(const THREAD Float3x3& F)
+    inline Float3x3 extractRotation(const Thread Float3x3& F)
     {
         Float3x3 U, V;
         Float3 Sigma;
@@ -64,9 +64,9 @@ namespace FEM
     ///
     /// \details Reference: [1]
     inline Float2x3
-    calc2dShapeMatrix(const THREAD Float3& x_0,
-                      const THREAD Float3& x_1,
-                      const THREAD Float3& x_2)
+    calc2dShapeMatrix(const Thread Float3& x_0,
+                      const Thread Float3& x_1,
+                      const Thread Float3& x_2)
     {
         // using Mat = Eigen::Matrix<typename Derived::Scalar, 2, 2>;
 
@@ -83,7 +83,7 @@ namespace FEM
     ///
     /// \param deform_grad The deformation gradient matrix, which should be either 2-by-2 (2D element in 2D), 3-by-3 (3D
     /// element in 3D), or 3-by-2 (2D element in 3D).
-    inline Float2x2 calcGreenStrain(const THREAD Float2x3& deform_grad)
+    inline Float2x2 calcGreenStrain(const Thread Float2x3& deform_grad)
     {
         // 1/2 * (F^T - I)
         return 0.5f * (transpose_mat(deform_grad) * deform_grad - Identity2x2);
@@ -92,7 +92,7 @@ namespace FEM
     ///
     /// \param deform_grad The deformation gradient matrix, which should be either 2-by-2 (2D element in 2D), 3-by-3 (3D
     /// element in 3D), or 3-by-2 (2D element in 3D).
-    inline Float3x3 calcGreenStrain(const THREAD Float3x3& deform_grad)
+    inline Float3x3 calcGreenStrain(const Thread Float3x3& deform_grad)
     {
         // 1/2 * (F^T - I)
         return 0.5f * (transpose_mat(deform_grad) * deform_grad - Identity3x3);
@@ -142,7 +142,7 @@ namespace FEM
 
     /// \details The first equation in Sec. 3.3 in [1]
     inline float 
-    calcStVenantKirchhoffEnergyDensity(const THREAD Float2x3& deform_grad, 
+    calcStVenantKirchhoffEnergyDensity(const Thread Float2x3& deform_grad, 
                                        const float first_lame, // lambda
                                        const float second_lame) // mu
     {
@@ -158,7 +158,7 @@ namespace FEM
 
     /// \details Eq. 3.3 in [1]
     inline Float2x3 
-    calcStVenantKirchhoffPiolaStress(const THREAD Float2x3& deform_grad, 
+    calcStVenantKirchhoffPiolaStress(const Thread Float2x3& deform_grad, 
                                      const float first_lame, 
                                      const float second_lame)
     {
@@ -169,10 +169,10 @@ namespace FEM
     }
 
     inline Float2x3
-    calc2dTriangleDeformGrad(const THREAD Float3& x_0,
-                             const THREAD Float3& x_1,
-                             const THREAD Float3& x_2,
-                             const THREAD Float2x2& rest_shape_mat_inv)
+    calc2dTriangleDeformGrad(const Thread Float3& x_0,
+                             const Thread Float3& x_1,
+                             const Thread Float3& x_2,
+                             const Thread Float2x2& rest_shape_mat_inv)
     {
         const auto D_s = calc2dShapeMatrix(x_0, x_1, x_2);
         const auto F   = D_s * rest_shape_mat_inv;
@@ -198,10 +198,10 @@ namespace FEM
 // /// \param x_3 A 3D vector.
 // ///
 // /// \details Reference: [1]
-// inline Float3x3 calc3dShapeMatrix(const THREAD Float3& x_0,
-//                                   const THREAD Float3& x_1,
-//                                   const THREAD Float3& x_2,
-//                                   const THREAD Float3& x_3)
+// inline Float3x3 calc3dShapeMatrix(const Thread Float3& x_0,
+//                                   const Thread Float3& x_1,
+//                                   const Thread Float3& x_2,
+//                                   const Thread Float3& x_3)
 // {
 //     Float3x3 shape_matrix;
 //     set(shape_matrix, 0, x_1 - x_0);

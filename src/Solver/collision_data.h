@@ -5,7 +5,7 @@
 #include "atomic.h"
 #include "morton.h"
 
-CONSTEXPR uint mask_is_negative = 1u << 31;
+ConstExpr uint mask_is_negative = 1u << 31;
 
 struct ProximityVV
 {
@@ -22,7 +22,7 @@ struct ProximityVV
 
     // Self Collision Is Always Positive (You Dont Know The Correct Direction ~ , Just Fix It In E-F Pair Or CCD-Based Response)
     template<uint NV> 
-    inline void get_indices(THREAD uint tet[NV]) const 
+    inline void get_indices(Thread uint tet[NV]) const 
     { 
         static_assert(NV == 1 || NV == 2, "Wrong NumVerts In Collision Pair, Should Be 1 or 2");
         for(uint i = 0; i < NV; i++) tet[i] = indeces[i] & ~mask_is_negative; 
@@ -35,16 +35,16 @@ struct ProximityVV
     inline uint get_vert2_negative() const { return indeces[1] & ~mask_is_negative; }
 
     ProximityVV(){}
-    ProximityVV(CREF(ProximityVV) right) : indeces(right.indeces), vec2(right.vec2) {}
+    ProximityVV(ConstRef(ProximityVV) right) : indeces(right.indeces), vec2(right.vec2) {}
 
 #ifdef METAL_CODE
-    ProximityVV(DEVICE const ProximityVV& right) : indeces(right.indeces), vec2(right.vec2) {  }
+    ProximityVV(Device const ProximityVV& right) : indeces(right.indeces), vec2(right.vec2) {  }
 #endif
 
     // 'normal' Is The Normal of vid2, Because We Want That 'project(v0 - v1, normal)' Is Their Distance 
     // (a(x) - b(x), In Paper Small Steps)
     // Or 'normal' Is The Direction To Push vid1 Away
-    ProximityVV(CREF(uint) vid1, CREF(uint) vid2, CREF(float) stiffness, CREF(float) area, CREF(Float3) normal)
+    ProximityVV(ConstRef(uint) vid1, ConstRef(uint) vid2, ConstRef(float) stiffness, ConstRef(float) area, ConstRef(Float3) normal)
     {
         indeces = makeInt4(vid1, vid2, 0, 0);
         vec2 = makeFloat4(normal[0], normal[1], normal[2], stiffness * area);
@@ -65,7 +65,7 @@ struct ProximityVF{
     inline Float3 get_face_weight() const{ return makeFloat3(vec1[1], vec1[2], vec1[3]); }
 
     template<uint NV> 
-    inline void get_weights(THREAD float weight[NV]) const { 
+    inline void get_weights(Thread float weight[NV]) const { 
         static_assert(NV == 1 || NV == 4, "Wrong NumVerts In Collision Pair, Should Be 1 or 4");
         for(uint i = 0; i < NV; i++) weight[i] = vec1[i]; 
     }
@@ -78,7 +78,7 @@ struct ProximityVF{
 
     // Self Collision Is Always Positive (You Dont Know The Correct Direction ~ , Just Fix It In E-F Pair Or CCD-Based Response)
     template<uint NV> 
-    inline void get_indices(THREAD uint tet[NV]) const { 
+    inline void get_indices(Thread uint tet[NV]) const { 
         static_assert(NV == 1 || NV == 4, "Wrong NumVerts In Collision Pair, Should Be 1 or 4");
         for(uint i = 0; i < NV; i++) tet[i] = indeces[i] & ~mask_is_negative; 
     }
@@ -89,12 +89,12 @@ struct ProximityVF{
     inline uint get_vert_negative() const { return indeces[0] & ~mask_is_negative; }
 
     ProximityVF(){}
-    ProximityVF(CREF(uint) vid, CREF(Int3) f_vid, CREF(Float4) weight, CREF(float) area, CREF(Float3) t){
+    ProximityVF(ConstRef(uint) vid, ConstRef(Int3) f_vid, ConstRef(Float4) weight, ConstRef(float) area, ConstRef(Float3) t){
         indeces = makeInt4(vid, f_vid[0], f_vid[1], f_vid[2]);
         vec1 = weight;
         vec2 = makeFloat4(t[0], t[1], t[2], area);
     }
-    ProximityVF(CREF(uint) vid, CREF(Int3) f_vid, CREF(Float4) weight, CREF(float) stiffness, CREF(float) area, CREF(Float3) normal){
+    ProximityVF(ConstRef(uint) vid, ConstRef(Int3) f_vid, ConstRef(Float4) weight, ConstRef(float) stiffness, ConstRef(float) area, ConstRef(Float3) normal){
         indeces = makeInt4(vid, f_vid[0], f_vid[1], f_vid[2]);
         vec1 = weight;
         vec2 = makeFloat4(normal[0], normal[1], normal[2], stiffness * area);
@@ -112,7 +112,7 @@ struct ProximityEE{
     inline Int4 get_indices() const { return indeces; }
 
     template<uint NV> 
-    inline void get_indices(THREAD uint tet[NV]) const { 
+    inline void get_indices(Thread uint tet[NV]) const { 
         static_assert(NV == 2 || NV == 4, "Wrong NumVerts In Collision Pair, Should Be 2 or 4");
         for(uint i = 0; i < NV; i++) tet[i] = indeces[i] & ~mask_is_negative; 
     }
@@ -121,7 +121,7 @@ struct ProximityEE{
     inline float get_weight(uint idx) const{ return vec1[idx]; }
 
     template<uint NV> 
-    inline void get_weights(THREAD float weight[NV]) const { 
+    inline void get_weights(Thread float weight[NV]) const { 
         static_assert(NV == 2 || NV == 4, "Wrong NumVerts In Collision Pair, Should Be 2 or 4");
         for(uint i = 0; i < NV; i++) weight[i] = vec1[i]; 
     }
@@ -138,7 +138,7 @@ struct ProximityEE{
     // inline Int2 get_edge1_negative()   const { return makeInt2(indeces[0] & ~mask_is_negative, indeces[1] & ~mask_is_negative); }
 
     ProximityEE(){}
-    ProximityEE(CREF(Int2) edge1, CREF(Int2) edge2, CREF(Float4) weight, CREF(float) area, CREF(Float3) t){
+    ProximityEE(ConstRef(Int2) edge1, ConstRef(Int2) edge2, ConstRef(Float4) weight, ConstRef(float) area, ConstRef(Float3) t){
         indeces = make<Int4>(edge1[0], edge1[1], edge2[0], edge2[1]);
         vec1 = weight;
         vec2 = make<Float4>(t[0], t[1], t[2], area);
@@ -155,12 +155,12 @@ struct ProximityEF{
     inline Int3 get_face() const { return makeInt3(indeces[2], indeces[3], indeces[4]); }
     
     template<uint NV> 
-    inline void get_indices(THREAD uint tet[NV]) const {  
+    inline void get_indices(Thread uint tet[NV]) const {  
         static_assert(NV == 2 || NV == 5, "Wrong NumVerts In Collision Pair, Should Be 2 or 5");
         for(uint i = 0; i < NV; i++) tet[i] = indeces[i]; 
     }
     template<uint NV> 
-    inline void get_weights(THREAD float weight[NV]) const { 
+    inline void get_weights(Thread float weight[NV]) const { 
         static_assert(NV == 2 || NV == 5, "Wrong NumVerts In Collision Pair, Should Be 2 or 5");
         weight[0] = vec1.x; 
         weight[1] = 1.f - vec1.x; 
@@ -191,7 +191,7 @@ struct ProximityEF{
     inline Float3x3 get_txt() const { Float3 t = get_G(); return outer_product(t, t); }
 
     ProximityEF(){}
-    ProximityEF(const uint tet[5], CREF(Float3) weight, CREF(float) area, CREF(Float3) G){
+    ProximityEF(const uint tet[5], ConstRef(Float3) weight, ConstRef(float) area, ConstRef(Float3) G){
         indeces[0] = tet[0];
         indeces[1] = tet[1];
         indeces[2] = tet[2];

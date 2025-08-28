@@ -40,35 +40,35 @@ public:
 
     }
 
-	inline bool operator<(CREF(Morton) right){
+	inline bool operator<(ConstRef(Morton) right){
 		return data < right.data;
 	}
 
-	inline bool operator>(CREF(Morton) right){
+	inline bool operator>(ConstRef(Morton) right){
 		return data > right.data;
 	}
 
-	inline bool operator<=(CREF(Morton) right){
+	inline bool operator<=(ConstRef(Morton) right){
 		return data <= right.data;
 	}
 
-	inline bool operator==(CREF(Morton) right){
+	inline bool operator==(ConstRef(Morton) right){
 		return data == right.data;
 	}
 
-	inline friend bool operator==(CREF(Morton) left, CREF(Morton) right){
+	inline friend bool operator==(ConstRef(Morton) left, ConstRef(Morton) right){
 		return left.data == right.data;
 	}
 
-	inline uint64 operator^(CREF(Morton) right){
+	inline uint64 operator^(ConstRef(Morton) right){
 		return data ^ right.data;
 	}
 
-	inline friend uint64 operator^(CREF(Morton) left, CREF(Morton) right){
+	inline friend uint64 operator^(ConstRef(Morton) left, ConstRef(Morton) right){
 		return left.data ^ right.data;
 	}
 
-	// friend std::ostream& operator<<(std::ostream& os, CREF(Morton) self) {
+	// friend std::ostream& operator<<(std::ostream& os, ConstRef(Morton) self) {
     //     os << " " << self.data;
     //     return os;
     // }
@@ -104,31 +104,31 @@ public:
         data = (xx << 2) | (yy << 1) | zz;
     }
 
-	inline bool operator<(CREF(Morton32) right){
+	inline bool operator<(ConstRef(Morton32) right){
 		return data < right.data;
 	}
 
-	inline bool operator>(CREF(Morton32) right){
+	inline bool operator>(ConstRef(Morton32) right){
 		return data > right.data;
 	}
 
-	inline bool operator<=(CREF(Morton32) right){
+	inline bool operator<=(ConstRef(Morton32) right){
 		return data <= right.data;
 	}
 
-	inline bool operator==(CREF(Morton32) right){
+	inline bool operator==(ConstRef(Morton32) right){
 		return data == right.data;
 	}
 
-	inline friend bool operator==(CREF(Morton32) left, CREF(Morton32) right){
+	inline friend bool operator==(ConstRef(Morton32) left, ConstRef(Morton32) right){
 		return left.data == right.data;
 	}
 
-	inline uint64 operator^(CREF(Morton32) right){
+	inline uint64 operator^(ConstRef(Morton32) right){
 		return data ^ right.data;
 	}
 
-	inline friend uint64 operator^(CREF(Morton32) left, CREF(Morton32) right){
+	inline friend uint64 operator^(ConstRef(Morton32) left, ConstRef(Morton32) right){
 		return left.data ^ right.data;
 	}
 

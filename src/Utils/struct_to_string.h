@@ -21,21 +21,21 @@ inline std::string bit_to_radix_string(const T& object, const uint print_bits = 
 }
 
 
-inline std::string AABB_to_string(CREF(AABB) aabb) {
+inline std::string AABB_to_string(ConstRef(AABB) aabb) {
     // 使用 std::ostringstream 来构建字符串
     std::ostringstream oss;
     oss << " [(" << aabb.min_pos.x << ", " << aabb.min_pos.y << ", " << aabb.min_pos.z << ")";
     oss << "(" << aabb.max_pos.x << ", " << aabb.max_pos.y << ", " << aabb.max_pos.z << ")] ";
     return oss.str();
 }
-inline std::string Morton_to_string(CREF(Morton) morton) {
+inline std::string Morton_to_string(ConstRef(Morton) morton) {
     std::ostringstream oss;
     oss << " (" << morton.data << ")";
     return oss.str();
 }
 
 template<typename VecType, uint N = Meta::get_vec_length<VecType>()>
-inline std::string vec_to_string(CREF(VecType) vec){
+inline std::string vec_to_string(ConstRef(VecType) vec){
     std::ostringstream oss;
     oss << " (" << vec[0];
     for(uint i = 1; i < N; i++){
@@ -100,17 +100,17 @@ inline std::string pair_to_string(std::pair<T1, T2> value){
     return oss.str();
 }
 
-template<typename VecType> inline std::string Vec2_to_string(CREF(VecType) vec) {return vec_to_string<VecType, 2>(vec); }
-template<typename VecType> inline std::string Vec3_to_string(CREF(VecType) vec) {return vec_to_string<VecType, 3>(vec); }
-template<typename VecType> inline std::string Vec4_to_string(CREF(VecType) vec) {return vec_to_string<VecType, 4>(vec); }
+template<typename VecType> inline std::string Vec2_to_string(ConstRef(VecType) vec) {return vec_to_string<VecType, 2>(vec); }
+template<typename VecType> inline std::string Vec3_to_string(ConstRef(VecType) vec) {return vec_to_string<VecType, 3>(vec); }
+template<typename VecType> inline std::string Vec4_to_string(ConstRef(VecType) vec) {return vec_to_string<VecType, 4>(vec); }
 
-// inline std::string Proximity_to_string(CREF(ProximityVF) pair) {
+// inline std::string Proximity_to_string(ConstRef(ProximityVF) pair) {
 //     std::ostringstream oss;
 //     oss << " [ indices = " << Vec4_to_string(pair.get_indices()) << " , area = "
 //         << pair.get_area() << " , t = " << Vec3_to_string(pair.get_t()) << " , weight = " << Vec4_to_string(pair.get_weight()) << "]";
 //     return oss.str();
 // }
-// inline std::string Proximity_to_string(CREF(ProximityEE) pair) {
+// inline std::string Proximity_to_string(ConstRef(ProximityEE) pair) {
 //     std::ostringstream oss;
 //     oss << " [ indices = " << Vec4_to_string(pair.get_indices()) << " , area = "
 //         << pair.get_area() << " , t = " << Vec3_to_string(pair.get_t()) << " , weight = " << Vec4_to_string(pair.get_weight()) << "]";

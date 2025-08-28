@@ -15,8 +15,8 @@ kernel void empty()
 }
 
 kernel void test_add_1(
-    PTR(uint) input_ptr,
-    CONSTANT(uint) desire_value,
+    Pointer(uint) input_ptr,
+    Constant(uint) desire_value,
     uint index [[thread_position_in_grid]]
 )
 {
@@ -27,9 +27,9 @@ kernel void test_add_1(
     }
 }
 kernel void test_sum(
-    PTR(Float3) input_ptr,
-    PTR(float) output_ptr,
-    CONSTANT(uint) write_pos,
+    Pointer(Float3) input_ptr,
+    Pointer(float) output_ptr,
+    Constant(uint) write_pos,
     uint vid [[thread_position_in_grid]],
     threadgroup_ids
 )
@@ -42,8 +42,8 @@ kernel void test_sum(
     if (tid == 0) (output_ptr[100 + bid] = value);
 }
 kernel void test_sum_2(
-    PTR(float) input_ptr,
-    CONSTANT(uint) write_pos,
+    Pointer(float) input_ptr,
+    Constant(uint) write_pos,
     uint vid [[thread_position_in_grid]],
     threadgroup_ids
 )
@@ -54,21 +54,21 @@ kernel void test_sum_2(
 }
 
 kernel void reset_float(
-    PTR(float) lambda_aaa, 
+    Pointer(float) lambda_aaa, 
     uint index [[thread_position_in_grid]]
 )
 {
     lambda_aaa[index] = 0.0f;
 }
 kernel void reset_bool(
-    PTR(uchar) ptr_mask,
+    Pointer(uchar) ptr_mask,
     uint vid [[thread_position_in_grid]]
 )
 {
     ptr_mask[vid] = 0;
 }
 kernel void reset_uint(
-    PTR(uint) ptr_mask,
+    Pointer(uint) ptr_mask,
     uint vid [[thread_position_in_grid]]
 )
 {
@@ -78,18 +78,18 @@ kernel void reset_uint(
 
 
 kernel void predict_position(
-	PTR(Float3) sa_iter_position, 
-    PTR(Float3) sa_vert_velocity, 
-    PTR(Float3) sa_iter_start_position,
-    PTR(Float3) sa_x_tilde,
+	Pointer(Float3) sa_iter_position, 
+    Pointer(Float3) sa_vert_velocity, 
+    Pointer(Float3) sa_iter_start_position,
+    Pointer(Float3) sa_x_tilde,
 
-    CONSTANT(bool) predict_for_collision, 
-    PTR(Float3) sa_next_position,
+    Constant(bool) predict_for_collision, 
+    Pointer(Float3) sa_next_position,
     
-	PTR(float) sa_vert_mass, 
-    PTR(uchar) sa_is_fixed,
-	CONSTANT(float) substep_dt,
-	CONSTANT(bool) fix_scene,
+	Pointer(float) sa_vert_mass, 
+    Pointer(uchar) sa_is_fixed,
+	Constant(float) substep_dt,
+	Constant(bool) fix_scene,
     uint vid [[thread_position_in_grid]])
 {
     Constrains::Core::predict_position(vid, 
@@ -98,14 +98,14 @@ kernel void predict_position(
         sa_vert_mass, sa_is_fixed, substep_dt, fix_scene);
 }
 kernel void update_velocity(
-    PTR(Float3) sa_vert_velocity, 
-	PTR(Float3) sa_iter_position, 
-    PTR(Float3) sa_iter_start_position, 
-    PTR(Float3) sa_start_position, 
-	PTR(Float3) sa_start_velocity, 
-	CONSTANT(float) substep_dt,
-	CONSTANT(float) damping,
-	CONSTANT(bool) fix_scene,
+    Pointer(Float3) sa_vert_velocity, 
+	Pointer(Float3) sa_iter_position, 
+    Pointer(Float3) sa_iter_start_position, 
+    Pointer(Float3) sa_start_position, 
+	Pointer(Float3) sa_start_velocity, 
+	Constant(float) substep_dt,
+	Constant(float) damping,
+	Constant(bool) fix_scene,
     uint vid [[thread_position_in_grid]])
 {
     Constrains::Core::update_velocity(vid, 
@@ -118,17 +118,17 @@ kernel void update_velocity(
 
 
 kernel void copy_from_A_to_B(
-     const PTR(Float3) bufferA,
-     PTR(Float3) bufferB, 
+     const Pointer(Float3) bufferA,
+     Pointer(Float3) bufferB, 
      uint vid [[thread_position_in_grid]]
 )
 {
     bufferB[vid] = bufferA[vid];
 }
 kernel void copy_from_A_to_B_and_C(
-     const PTR(Float3) bufferA,
-     PTR(Float3) bufferB, 
-     PTR(Float3) bufferC, 
+     const Pointer(Float3) bufferA,
+     Pointer(Float3) bufferB, 
+     Pointer(Float3) bufferC, 
      uint vid [[thread_position_in_grid]]
 )
 {
@@ -136,11 +136,11 @@ kernel void copy_from_A_to_B_and_C(
     bufferC[vid] = bufferA[vid];
 }
 kernel void read_and_solve_conflict(
-    DEVICE Float3* sa_begin_position_self, // GPU
-	DEVICE Float3* sa_begin_position_other, // CPU
-	DEVICE Float3* sa_iter_position_self, // GPU
-	DEVICE Float3* sa_iter_position_other, // CPU
-    CONSTANT(float) stretch_bending_assemble_weight, 
+    Device Float3* sa_begin_position_self, // GPU
+	Device Float3* sa_begin_position_other, // CPU
+	Device Float3* sa_iter_position_self, // GPU
+	Device Float3* sa_iter_position_other, // CPU
+    Constant(float) stretch_bending_assemble_weight, 
     uint vid [[thread_position_in_grid]]
 )
 {
@@ -152,11 +152,11 @@ kernel void read_and_solve_conflict(
 
 
 kernel void constraint_ground_collision(
-    PTR(SceneParams) scene_params, 
-    PTR(Float3) sa_iter_position, 
-    PTR(Float3) sa_iter_start_position,
-    PTR(float) lambda_ground_collision,
-	PTR(float) sa_mass_inv,
+    Pointer(SceneParams) scene_params, 
+    Pointer(Float3) sa_iter_position, 
+    Pointer(Float3) sa_iter_start_position,
+    Pointer(float) lambda_ground_collision,
+	Pointer(float) sa_mass_inv,
     uint vid [[thread_position_in_grid]]
 )
 {
@@ -164,21 +164,21 @@ kernel void constraint_ground_collision(
         scene_params, sa_iter_position, sa_iter_start_position, lambda_ground_collision, sa_mass_inv);
 }
 kernel void constraint_stretch_mass_spring(
-    const PTR(Float3) input_position, 
-    PTR(Float3) sa_iter_position, 
-    PTR(Float3) sa_iter_start_position, 
-    PTR(ATOMIC_FLAG) sa_vert_mutex, 
-    PTR(float) lambda_stretch_mass_spring,
-	PTR(float) sa_vert_mass_inv, 
-    PTR(Int2) sa_edges, 
-    PTR(float) sa_edge_rest_state_length, 
+    const Pointer(Float3) input_position, 
+    Pointer(Float3) sa_iter_position, 
+    Pointer(Float3) sa_iter_start_position, 
+    Pointer(ATOMIC_FLAG) sa_vert_mutex, 
+    Pointer(float) lambda_stretch_mass_spring,
+	Pointer(float) sa_vert_mass_inv, 
+    Pointer(Int2) sa_edges, 
+    Pointer(float) sa_edge_rest_state_length, 
 
-    PTR(uint) clusterd_constraint_stretch_mass_spring,
-    CONSTANT(bool) use_multi_color,
-    CONSTANT(uint) curr_color_index,
-    CONSTANT(float) stiffness_stretch_spring,
-    CONSTANT(float) substep_dt,
-    CONSTANT(bool) use_atomic,
+    Pointer(uint) clusterd_constraint_stretch_mass_spring,
+    Constant(bool) use_multi_color,
+    Constant(uint) curr_color_index,
+    Constant(float) stiffness_stretch_spring,
+    Constant(float) substep_dt,
+    Constant(bool) use_atomic,
 
     uint index [[thread_position_in_grid]])
 {
@@ -193,24 +193,24 @@ kernel void constraint_stretch_mass_spring(
     }
 }
 kernel void constraint_neohookean(
-    const PTR(Float3) input_position, 
-    PTR(Float3) sa_iter_position, 
-    PTR(Float3) sa_start_position, 
-    PTR(ATOMIC_FLAG) sa_vert_mutex, 
-	PTR(float) lambda_tet_neohookean_hydrostatic_term, 
-    PTR(float) lambda_tet_neohookean_distortion_term, 
-	PTR(float) sa_vert_mass_inv, 
-    PTR(Int4) sa_tets, 
-    PTR(float) sa_tet_volumn, 
-    PTR(Float3x3) sa_Dm_inv,
+    const Pointer(Float3) input_position, 
+    Pointer(Float3) sa_iter_position, 
+    Pointer(Float3) sa_start_position, 
+    Pointer(ATOMIC_FLAG) sa_vert_mutex, 
+	Pointer(float) lambda_tet_neohookean_hydrostatic_term, 
+    Pointer(float) lambda_tet_neohookean_distortion_term, 
+	Pointer(float) sa_vert_mass_inv, 
+    Pointer(Int4) sa_tets, 
+    Pointer(float) sa_tet_volumn, 
+    Pointer(Float3x3) sa_Dm_inv,
 
-    PTR(uint) clusterd_constraint_neohookean,
-    CONSTANT(bool) use_multi_color,
-    CONSTANT(uint) curr_color_index,
-    CONSTANT(float) m_first_lame,
-    CONSTANT(float) m_second_lame,
-    CONSTANT(float) substep_dt,
-    CONSTANT(bool) use_atomic,
+    Pointer(uint) clusterd_constraint_neohookean,
+    Constant(bool) use_multi_color,
+    Constant(uint) curr_color_index,
+    Constant(float) m_first_lame,
+    Constant(float) m_second_lame,
+    Constant(float) substep_dt,
+    Constant(bool) use_atomic,
     uint index [[thread_position_in_grid]])
 {
     const uint tet_id = Constrains::Core::get_index_from_color(use_multi_color, index, curr_color_index, clusterd_constraint_neohookean);
@@ -230,24 +230,24 @@ kernel void constraint_neohookean(
     }   
 }
 kernel void constraint_bending_quadratic(
-    const PTR(Float3) input_position, 
-    PTR(Float3) sa_iter_position, 
-    PTR(Float3) sa_start_position, 
-    PTR(ATOMIC_FLAG) sa_vert_mutex, 
-	PTR(float) lambda_bending, 
-	PTR(float) sa_vert_mass_inv, 
-    PTR(Int4) sa_bending_edges, 
-    PTR(Float2) sa_bending_edge_adj_faces_area,
-	PTR(Float4x4) sa_bending_edge_Q, 
-    PTR(float) sa_bending_edge_rest_state_angle,
+    const Pointer(Float3) input_position, 
+    Pointer(Float3) sa_iter_position, 
+    Pointer(Float3) sa_start_position, 
+    Pointer(ATOMIC_FLAG) sa_vert_mutex, 
+	Pointer(float) lambda_bending, 
+	Pointer(float) sa_vert_mass_inv, 
+    Pointer(Int4) sa_bending_edges, 
+    Pointer(Float2) sa_bending_edge_adj_faces_area,
+	Pointer(Float4x4) sa_bending_edge_Q, 
+    Pointer(float) sa_bending_edge_rest_state_angle,
 
-    PTR(uint) clusterd_constraint_bending,
-    CONSTANT(bool) use_multi_color,
-    CONSTANT(uint) curr_color_index,
-    CONSTANT(float) stiffness_bending_quadratic,
-    CONSTANT(float) stiffness_bending_DBA,
-    CONSTANT(float) substep_dt,
-    CONSTANT(bool) use_atomic,
+    Pointer(uint) clusterd_constraint_bending,
+    Constant(bool) use_multi_color,
+    Constant(uint) curr_color_index,
+    Constant(float) stiffness_bending_quadratic,
+    Constant(float) stiffness_bending_DBA,
+    Constant(float) substep_dt,
+    Constant(bool) use_atomic,
     uint index [[thread_position_in_grid]])
 {
     const uint eid = Constrains::Core::get_index_from_color(use_multi_color, index, curr_color_index, clusterd_constraint_bending);
@@ -263,24 +263,24 @@ kernel void constraint_bending_quadratic(
 
 }
 kernel void constraint_bending_DAB(
-    const PTR(Float3) input_position, 
-    PTR(Float3) sa_iter_position, 
-    PTR(Float3) sa_start_position, 
-    PTR(ATOMIC_FLAG) sa_vert_mutex, 
-	PTR(float) lambda_bending, 
-	PTR(float) sa_vert_mass_inv, 
-    PTR(Int4) sa_bending_edges, 
-    PTR(Float2) sa_bending_edge_adj_faces_area, 
-	PTR(Float4x4) sa_bending_edge_Q, 
-    PTR(float) sa_bending_edge_rest_state_angle,
+    const Pointer(Float3) input_position, 
+    Pointer(Float3) sa_iter_position, 
+    Pointer(Float3) sa_start_position, 
+    Pointer(ATOMIC_FLAG) sa_vert_mutex, 
+	Pointer(float) lambda_bending, 
+	Pointer(float) sa_vert_mass_inv, 
+    Pointer(Int4) sa_bending_edges, 
+    Pointer(Float2) sa_bending_edge_adj_faces_area, 
+	Pointer(Float4x4) sa_bending_edge_Q, 
+    Pointer(float) sa_bending_edge_rest_state_angle,
 
-    PTR(uint) clusterd_constraint_bending,
-    CONSTANT(bool) use_multi_color,
-    CONSTANT(uint) curr_color_index,
-    CONSTANT(float) stiffness_bending_quadratic,
-    CONSTANT(float) stiffness_bending_DBA,
-    CONSTANT(float) substep_dt,
-    CONSTANT(bool) use_atomic,
+    Pointer(uint) clusterd_constraint_bending,
+    Constant(bool) use_multi_color,
+    Constant(uint) curr_color_index,
+    Constant(float) stiffness_bending_quadratic,
+    Constant(float) stiffness_bending_DBA,
+    Constant(float) substep_dt,
+    Constant(bool) use_atomic,
     uint index [[thread_position_in_grid]])
 {
     const uint eid = Constrains::Core::get_index_from_color(use_multi_color, index, curr_color_index, clusterd_constraint_bending);
@@ -297,11 +297,11 @@ kernel void constraint_bending_DAB(
 
 
 kernel void chebyshev_step(
-    PTR(Float3) iter_position,
-    PTR(Float3) sa_prev_1_iter_position,
-    PTR(Float3) sa_prev_2_iter_position,
-    PTR(uchar) sa_is_active_collide_vert_cloth,
-    CONSTANT(float) omega,
+    Pointer(Float3) iter_position,
+    Pointer(Float3) sa_prev_1_iter_position,
+    Pointer(Float3) sa_prev_2_iter_position,
+    Pointer(uchar) sa_is_active_collide_vert_cloth,
+    Constant(float) omega,
     uint vid [[thread_position_in_grid]]
 )
 {
@@ -329,12 +329,12 @@ kernel void chebyshev_step(
 
 
 kernel void compute_energy_inertia(
-    PTR(float) energyPtr, CONSTANT(uint) pcg_it, const PTR(Float3) updatePosition, 
+    Pointer(float) energyPtr, Constant(uint) pcg_it, const Pointer(Float3) updatePosition, 
     
-    const PTR(SceneParams) scene_params, 
-    PTR(uchar) sa_is_fixed,
-    PTR(float) sa_vert_mass,
-    PTR(Float3) sa_x_tilde,
+    const Pointer(SceneParams) scene_params, 
+    Pointer(uchar) sa_is_fixed,
+    Pointer(float) sa_vert_mass,
+    Pointer(Float3) sa_x_tilde,
     
     uint vid [[thread_position_in_grid]],
     threadgroup_ids)
@@ -348,11 +348,11 @@ kernel void compute_energy_inertia(
 }
 
 kernel void compute_energy_stretch_mass_spring(
-    PTR(float) energyPtr, CONSTANT(uint) pcg_it, const PTR(Float3) updatePosition,
+    Pointer(float) energyPtr, Constant(uint) pcg_it, const Pointer(Float3) updatePosition,
 
-    PTR(Int2) sa_edges, 
-    PTR(float) sa_edge_rest_state_length, 
-    CONSTANT(float) stiffness_stretch_spring,
+    Pointer(Int2) sa_edges, 
+    Pointer(float) sa_edge_rest_state_length, 
+    Constant(float) stiffness_stretch_spring,
 
     uint eid [[thread_position_in_grid]],
     threadgroup_ids
@@ -367,18 +367,18 @@ kernel void compute_energy_stretch_mass_spring(
 }
 
 kernel void compute_energy_bending(
-    PTR(float) energyPtr, CONSTANT(uint) pcg_it, const PTR(Float3) updatePosition,
+    Pointer(float) energyPtr, Constant(uint) pcg_it, const Pointer(Float3) updatePosition,
 
-    PTR(Int4) sa_bending_edges, 
-    // PTR(Int2) sa_bending_edge_adj_faces, 
-    // PTR(float) sa_face_area, 
-	PTR(Float4x4) sa_bending_edge_Q, 
-    PTR(float) sa_bending_edge_rest_state_angle,
+    Pointer(Int4) sa_bending_edges, 
+    // Pointer(Int2) sa_bending_edge_adj_faces, 
+    // Pointer(float) sa_face_area, 
+	Pointer(Float4x4) sa_bending_edge_Q, 
+    Pointer(float) sa_bending_edge_rest_state_angle,
 
-    CONSTANT(float) stiffness_bending_quadratic,
-    CONSTANT(float) stiffness_bending_DBA,
-    CONSTANT(Constrains::BendingType) bending_type,
-    CONSTANT(bool) use_xpbd,
+    Constant(float) stiffness_bending_quadratic,
+    Constant(float) stiffness_bending_DBA,
+    Constant(Constrains::BendingType) bending_type,
+    Constant(bool) use_xpbd,
 
     uint eid [[thread_position_in_grid]],
     threadgroup_ids
@@ -394,13 +394,13 @@ kernel void compute_energy_bending(
     if(tid == 0) atomic_add(energyPtr[pcg_it], energy);
 }
 kernel void compute_energy_stress_neohookean(
-    PTR(float) energyPtr, CONSTANT(uint) pcg_it, const PTR(Float3) updatePosition,
+    Pointer(float) energyPtr, Constant(uint) pcg_it, const Pointer(Float3) updatePosition,
 
-    const PTR(Int4) sa_tets, 
-    const PTR(Float3x3) sa_Dm_inv, 
-    const PTR(float) sa_tet_volumn,
-    CONSTANT(float) m_first_lame, 
-    CONSTANT(float) m_second_lame,
+    const Pointer(Int4) sa_tets, 
+    const Pointer(Float3x3) sa_Dm_inv, 
+    const Pointer(float) sa_tet_volumn,
+    Constant(float) m_first_lame, 
+    Constant(float) m_second_lame,
 
     uint tet_id [[thread_position_in_grid]],
     threadgroup_ids
@@ -416,11 +416,11 @@ kernel void compute_energy_stress_neohookean(
 }
 
 kernel void compute_energy_collision_vv(
-    PTR(float) energyPtr, CONSTANT(uint) pcg_it, const PTR(Float3) updatePosition,
+    Pointer(float) energyPtr, Constant(uint) pcg_it, const Pointer(Float3) updatePosition,
 
-	PTR(ProximityVV) collision_self_vv,
-	PTR(uint) collision_count,
-    CONSTANT(float) thickness,
+	Pointer(ProximityVV) collision_self_vv,
+	Pointer(uint) collision_count,
+    Constant(float) thickness,
 
     uint pair_idx [[thread_position_in_grid]],
     threadgroup_ids
@@ -435,12 +435,12 @@ kernel void compute_energy_collision_vv(
     if (tid == 0) atomic_add(energyPtr[pcg_it], energy);
 }
 kernel void compute_energy_collision_vf(
-    PTR(float) energyPtr, CONSTANT(uint) pcg_it, const PTR(Float3) updatePosition,
+    Pointer(float) energyPtr, Constant(uint) pcg_it, const Pointer(Float3) updatePosition,
 
-    const PTR(Float3) obstaclePosition,
-	PTR(ProximityVF) collision_self_vf,
-	PTR(uint) collision_count,
-    CONSTANT(float) thickness,
+    const Pointer(Float3) obstaclePosition,
+	Pointer(ProximityVF) collision_self_vf,
+	Pointer(uint) collision_count,
+    Constant(float) thickness,
 
     uint pair_idx [[thread_position_in_grid]],
     threadgroup_ids
@@ -463,13 +463,13 @@ kernel void compute_energy_collision_vf(
 
 
 kernel void evaluate_inertia(
-	PTR(Float4x3) sa_hf, PTR(Float3) sa_iter_position, 
-	PTR(Float3) sa_x_tilde,
-	PTR(uchar) sa_is_fixed, PTR(float) sa_vert_mass, PTR(SceneParams) scene_params,
-	CONSTANT(float) substep_dt,
+	Pointer(Float4x3) sa_hf, Pointer(Float3) sa_iter_position, 
+	Pointer(Float3) sa_x_tilde,
+	Pointer(uchar) sa_is_fixed, Pointer(float) sa_vert_mass, Pointer(SceneParams) scene_params,
+	Constant(float) substep_dt,
 
-    PTR(uint) clusterd_per_vertex_bending,
-    CONSTANT(uint) cluster,
+    Pointer(uint) clusterd_per_vertex_bending,
+    Constant(uint) cluster,
     const uint i [[thread_position_in_grid]]
 	)
 {
@@ -482,11 +482,11 @@ kernel void evaluate_inertia(
         substep_dt);
 };
 kernel void vbd_step(
-    PTR(Float4x3) sa_hf, 
-    PTR(Float3) sa_iter_position,
+    Pointer(Float4x3) sa_hf, 
+    Pointer(Float3) sa_iter_position,
 
-    PTR(uint) clusterd_per_vertex_bending,
-    CONSTANT(uint) cluster,
+    Pointer(uint) clusterd_per_vertex_bending,
+    Constant(uint) cluster,
     const uint i [[thread_position_in_grid]]
     )
 {
@@ -511,13 +511,13 @@ kernel void vbd_step(
     }
 }
 kernel void evaluate_stretch_mass_spring(
-	PTR(Float4x3) sa_hf, PTR(Float3) sa_iter_position, 
-	PTR(uint) sa_vert_adj_edges_csr, 
-	PTR(Int2) sa_edges, PTR(float) sa_rest_length,
-	CONSTANT(float) stiffness_stretch, 
+	Pointer(Float4x3) sa_hf, Pointer(Float3) sa_iter_position, 
+	Pointer(uint) sa_vert_adj_edges_csr, 
+	Pointer(Int2) sa_edges, Pointer(float) sa_rest_length,
+	Constant(float) stiffness_stretch, 
 
-    PTR(uint) clusterd_per_vertex_bending,
-    CONSTANT(uint) cluster,
+    Pointer(uint) clusterd_per_vertex_bending,
+    Constant(uint) cluster,
     const uint i [[thread_position_in_grid]]
 	)
 {
@@ -531,14 +531,14 @@ kernel void evaluate_stretch_mass_spring(
 
 };
 kernel void evaluate_bending(
-	PTR(Float4x3) sa_hf, 
-    PTR(Float3) sa_iter_position,
-	PTR(uint) sa_vert_adj_bending_edges_csr,
-	PTR(Int4) sa_bending_edges, PTR(Float4x4) sa_bending_edge_Q, 
-    CONSTANT(float) stiffness_quadratic_bending,
+	Pointer(Float4x3) sa_hf, 
+    Pointer(Float3) sa_iter_position,
+	Pointer(uint) sa_vert_adj_bending_edges_csr,
+	Pointer(Int4) sa_bending_edges, Pointer(Float4x4) sa_bending_edge_Q, 
+    Constant(float) stiffness_quadratic_bending,
 
-    PTR(uint) clusterd_per_vertex_bending,
-    CONSTANT(uint) cluster,
+    Pointer(uint) clusterd_per_vertex_bending,
+    Constant(uint) cluster,
     const uint i [[thread_position_in_grid]]
 	)
 {
@@ -551,15 +551,15 @@ kernel void evaluate_bending(
                 stiffness_quadratic_bending);
 };
 kernel void  evaluate_ground_collision(
-	PTR(Float4x3) sa_hf, 
-	PTR(Float3) sa_iter_position, 
-    CONSTANT(float) stiffness_collision,
-	CONSTANT(float) thickness_vv_obstacle, 
-    PTR(SceneParams) scene_param,
+	Pointer(Float4x3) sa_hf, 
+	Pointer(Float3) sa_iter_position, 
+    Constant(float) stiffness_collision,
+	Constant(float) thickness_vv_obstacle, 
+    Pointer(SceneParams) scene_param,
 
-    PTR(uint) clusterd_per_vertex_bending,
-    CONSTANT(uint) cluster,
-    PTR(uchar) sa_is_active_collide_vert_cloth,
+    Pointer(uint) clusterd_per_vertex_bending,
+    Constant(uint) cluster,
+    Pointer(uchar) sa_is_active_collide_vert_cloth,
     const uint i [[thread_position_in_grid]]
 	)
 {
@@ -576,16 +576,16 @@ kernel void  evaluate_ground_collision(
 
 };
 kernel void  evaluate_obstacle_collision(
-	PTR(Float4x3) sa_hf, 
-    PTR(Float3) sa_iter_position, PTR(Float3) sa_obstacle_substep_position,
-	PTR(uint) vert_VV_prefix_narrow_phase, PTR(uint) vert_VV_num_narrow_phase, PTR(uint) vert_adj_elements,
-	PTR(ProximityVF) narrow_phase_list_pair_vf, 
-    CONSTANT(float) thickness_vv_obstacle, 
-    CONSTANT(float) stiffness_collision,
+	Pointer(Float4x3) sa_hf, 
+    Pointer(Float3) sa_iter_position, Pointer(Float3) sa_obstacle_substep_position,
+	Pointer(uint) vert_VV_prefix_narrow_phase, Pointer(uint) vert_VV_num_narrow_phase, Pointer(uint) vert_adj_elements,
+	Pointer(ProximityVF) narrow_phase_list_pair_vf, 
+    Constant(float) thickness_vv_obstacle, 
+    Constant(float) stiffness_collision,
 
-    PTR(uint) clusterd_per_vertex_bending,
-    CONSTANT(uint) cluster,
-    PTR(uchar) sa_is_active_collide_vert_cloth,
+    Pointer(uint) clusterd_per_vertex_bending,
+    Constant(uint) cluster,
+    Pointer(uchar) sa_is_active_collide_vert_cloth,
     const uint i [[thread_position_in_grid]]
 	)
 {
@@ -604,16 +604,16 @@ kernel void  evaluate_obstacle_collision(
     }
 };
 kernel void  evaluate_self_collision(
-	PTR(Float4x3) sa_hf, 
-    PTR(Float3) sa_iter_position, 
-	PTR(uint) vert_VV_prefix_narrow_phase, PTR(uint) vert_VV_num_narrow_phase, PTR(uint) vert_adj_elements,
-	PTR(ProximityVV) narrow_phase_list_pair_vv, 
-    CONSTANT(float) thickness_vv_cloth, 
-    CONSTANT(float) stiffness_collision,
+	Pointer(Float4x3) sa_hf, 
+    Pointer(Float3) sa_iter_position, 
+	Pointer(uint) vert_VV_prefix_narrow_phase, Pointer(uint) vert_VV_num_narrow_phase, Pointer(uint) vert_adj_elements,
+	Pointer(ProximityVV) narrow_phase_list_pair_vv, 
+    Constant(float) thickness_vv_cloth, 
+    Constant(float) stiffness_collision,
 	
-    PTR(uint) clusterd_per_vertex_bending,
-    CONSTANT(uint) cluster,
-    PTR(uchar) sa_is_active_collide_vert_cloth,
+    Pointer(uint) clusterd_per_vertex_bending,
+    Constant(uint) cluster,
+    Pointer(uchar) sa_is_active_collide_vert_cloth,
     const uint i [[thread_position_in_grid]]
 	)
 {
@@ -637,9 +637,9 @@ kernel void  evaluate_self_collision(
 
 
 kernel void debug(
-    PTR(Float3) iter_position,
-    PTR(float) sum_buffer,
-    CONSTANT(uint) idx,
+    Pointer(Float3) iter_position,
+    Pointer(float) sum_buffer,
+    Constant(uint) idx,
     uint vid [[thread_position_in_grid]]
 )
 {

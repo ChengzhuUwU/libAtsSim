@@ -68,13 +68,13 @@ inline int clz_ulong(uint64 x) {
 
 #if defined (METAL_CODE)
 #include <metal_integer>
-inline constexpr uint reverse_uint(CONST(uint) v) { return reverse_bits(v); }
-inline constexpr uint64 reverse_uint64(CREF(uint64) v) { return reverse_bits(v); }
-inline constexpr int ffs_uint(CONST(uint) v) { 
+inline constexpr uint reverse_uint(Const(uint) v) { return reverse_bits(v); }
+inline constexpr uint64 reverse_uint64(ConstRef(uint64) v) { return reverse_bits(v); }
+inline constexpr int ffs_uint(Const(uint) v) { 
     auto reversed_x = reverse_uint(v);
     return clz_uint(reversed_x) + 1;
 }
-inline constexpr int ffs_uint64(CREF(uint64) v) { 
+inline constexpr int ffs_uint64(ConstRef(uint64) v) { 
     auto reversed_x = reverse_uint64(v);
     return clz_ulong(reversed_x) + 1;
 }
@@ -100,39 +100,39 @@ inline constexpr int ffs_uint64(CREF(uint64) v) {
 // 	if (!(v & 0x80000000)) { v <<=  1; n -= 1;  }
 // 	return n;
 // }
-inline constexpr int popc_uint(CONST(uint) value) { return popcount(value); }
-inline constexpr int popc_uint64(CREF(uint64) value) { return popcount(value); }
+inline constexpr int popc_uint(Const(uint) value) { return popcount(value); }
+inline constexpr int popc_uint64(ConstRef(uint64) value) { return popcount(value); }
 
 #else
 
 #include <bit>
 // Reverse The Bits (Exchange Each (i)_bit and (31-i)_bit
-inline constexpr int reverse_uint(CONST(uint) v) { return __builtin_bitreverse32(v); }
+inline constexpr int reverse_uint(Const(uint) v) { return __builtin_bitreverse32(v); }
 
 // Find The First BitSet (From Right To Left)
-inline constexpr int ffs_uint(CONST(uint) value) { return __builtin_ffs(value); } // Different From std::countr_one !!!
-inline constexpr int ffs_uint64(CREF(uint64) value) { return static_cast<uint64>(__builtin_ffsl(value)); } // Different From std::countr_one !!!
+inline constexpr int ffs_uint(Const(uint) value) { return __builtin_ffs(value); } // Different From std::countr_one !!!
+inline constexpr int ffs_uint64(ConstRef(uint64) value) { return static_cast<uint64>(__builtin_ffsl(value)); } // Different From std::countr_one !!!
 
 // Find The Last BitSet (From Left To Right)
-// inline constexpr uint fls_uint(CONST(uint) value) { return __builtin_fls(value); }
+// inline constexpr uint fls_uint(Const(uint) value) { return __builtin_fls(value); }
 
 // Population Count
-inline constexpr int popc_uint(CONST(uint) value) { return std::popcount(value); }
-inline constexpr int popc_uint64(CREF(uint64) value) { return std::popcount(value); }
+inline constexpr int popc_uint(Const(uint) value) { return std::popcount(value); }
+inline constexpr int popc_uint64(ConstRef(uint64) value) { return std::popcount(value); }
 #endif
 
 
 // 00000111111 (length(11...11) == laneId)
-inline constexpr uint LanemaskLt(CONST(uint) laneId) { return  (1u << laneId) - 1; }
-inline constexpr uint make_lane_mask(CONST(uint) laneId) { return  (1u << laneId) - 1; }
-inline constexpr uint64 make_lane_mask_64(CONST(uint) laneId) { return  (1ul << laneId) - 1; }
+inline constexpr uint LanemaskLt(Const(uint) laneId) { return  (1u << laneId) - 1; }
+inline constexpr uint make_lane_mask(Const(uint) laneId) { return  (1u << laneId) - 1; }
+inline constexpr uint64 make_lane_mask_64(Const(uint) laneId) { return  (1ul << laneId) - 1; }
 
-inline int ffs_and_pop(TREF(uint) mask){
+inline int ffs_and_pop(ThreadRef(uint) mask){
     int pos = ffs_uint(mask) - 1;
     mask &= ~(1 << pos);
     return pos + 1;
 }
-inline int ffs_and_pop64(TREF(uint64) mask){
+inline int ffs_and_pop64(ThreadRef(uint64) mask){
     int pos = ffs_uint64(mask) - 1;
     mask &= ~(1ul << pos);
     return pos + 1;
