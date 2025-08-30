@@ -715,9 +715,9 @@ void Scheduler::profile_from(
 
 void Scheduler::launch(LaunchMode mode, const std::function<LaunchParam(const Task&)> task_to_param, const bool fully_not_wait, const std::vector<std::function<void()>>& assemble_impl)
 {
-    #if __APPLE__
-    
 
+    
+    
     auto fn_refit_runtime_cost = [&](const std::vector<float>& runtime_cost_cpu, const std::vector<float>& runtime_cost_gpu)
     {
         const ListSchedule& cpu_schedules = proc_schedules[0];
@@ -802,8 +802,40 @@ void Scheduler::launch(LaunchMode mode, const std::function<LaunchParam(const Ta
         }
     };
 
+    if (mode == LaunchModeCpu)
+    {
+        if (!sorted_nodes.empty()) 
+        { 
+            for (uint i = 0; i < sorted_nodes.size(); i++) 
+            {
+                auto tid = sorted_nodes[i]; auto& task = list_task[tid];
+                bool find; auto& imp = task.get_implementation(Launcher::DeviceTypeCpu, find);
+                if (!find) { fast_print_err("There Is NO CPU Implementation!!"); return; }
+                imp.launch_task(task_to_param(task));
+            }
+        }
+        else if (!list_order.empty())
+        {
+            
+            for (uint i = 0; i < list_order.size(); i++) 
+            {
+                auto tid = list_order[i]; auto& task = list_task[tid];
+                bool find; auto& imp = task.get_implementation(Launcher::DeviceTypeCpu, find);
+                if (!find) { fast_print_err("There Is NO CPU Implementation!!"); return; }
+                imp.launch_task(task_to_param(task));
+            }  
+        }
+        else 
+        {
+            fast_print_err("Topology-Sorted List and RankU-Sorted List are EMPTY");
+            return;
+        }
 
-    if (mode == LaunchModeGpu) 
+        
+    }
+
+#if __APPLE__
+    else if (mode == LaunchModeGpu) 
     {
         if (!sorted_nodes.empty()) 
         { 
@@ -893,38 +925,6 @@ void Scheduler::launch(LaunchMode mode, const std::function<LaunchParam(const Ta
         
 
     }
-    else if (mode == LaunchModeCpu)
-    {
-        if (!sorted_nodes.empty()) 
-        { 
-            for (uint i = 0; i < sorted_nodes.size(); i++) 
-            {
-                auto tid = sorted_nodes[i]; auto& task = list_task[tid];
-                bool find; auto& imp = task.get_implementation(Launcher::DeviceTypeCpu, find);
-                if (!find) { fast_print_err("There Is NO CPU Implementation!!"); return; }
-                imp.launch_task(task_to_param(task));
-            }
-        }
-        else if (!list_order.empty())
-        {
-            
-            for (uint i = 0; i < list_order.size(); i++) 
-            {
-                auto tid = list_order[i]; auto& task = list_task[tid];
-                bool find; auto& imp = task.get_implementation(Launcher::DeviceTypeCpu, find);
-                if (!find) { fast_print_err("There Is NO CPU Implementation!!"); return; }
-                imp.launch_task(task_to_param(task));
-            }  
-        }
-        else 
-        {
-            fast_print_err("Topology-Sorted List and RankU-Sorted List are EMPTY");
-            return;
-        }
-
-        
-    }
-
     else if (mode == LaunchModeHetero) 
     {
         
@@ -1390,6 +1390,7 @@ void Scheduler::launch(LaunchMode mode, const std::function<LaunchParam(const Ta
 
         fn_refit_runtime_cost(runtime_cost_cpu, runtime_cost_gpu);
     }
+#endif
     else if (mode == LaunchModeSequeceHetero) {
 
         const bool print_schedule_event = false;
@@ -1481,6 +1482,7 @@ void Scheduler::launch(LaunchMode mode, const std::function<LaunchParam(const Ta
         }
         fn_launch_gpu_by_cpu(gpu_new_begin, launch_events[1].size() - 1);
     }
+#if __APPLE__
     else if (mode == LaunchModePartialCPU) {
         ///
         /// Launch CPU Commands : Immediate
@@ -1588,7 +1590,8 @@ void Scheduler::launch(LaunchMode mode, const std::function<LaunchParam(const Ta
         
     }
 
-    #endif
+#endif
+    
    
 }
 

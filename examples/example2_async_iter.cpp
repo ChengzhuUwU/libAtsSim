@@ -8,6 +8,7 @@
 #include "mesh_reader.h"
 #include "scene_params.h"
 #include "fem_energy.h"
+#include "utils.h"
 #include "xpbd_constraints.h"
 
 template<typename T>
@@ -1758,24 +1759,24 @@ int main()
         fast_format("");
         fast_format("Sync part");
     }
-    // {   
-    //     for (uint frame = 0; frame < num_frames; frame++)
-    //     {   get_scene_params().current_frame = frame; fast_format("     Sync frame {}", frame);   
+    {   
+        for (uint frame = 0; frame < num_frames; frame++)
+        {   get_scene_params().current_frame = frame; fast_format("     Sync frame {}", frame);   
 
-    //         solver.physics_step(SolverTypeVBD_CPU);
-    //     }
-    // }
-    // {
-    //     solver.save_mesh_to_obj("_sync"); 
-    // }   
-    // // Synchronous Implementation Evaluates Convergence
-    // {
-    //     get_scene_params().print_xpbd_convergence = true;
-    //     solver.save_current_frame_state();
-    //     get_scene_params().current_frame = num_frames; fast_format("     Sync frame {}", num_frames); 
-    //     solver.physics_step(SolverTypeVBD_CPU);
-    //     get_scene_params().print_xpbd_convergence = false;
-    // }
+            solver.physics_step(SolverTypeVBD_CPU);
+        }
+    }
+    {
+        solver.save_mesh_to_obj("_sync"); 
+    }   
+    // Synchronous Implementation Evaluates Convergence
+    {
+        get_scene_params().print_xpbd_convergence = true;
+        solver.save_current_frame_state();
+        get_scene_params().current_frame = num_frames; fast_format("     Sync frame {}", num_frames); 
+        solver.physics_step(SolverTypeVBD_CPU);
+        get_scene_params().print_xpbd_convergence = false;
+    }
         
 
 
