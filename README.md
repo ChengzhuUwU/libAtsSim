@@ -238,8 +238,19 @@ The library itself depends only on glm and TBB.
 > brew install glm
 >
 > brew install tbb
+>
 
-For windows users, TBB installed by vcpkg might be hard to debug, so we use the source code to compile. 
+or for windows:
+
+> vcpkg install glm
+>
+> vcpkg install tbb
+>
+
+For windows users, TBB installed by vcpkg might only use debug or release mode. You also need to set the vcpkg path in Cmake file (src/CmakeLists.txt): 
+
+> set(CMAKE_PREFIX_PATH   "~~~/vcpkg/installed/x64-windows") # Replace it with your vcpkg path
+
 
 Example 3 can only run on MacOS due to our Metal based GPU implementation.
 
@@ -250,6 +261,8 @@ Example 3 can only run on MacOS due to our Metal based GPU implementation.
 If you have any questions on our methods or our source code, please feel free to [contact me](https://chengzhuuwu.github.io/) **at any time**!!!
 
 ## Important Update
+
+2025.8.30: Fix the compile issue on Windows platform.
 
 2025.5.25: Fix the wrong calculation of enertia energy and gradient.
 
