@@ -39,10 +39,8 @@ configure_file(TargetConfig.h.in TargetConfig.h)
 
 add_subdirectory(${SRC_PATH}) 
 
-if(APPLE)
 list(APPEND MAIN_LIBS Scheduler)
 link_libraries(${MAIN_LIBS}) 
-endif()
 
 
 add_executable(Example1 ${EXAMPLE_PATH}/example1_heft2002.cpp)

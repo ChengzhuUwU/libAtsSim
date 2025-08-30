@@ -1,5 +1,7 @@
+#include <filesystem>
 #include <iostream>
 #include <tbb/tbb.h>
+#include "cpu_parallel.h"
 #include "launcher.h"
 #include "shared_array.h"
 #include "command_list.h"
@@ -699,10 +701,7 @@ void CpuSolver::reset_constrains()
 {
     auto fn_reset_template = [&](Buffer<float>& buffer)
     {
-        parallel_set(
-            buffer.data(), 
-            buffer.size(), 
-            0.0f);
+        parallel_set(buffer, 0.0f);
     };
 
     fn_reset_template(xpbd_data->sa_lambda_stretch_mass_spring);
@@ -1263,7 +1262,7 @@ void CpuSolver::fn_dispatch(const Launcher::LaunchParam& param)
 
                 }
                 fn_cloth_constraint_post_func(param);
-                parallel_copy(xpbd_data->sa_x.data(), fn_get_iter_buffer(param.buffer_idx).data(), xpbd_data->sa_x.size());
+                parallel_copy(fn_get_iter_buffer(param.buffer_idx), xpbd_data->sa_x);
                 break;
             }
             case Launcher::id_xpbd_copy_to_cpu_gpu:
@@ -1759,24 +1758,24 @@ int main()
         fast_format("");
         fast_format("Sync part");
     }
-    {   
-        for (uint frame = 0; frame < num_frames; frame++)
-        {   get_scene_params().current_frame = frame; fast_format("     Sync frame {}", frame);   
+    // {   
+    //     for (uint frame = 0; frame < num_frames; frame++)
+    //     {   get_scene_params().current_frame = frame; fast_format("     Sync frame {}", frame);   
 
-            solver.physics_step(SolverTypeVBD_CPU);
-        }
-    }
-    {
-        solver.save_mesh_to_obj("_sync"); 
-    }   
-    // Synchronous Implementation Evaluates Convergence
-    {
-        get_scene_params().print_xpbd_convergence = true;
-        solver.save_current_frame_state();
-        get_scene_params().current_frame = num_frames; fast_format("     Sync frame {}", num_frames); 
-        solver.physics_step(SolverTypeVBD_CPU);
-        get_scene_params().print_xpbd_convergence = false;
-    }
+    //         solver.physics_step(SolverTypeVBD_CPU);
+    //     }
+    // }
+    // {
+    //     solver.save_mesh_to_obj("_sync"); 
+    // }   
+    // // Synchronous Implementation Evaluates Convergence
+    // {
+    //     get_scene_params().print_xpbd_convergence = true;
+    //     solver.save_current_frame_state();
+    //     get_scene_params().current_frame = num_frames; fast_format("     Sync frame {}", num_frames); 
+    //     solver.physics_step(SolverTypeVBD_CPU);
+    //     get_scene_params().print_xpbd_convergence = false;
+    // }
         
 
 

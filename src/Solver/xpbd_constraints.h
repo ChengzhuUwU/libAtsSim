@@ -1449,8 +1449,8 @@ inline float CalcGradientsAndAngle(ConstRef(Float3) P1, ConstRef(Float3) P2, Con
 	// 梯度分配到四个点
 	Grad1 = DPhiDP13 + DPhiDP14;
 	Grad2 = DPhiDP23 + DPhiDP24;
-	Grad3 = -1 * DPhiDP13 - DPhiDP23;
-	Grad4 = -1 * DPhiDP14 - DPhiDP24;
+	Grad3 = -1.0f * DPhiDP13 - DPhiDP23;
+	Grad4 = -1.0f * DPhiDP14 - DPhiDP24;
 
 	return Angle;
 }
@@ -1530,8 +1530,8 @@ inline void solve_bending_DAB_template_v2(
 
 		Grad1 = DPhiDP13 + DPhiDP14;
 		Grad2 = DPhiDP23 + DPhiDP24;
-		Grad3 = -1 * DPhiDP13 - DPhiDP23;
-		Grad4 = -1 * DPhiDP14 - DPhiDP24;
+		Grad3 = -1.0f * DPhiDP13 - DPhiDP23;
+		Grad4 = -1.0f * DPhiDP14 - DPhiDP24;
 	}
     const float RestAngle = sa_bending_edge_rest_state_angle[eid];
 

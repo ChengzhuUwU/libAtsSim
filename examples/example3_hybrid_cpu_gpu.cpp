@@ -1707,7 +1707,7 @@ void CpuSolver::fn_dispatch(const Launcher::LaunchParam& param)
 
                 }
                 fn_cloth_constraint_post_func(param);
-                parallel_copy(xpbd_data->sa_x.data(), fn_get_iter_buffer(param.buffer_idx).data(), xpbd_data->sa_x.size());
+                parallel_copy(fn_get_iter_buffer(param.buffer_idx).data(), xpbd_data->sa_x.data(), xpbd_data->sa_x.size());
                 break;
             }
             case Launcher::id_vbd_all_in_one:

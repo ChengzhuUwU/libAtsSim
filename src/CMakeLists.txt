@@ -31,7 +31,7 @@ add_library(Scheduler STATIC ${SOURCES} ${HEADERS})
 
 if(WIN32)
 set(CMAKE_PREFIX_PATH   "C:/Applications/vcpkg/installed/x64-windows") # Replace it with your vcpkg path
-set(TBB_DIR ${THIRDPARTY_DIR}/oneapi-tbb-2021.12.0-win/oneapi-tbb-2021.12.0/lib/cmake/tbb)
+# set(TBB_DIR ${THIRDPARTY_DIR}/oneapi-tbb-2021.12.0-win/oneapi-tbb-2021.12.0/lib/cmake/tbb)
 # set(NLOPT_DIR ${THIRDPARTY_DIR}/NLopt.v2.6.1.x86_64-w64-mingw32/lib/cmake/nlopt)
 endif()
 

@@ -1,20 +1,19 @@
 #pragma once
 
-#undef max
-#undef min
-// #include <iostream>
-// #include <omp.h>
+// #include <vcruntime_typeinfo.h>
+// #undef max
+// #undef min
 #include <tbb/tbb.h>
-#include "scalar.h"
-#include <bits_utils.h>
+#include <numeric>
+#include <vector>
 
-// namespace SimParallel{
+// namespace CpuParallel
+// {
 
-// }
-
+using uint = unsigned int;
 
 // ------------------- openmp ------------------- //
-extern int CPU_THREAD_NUM;
+// extern int CPU_THREAD_NUM;
 
 // inline int get_cpu_thread_num() { return CPU_THREAD_NUM; }
 // inline int get_cpu_process_num() { return omp_get_num_procs(); }
@@ -33,102 +32,50 @@ extern int CPU_THREAD_NUM;
 
 // ------------------- tbb ------------------- //
 
-#define tbb_begin(range_start, range_end, index) tbb::parallel_for(tbb::blocked_range<uint>(range_start, range_end), \
-    [&](tbb::blocked_range<uint> r) { \
-    for (uint index = r.begin(); index < r.end(); index++) { 
-        
-#define tbb_end }});
-
-#define tbb_fast_begin(range, index) tbb_begin(0, range, index)
-
-struct ParallelRange{
-    uint start_idx = 0;
-    uint end_idx = 1;
-    ParallelRange() : start_idx(0), end_idx(1) {}
-    ParallelRange(uint end_index) : start_idx(0), end_idx(end_index){}
-    ParallelRange(uint start_index, uint end_index) : start_idx(start_index), end_idx(end_index){}
-    ParallelRange(std::initializer_list<uint> list) : start_idx(*list.begin()), end_idx(*(list.begin() + 1)){}
-    uint get_width(){
-        return end_idx - start_idx;
-    }
-    void set_range(uint end_index){
-        start_idx = 0;
-        end_idx = end_index;
-    }
-    void set_range(uint start_index, uint end_index){
-        start_idx = start_index;
-        end_idx = end_index;
-    }
-    
-    uint start_blockIdx(uint blockDim = 256){
-        return start_idx / blockDim;
-    }
-    uint end_blockIdx(uint blockDim = 256){
-        return (end_idx + blockDim - 1) / blockDim;
-    }
-    void print_range(){
-        printf("range = [%d , %d]", start_idx, end_idx);
-    }
-};
-
-// template<typename FuncName, typename... Args>
-// void parallel_for(uint start_thread, uint end_index, FuncName func, uint blockDim, Args... args){
-//     parallel_for_with_fixed_range(start_thread, end_index, 256, [&](uint startIdx, uint endIdx){
-//         for (uint i = start_thread; i < end_index; i++) {
-//             func(i, args...);
-//         }
-//     }, blockDim, args...);
-// }
+template<typename T>
+inline T max_scalar(const T& left, const T& right) { return left > right ? left : right; }
+template<typename T>
+inline T min_scalar(const T& left, const T& right) { return left < right ? left : right; }
 
 template<typename FuncName>
-void parallel_for(uint start_pos, uint end_pos, FuncName func, const uint blockDim = 256){
-
+void parallel_for(uint start_pos, uint end_pos, FuncName func, const uint blockDim = 256)
+{
     uint start_dispatch = start_pos / blockDim;
     uint end_dispatch = (end_pos + blockDim - 1) / blockDim;
 
     tbb::parallel_for(tbb::blocked_range<uint>(start_dispatch, end_dispatch, 1), 
-        [&](tbb::blocked_range<uint> r) { 
+        [&](tbb::blocked_range<uint> r) 
+        { 
             uint blockIdx = r.begin();
-            uint startIdx = std::max(blockDim * blockIdx, start_pos);
-            uint endIdx = std::min(blockDim * (blockIdx + 1), end_pos);
-            for (uint index = startIdx; index < endIdx; index++) {
+            uint startIdx = max_scalar(blockDim * blockIdx, start_pos);
+            uint endIdx = min_scalar(blockDim * (blockIdx + 1), end_pos);
+            for (uint index = startIdx; index < endIdx; index++) 
+            {
                 func(index); 
             }
         }, tbb::simple_partitioner{});
 }
 
-// template<typename FuncName>
-// void parallel_for(uint start_thread, uint end_index, FuncName func, Args... args){
-//     // static_assert(!std::is_same<FuncName, int>::value || !std::is_same<FuncName, unsigned int>::value, "Function Should Not Be Value");
-//     parallel_for(start_thread, end_index, blockDim, func, args...);
-// }
-
 template<typename FuncName>
-void parallel_for(ParallelRange range, FuncName func){
-    parallel_for(range.start_idx, range.end_idx, func);
-}
-
-template<typename FuncName>
-void single_thread_for(ParallelRange range, FuncName func, const uint blockDim = 32){
-    for(uint index = range.start_idx; index < range.end_idx; index++){ func(index);  }
-}
-template<typename FuncName>
-void single_thread_for(uint start_idx, uint end_idx, FuncName func, const uint blockDim = 32){
+void single_thread_for(uint start_idx, uint end_idx, FuncName func, const uint blockDim = 32)
+{
     for(uint index = start_idx; index < end_idx; index++){ func(index); }
 }
 
-// 传入的是一个range的函数，也就是需要带个for循环
+// Do loop in the block
 template<typename FuncName>
-void parallel_for_in_block(uint start_pos, uint end_pos, uint blockDim, FuncName func){
+void parallel_for_in_block(uint start_pos, uint end_pos, uint blockDim, FuncName func)
+{
     
     uint start_dispatch = start_pos / blockDim;
     uint end_dispatch = (end_pos + blockDim - 1) / blockDim;
     
     tbb::parallel_for(tbb::blocked_range<uint>(start_dispatch, end_dispatch, 1), 
-        [&](tbb::blocked_range<uint> r) { 
+        [&](tbb::blocked_range<uint> r) 
+        { 
             uint blockIdx = r.begin();
-            uint startIdx = std::max(blockDim * blockIdx, start_pos);
-            uint endIdx = std::min(blockDim * (blockIdx + 1), end_pos);
+            uint startIdx = max_scalar(blockDim * blockIdx, start_pos);
+            uint endIdx = min_scalar(blockDim * (blockIdx + 1), end_pos);
             func(startIdx, endIdx);
         }, 
         tbb::simple_partitioner{});
@@ -138,7 +85,8 @@ template<typename FuncName>
 void parallel_for_each_core(uint start_core_idx, uint end_core_idx, FuncName func){
     
     tbb::parallel_for(tbb::blocked_range<uint>(start_core_idx, end_core_idx, 1), 
-        [&](tbb::blocked_range<uint> r) { 
+        [&](tbb::blocked_range<uint> r) 
+        { 
             uint blockIdx = r.begin();
             func(blockIdx);
         }, 
@@ -146,18 +94,21 @@ void parallel_for_each_core(uint start_core_idx, uint end_core_idx, FuncName fun
 }
 
 template<typename T, typename ParallelFunc, typename ReduceFuncBinary>
-inline T parallel_for_and_reduce(uint start_pos, uint end_pos, ParallelFunc func_parallel, ReduceFuncBinary func_binary, const T zero){
+inline T parallel_for_and_reduce(uint start_pos, uint end_pos, ParallelFunc func_parallel, ReduceFuncBinary func_binary, const T zero)
+{
     const uint blockDim = 256;
     uint start_dispatch = start_pos / blockDim;
     uint end_dispatch = (end_pos + blockDim - 1) / blockDim;
-    return tbb::parallel_reduce(tbb::blocked_range<uint>(start_dispatch, end_dispatch, 1), zero, 
-        [&]( tbb::blocked_range<uint> r, T result ) {
-
+    // parallel_reduce
+    return tbb::parallel_deterministic_reduce(tbb::blocked_range<uint>(start_dispatch, end_dispatch, 1), zero, 
+        [&]( tbb::blocked_range<uint> r, T result ) 
+        {
             uint blockIdx = r.begin();
-            uint startIdx = std::max(blockDim * blockIdx, start_pos);
-            uint endIdx = std::min(blockDim * (blockIdx + 1), end_pos);
+            uint startIdx = max_scalar(blockDim * blockIdx, start_pos);
+            uint endIdx = min_scalar(blockDim * (blockIdx + 1), end_pos);
 
-            for (uint index = startIdx; index < endIdx; index++) {
+            for (uint index = startIdx; index < endIdx; index++) 
+            {
                 T parallel_result = func_parallel(index);
                 result = func_binary(result, parallel_result);
                 // func_binary(result, parallel_result);
@@ -166,13 +117,11 @@ inline T parallel_for_and_reduce(uint start_pos, uint end_pos, ParallelFunc func
         }, 
         func_binary, 
         tbb::simple_partitioner{} );
-
-    // func_binary = [](T& result, const T& parallel_result) -> void { result = func_unary(parallel_result, parallel_result); }
-
 }
 
 template<typename T, typename ParallelFunc>
-inline T parallel_for_and_reduce_sum(uint start_pos, uint end_pos, ParallelFunc func_parallel){
+inline T parallel_for_and_reduce_sum(uint start_pos, uint end_pos, ParallelFunc func_parallel)
+{
     return parallel_for_and_reduce<T>(start_pos, end_pos, 
         func_parallel, 
         // [](T& result, const T& parallel_result) -> void { result += parallel_result; }, // func_unary
@@ -180,46 +129,89 @@ inline T parallel_for_and_reduce_sum(uint start_pos, uint end_pos, ParallelFunc 
         T()
         ); 
 }
-template<typename T, typename ParallelFunc>
-inline T parallel_for_and_reduce_max(uint start_pos, uint end_pos, ParallelFunc func_parallel){
-    return parallel_for_and_reduce<T>(start_pos, end_pos, 
-        func_parallel, 
-        // [](T& result, const T& parallel_result) -> void { result = std::max(parallel_result, parallel_result); }, // func_unary
-        [](const T& x, const T& y) -> T{ return std::max(x, y); }, // func_binary
-        std::numeric_limits<T>::lowest()
-        ); 
+template<typename T>
+inline T parallel_reduce_sum(const T* array, const uint size)
+{
+    return parallel_for_and_reduce_sum<T>(0, size, [&](const uint index) { return array[index]; }); 
+}
+template<typename T>
+inline T parallel_reduce_sum(const std::vector<T>& array)
+{
+    return parallel_for_and_reduce_sum<T>(0, array.size(), [&](const uint index) { return array[index]; }); 
 }
 template<typename T, typename ParallelFunc>
-inline T parallel_for_and_reduce_min(uint start_pos, uint end_pos, ParallelFunc func_parallel){
-    return parallel_for_and_reduce<T>(start_pos, end_pos, 
-        func_parallel, 
-        // [](T& result, const T& parallel_result) -> void { result = std::min(parallel_result, parallel_result); }, // func_unary
-        [](const T& x, const T& y) -> T{ return std::min(x, y); }, // func_binary
-        std::numeric_limits<T>::max()
-        ); 
+inline T single_thread_for_and_reduce_sum(uint start_pos, uint end_pos, ParallelFunc func_parallel)
+{
+    const uint blockDim = 256;
+    uint start_dispatch = start_pos / blockDim;
+    uint end_dispatch = (end_pos + blockDim - 1) / blockDim;
+    std::vector<T> thread_values(end_pos - start_pos);
+
+    tbb::parallel_for(tbb::blocked_range<uint>(start_dispatch, end_dispatch, 1), 
+        [&](tbb::blocked_range<uint> r) 
+        { 
+            uint blockIdx = r.begin();
+            uint startIdx = max_scalar(blockDim * blockIdx, start_pos);
+            uint endIdx = min_scalar(blockDim * (blockIdx + 1), end_pos);
+            for (uint index = startIdx; index < endIdx; index++) 
+            {
+                T parallel_result = func_parallel(index);
+                thread_values[index - start_pos] = parallel_result;
+            }
+        }, tbb::simple_partitioner{});
+
+    return std::reduce(thread_values.begin(), thread_values.end(), T(), [](const T& x, const T& y) -> T{return x + y;});
+}
+
+template<typename T, typename ParallelFunc, typename ReduceFuncBinary>
+inline T single_thread_for_and_reduce(uint start_pos, uint end_pos, ParallelFunc func_parallel, ReduceFuncBinary func_binary, const T zero)
+{
+    const uint blockDim = 256;
+    uint start_dispatch = start_pos / blockDim;
+    uint end_dispatch = (end_pos + blockDim - 1) / blockDim;
+    std::vector<T> thread_values(end_pos - start_pos);
+
+    tbb::parallel_for(tbb::blocked_range<uint>(start_dispatch, end_dispatch, 1), 
+        [&](tbb::blocked_range<uint> r) 
+        { 
+            uint blockIdx = r.begin();
+            uint startIdx = max_scalar(blockDim * blockIdx, start_pos);
+            uint endIdx = min_scalar(blockDim * (blockIdx + 1), end_pos);
+            for (uint index = startIdx; index < endIdx; index++) 
+            {
+                T parallel_result = func_parallel(index);
+                thread_values[index - start_pos] = parallel_result;
+            }
+        }, tbb::simple_partitioner{});
+
+    return std::reduce(thread_values.begin(), thread_values.end(), zero, func_binary);
 }
 
 // inclusive : 包含第一个元素
 template<typename T, typename ParallelFunc, typename OutputFunc>
-inline void parallel_for_and_scan(uint start_pos, uint end_pos, ParallelFunc func_parallel, OutputFunc func_output, const T& zero){
+inline void parallel_for_and_scan(uint start_pos, uint end_pos, ParallelFunc func_parallel, OutputFunc func_output, const T& zero)
+{
 
     const uint blockDim = 256;
     uint start_dispatch = start_pos / blockDim;
     uint end_dispatch = (end_pos + blockDim - 1) / blockDim;
 
     tbb::parallel_scan(tbb::blocked_range<uint>(start_dispatch, end_dispatch, 1), zero, 
-        [&]( tbb::blocked_range<uint> r, T block_prefix, auto is_final_scan) -> T{
+        [&]( tbb::blocked_range<uint> r, T block_prefix, auto is_final_scan) -> T
+        {
 
             uint start_blockIdx = r.begin();
             uint end_blockIdx = r.end() - 1;
 
-            uint startIdx = std::max(blockDim * start_blockIdx, start_pos);
-            uint endIdx   = std::min(blockDim * (end_blockIdx + 1), end_pos);
+            uint startIdx = max_scalar(blockDim * start_blockIdx, start_pos);
+            uint endIdx   = min_scalar(blockDim * (end_blockIdx + 1), end_pos);
 
-            for (uint index = startIdx; index < endIdx; index++) {
+            for (uint index = startIdx; index < endIdx; index++) 
+            {
                 T parallel_result = func_parallel(index);
                 block_prefix += parallel_result;
-                if(is_final_scan) {
+                if (is_final_scan) 
+                {
                     func_output(index, block_prefix, parallel_result);
                 }
             }
@@ -243,17 +235,38 @@ inline void parallel_for_and_scan(uint start_pos, uint end_pos, ParallelFunc fun
 
 }
 
+// From src to dst
 template <typename T>
-inline void parallel_copy(T* dst, const T* src, const uint array_size)
+inline void parallel_copy(const T& src, T& dst, const uint array_size)
 {
     parallel_for(0, array_size, [&](const uint index)
     {
         dst[index] = src[index];
     });
 }
+
+// From src to dst
 template <typename T>
-inline void parallel_set(T* dst, const uint array_size, const T& value)
+inline void parallel_copy(const std::vector<T>& src, std::vector<T>& dst)
 {
+    const uint array_size = dst.size();
+    parallel_for(0, array_size, [&](const uint index)
+    {
+        dst[index] = src[index];
+    });
+}
+template <typename T1, typename T2>
+inline void parallel_set(T1& dst, const uint array_size, const T2& value)
+{
+    parallel_for(0, array_size, [&](const uint index)
+    {
+        dst[index] = value;
+    });
+}
+template <typename T>
+inline void parallel_set(std::vector<T>& dst, const T& value)
+{
+    const uint array_size = dst.size();
     parallel_for(0, array_size, [&](const uint index)
     {
         dst[index] = value;
@@ -261,15 +274,20 @@ inline void parallel_set(T* dst, const uint array_size, const T& value)
 }
 
 template<typename T>
-static inline bool default_compate(const T& left, const T& right){
+static inline bool default_compate(const T& left, const T& right)
+{
     return left < right;
 }
 
 template <typename Ptr, typename _Comp>
-inline void parallel_sort(Ptr begin, Ptr end, _Comp comp = default_compate){
+inline void parallel_sort(Ptr begin, Ptr end, _Comp comp = default_compate)
+{
     tbb::parallel_sort(begin, end, comp);
 }
 
 
 // [](float& x, const float& y) -> void{ x += y; },
 // [](const float& x, const float& y) -> float{ return x + y; }
+
+
+// } // namespace lcsv
