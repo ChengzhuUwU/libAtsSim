@@ -124,99 +124,141 @@ for proc in procs:
             if is_constraint_task[another_tid] and schedule.end + comm_time <= another_schedule.start:
                 list_in[tid] = {another_tid}
                 list_out[another_tid] = {list_out[another_tid], tid}
-
 ```
 
 Then we will merge redundant waiting between tasks:
 
 ```python
+# Step 2: Merge redundant connections
+# Step 2.1: For non-main devices (e.g., CPUs)
+for proc in procs where not is_main_device[proc]:
+    for task in proc_schedules[proc]:
+        inputs = list_in[task]
 
-# Step 2: Merge redundant connection
-# Step 2.1: For non-main device
-for proc in procs:
-    if is_main_device[proc]: # We set main device is GPU in our experiment for faster weighing
-        continue
+        if |inputs| > 1:
+            keep = inputs.last
+            for input in inputs[0 : end-1]:
+                remove_edge(input → task)   # drop redundant connections
+            list_in[task] = {keep}
 
-    for schedule in proc_schedules[proc]:
-        tid = schedule.task_id
-        inputs = list_in[tid]
+        if |inputs| > 0:
+            connect(inputs.last, task)
 
-        if size(inputs) > 1: 
-            # There maybe more than 1 tasks that desire to transfer data to this task
-            for input in inputs[0: size(inputs) - 1]:
-                list_out[input] = {list_out[input] - tid}
-            list_in[tid] = {list_in[tid].back} // Only keep the last task
+# Step 2.2: For main device (e.g., GPU)
+for proc in procs where is_main_device[proc]:
+    for task in proc_schedules[proc]:
+        inputs = list_in[task]
 
-        if size(inputs) > 0:
-            connect(inputs.back, tid)
+        if |inputs| > 1:
+            keep_set = {}
+            for i in 0 .. |inputs|-2:
+                input = inputs[i]
+                next_task = next_of(input)
 
-# Step 2.2: For main device:
-for proc in procs:
-    if not is_main_device[proc]:
-        continue
-    end if
-    for schedule in proc_schedules[proc]:
-        tid = schedule.task_id
-        inputs = list_in[tid]
+                if |list_in[next_task]| == 0:
+                    remove_edge(input → task)   # prioritize intra-device transfer
+                else:
+                    keep_set.add(input)
 
-        if size(inputs) > 1: 
+            keep_set.add(inputs.last)
+            list_in[task] = keep_set
+
+        if |inputs| > 0:
             for input in inputs:
-                next = schedule.next() // next task of input task
-                if sz(list_in[next]) == 0:
-                    # Priority transmission to the same device
-                    list_out[input] = {list_out[input] - tid}
-                    list_in[tid] = {list_in[tid] - input}
-            list_in[tid] = {list_in[tid].back}
-
-        if size(inputs) > 0:
-            for input in inputs:
-                connect(input, tid)
+                connect(input, task)
 ```
 
 Finally we can specify the buffer indices from the newly added data transfer:
 
 ```python
 # Step 3: Specify the data communication and buffer index
-buffer_index = 0
-function update_buffer_idx():
-    buffer_index += 1
-    return buffer_index - 1
-end function
 
-task_buffers = {-1 for each task}
+buffer_idx ← 0
+task_buffers[tid] ← -1  for all tid
+left_task[proc] ← -1   for all proc
 
-index_cpu = 0
-index_gpu = 0
-# TO Fill...
+# Traverse schedules of CPU and GPU in time order
+while not finished(cpu_schedule, gpu_schedule):
+    task ← next_task_in_time(cpu_schedule, gpu_schedule)
+    tid  ← task.id
 
+    if is_constraint_task[tid]:
+        selected_buffer ← -1
+
+        # Case 1: Task has input dependencies
+        if |list_in[tid]| > 0:
+            for in_tid in list_in[tid]:
+                buf ← task_buffers[in_tid]
+                selected_buffer ← buf
+                record_connection(in_tid → tid, buf)
+
+                if left_task[task.proc] ≠ -1:
+                    left_tid ← left_task[task.proc]
+                    if should_weight(left_tid, task.proc):
+                        buf_left ← task_buffers[left_tid]
+                        record_left_connection(left_tid → tid, buf_left)
+
+        # Case 2: Task has no input dependencies
+        else:
+            left_tid ← left_task[task.proc]
+            if left_tid ≠ -1 and list_out[left_tid] is empty:
+                # Reuse buffer from left task
+                selected_buffer ← task_buffers[left_tid]
+            else:
+                # Allocate a new buffer
+                selected_buffer ← buffer_idx++
+                if left_tid ≠ -1:
+                    record_copy(left_tid → tid, task_buffers[left_tid], selected_buffer)
+                else:
+                    mark_as_first_iterative_task(tid)
+
+        # Assign buffer index to current task
+        task_buffers[tid] ← selected_buffer
+        task.buffer_idx   ← selected_buffer
+        left_task[task.proc] ← tid
 ```
-
 
 In the run-time, we need to get data from the input_buffer_index/left_buffer_idx/buffer_index:
 
 ```cpp
+
+function copy_from_A_to_B(InputBUfferIdxA, OutputBufferIdxB):
+    get_begin_buffer(last(OutputBufferIdxB)) = get_curr_buffer(InputBUfferIdxA)
+    get_curr_buffer(last(OutputBufferIdxB)) = get_curr_buffer(InputBUfferIdxA)
+
 function launch_iterative_task(task):
+    # Prev-processing
+    # Case 1: Weighted combination of inputs buffer and left buffer
+    if |input_buffer_idxs| > 0 and left_buffer_idx != null:
+        for each input_buffer_idx in input_buffer_idxs:
+            begin_buf ← (param.is_allocated_to_main_device) 
+                        ? get_begin_buffer(input_buffer_idx)
+                        : get_begin_buffer(left_buffer_idx)
+            parallel_for vertices vid:
+                solve_conflict(vid, 
+                               input_buffer_idx, 
+                               iter_buffer(input_buffer_idx), 
+                               iter_buffer(left_buffer_idx), 
+                               weight)
 
-    if size(task.input_buffer_indices) != 0 and task.left_buffer_index != -1:
-        for input_buffer_index in task.input_buffer_indices:
-        
-            start_buffer = buffer[input_buffer_index]
-            input_buffer = buffer[input_buffer_index]
-            left_buffer = buffer[task.left_buffer_index]
+    # Case 2: Copy from input buffer
+    else if |input_buffer_idxs| > 0 and left_buffer_idx == null:
+        copy_from_A_to_B(input_buffer_idxs, buffer_idx)
 
-            if task.is_allocated_in_main_device:
-                start_buffer = buffer[task.left_buffer_index]
-            end if
+    # Case 3: Copy from left buffer
+    else if left_buffer_idx != null and left_buffer_idx ≠ FIRST_TASK_MASK:
+        copy_from_A_to_B(left_buffer_idx, buffer_idx)
 
-            for vert in vertices:
-                start_position = buffer[start_buffer_index]
-                self_delta = buffer[input_buffer_index] - start_position
-                another_delta = buffer[vert] - start_position
-                if length()
-            buffer[task.buffer_index] = 
-# TO Fill...
+    # Case 4: Copy from predicted position (Input)
+    else if left_buffer_idx = FIRST_TASK_MASK:
+        copy_from_A_to_B(predicted_position_buffer_idx, buffer_idx)
 
-perform_iterative_task()
+    perform_iterative_task()
+    
+    # Post-processing
+        # Copy result to the right buffer for next task
+        if right_buffer_idx ≠ null:
+            copy_from_A_to_B(buffer_idx, right_buffer_idx)
 
 end function()
 ```
