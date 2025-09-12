@@ -32,6 +32,39 @@ The final time (represented the finished time of the latest task across all devi
 
 Our HEFT implementation is based on a [python-version heft](https://github.com/mackncheesiest/heft), which is the source code of paper ["Performant, Multi-Objective Scheduling of Highly Interleaved Task Graphs on Heterogeneous System on Chip Devices"](https://ieeexplore.ieee.org/document/9653796) (IEEE TPDS 2022, [Joshua Mack](https://github.com/mackncheesiest/) et. al.).
 
+### HEFT scheduling algorithm
+
+1. Rrepresent the relationship between tasks as *DAG*(Directed Acyclic Graph): In DAG, each node represent for each tasks, each edge represent for the relying dependencies (e.g., broadphase collision detection should complete before narrowphase collision detection. If two tasks perform on different devices, we may need to copy the relative data to target device). 
+
+- In practical, we can save the information of *edge* in node's data struct as two lists: predecessors and  successors (of each node).
+
+2. Topology sorting: By perfoming ropology soring, we can get a ordered list, which generates an ordered table that ensures the dependencies between tasks (Which means by execute tasks in the order of this list, we can ensure that the dependencies of each task can be satisfied). 
+
+- We can use DFS-based or BFS-based tojpology sorting. Both methods can satisfy the dependencies, however, we recommend using the DFS-based (Depth First Traversal) topology sorting, which tends to group a set of tasks with tighter relationships together, making it easier for us to perform tasks merging and other operations in the future. In addition, the topology sorting method based on DFS can also facilitate us to identify the loops in DAG
+
+3. (Optional) We cab execute the sorted list in sequence several times, to obtain the *computation matrix* for each task. and *communication matrix* between devices. For UMA (Unified Memory Architecture), the communication matrix is a constant matrix (About 0.2ms accross decices).
+
+4. $rank_u$ calculation: We traverse the *reverse order* of list by topology sorting, and for each node $i$, we calculte its $rank_u$ value as (Condiering we have $m$ processors): 
+
+$$ rank_u [i] = \frac{1}{m} \sum_{p \in \text{processors}} \text{comp}[i][p] + \max_{j \in \text{successors}} (rank_u[j] + \frac{1}{m} \sum_{p \in \text{processors}} \text{comm}[i][j][p] ) $$
+
+- Which means we calculate $rank_u$ from the last task to the first task. $rank_u$ represents the *estimated time* span from the current task to the last task. It quantifies the dependency of each task. If a task has more subsequent tasks, it represents a higher degree of dependency, that is, its $rank_u$ value will also be higher. 
+
+5. EFT calculation and task assignment: We traverse the task list sorted in reverse order by $rank_u$, and calculate the EFT (Eerlest Finish Time) of each task on different devices. We use the device with the smallest EFT value as the inserted device. 
+
+    - Since We need to satisfy the dependency relationship between tasks, so the earliest execution time of the task must *not be earlier than the finish time of its predecessors* (if its predecessors are executed on other devices, the communication cost between devices also needs to be considered)
+
+    - How do to calculate EFT: Researchers will divide the time average into discrete timestamps (e.g., 100 or 1000 timestamps), traverse these timestamps, and calculate the earlist available time. This method is inefficient and relies on timestamp partitioning. We refer to the implentation from [python-version heft](https://github.com/mackncheesiest/heft), which only need to consider the following situations (Given the ealist start time `ready_time`):
+
+    1. Empty schedule → Task starts at `ready_time`.
+    2. Before the first task → If there’s enough gap, start at `ready_time`.
+    3. Between two tasks → If a gap is large enough, start after the finish time of the first task.
+    4. After the last task → Start after the finish time of the last task.
+    5. Fallback → Default to starting at `ready_time`.
+
+You can also refer [Our Pre-Presentation](https://www.youtube.com/watch?v=ZH2Jcpsg7J0&t=4s) in SIGGRAPH for more detail.
+
+
 ## Example 2: Asychronous iteration on VBD
 
 This example shows the difference between the original iteration pipeline and our asynchronous iteration pileline. Considering we have allocated iteration tasks (different clusters in [Vertex Block Descent](https://ankachan.github.io/Projects/VertexBlockDescent/index.html), SIGGRAPH 2024, Anka He Chen et. al.) into 2 devices, then how do we make data transfering? 
@@ -247,12 +280,11 @@ or for windows:
 > vcpkg install tbb
 >
 
-For windows users, TBB installed by vcpkg might only use debug or release mode. You also need to set the vcpkg path in Cmake file (src/CmakeLists.txt): 
+For windows users, TBB installed by vcpkg might only use debug or release mode. You may need to set the vcpkg path in Cmake file (src/CmakeLists.txt): 
 
 > set(CMAKE_PREFIX_PATH   "~~~/vcpkg/installed/x64-windows") # Replace it with your vcpkg path
 
-
-Example 3 can only run on MacOS due to our Metal based GPU implementation.
+Example 3 can only run on MacOS due to our Metal based GPU implementation. You also need to install [XCode](https://developer.apple.com/xcode/) for Metal command line tools.
 
 (Linux system has not been tested yet...)
 
@@ -261,6 +293,8 @@ Example 3 can only run on MacOS due to our Metal based GPU implementation.
 If you have any questions on our methods or our source code, please feel free to [contact me](https://chengzhuuwu.github.io/) **at any time**!!!
 
 ## Important Update
+
+2025.9.12: Fix the compile issue on MacOS platform.
 
 2025.8.30: Fix the compile issue on Windows platform.
 
