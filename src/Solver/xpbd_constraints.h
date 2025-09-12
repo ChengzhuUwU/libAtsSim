@@ -675,7 +675,7 @@ inline void reset_constraints(
 }
 
 template <typename ConstaintType, uint N = Meta::get_vec_length<ConstaintType>()>
-inline void assemble_to_position(Device Float3* sa_iter_position, Device ATOMIC_FLAG* sa_vert_mutex, ConstRef(ConstaintType) constraint, Thread Float3* dx, const bool use_atomic)
+inline void assemble_to_position(GLOBAL Float3* sa_iter_position, GLOBAL ATOMIC_FLAG* sa_vert_mutex, ConstRef(ConstaintType) constraint, Thread Float3* dx, const bool use_atomic)
 {
 	if (use_atomic) 
 	{
@@ -703,11 +703,11 @@ inline void assemble_to_position(Device Float3* sa_iter_position, Device ATOMIC_
 
 
 inline void copy_position_to_2_devices(const uint vid, 
-	Device Float3* sa_iter_position,
-	Device Float3* sa_begin_position_cpu, // CPU
-	Device Float3* sa_begin_position_gpu, // GPU
-	Device Float3* sa_iter_position_cpu, // CPU
-	Device Float3* sa_iter_position_gpu // GPU)
+	GLOBAL Float3* sa_iter_position,
+	GLOBAL Float3* sa_begin_position_cpu, // CPU
+	GLOBAL Float3* sa_begin_position_gpu, // GPU
+	GLOBAL Float3* sa_iter_position_cpu, // CPU
+	GLOBAL Float3* sa_iter_position_gpu // GPU)
 )
 {
 	const Float3 pos = sa_iter_position[vid];
@@ -719,11 +719,11 @@ inline void copy_position_to_2_devices(const uint vid,
 
 inline void assemble_result_from_2_devices(
 	const uint vid, 
-	Device Float3* sa_iter_position,
-	Device Float3* sa_begin_position_cpu, // CPU
-	Device Float3* sa_begin_position_gpu, // GPU
-	Device Float3* sa_iter_position_cpu, // CPU
-	Device Float3* sa_iter_position_gpu, // GPU
+	GLOBAL Float3* sa_iter_position,
+	GLOBAL Float3* sa_begin_position_cpu, // CPU
+	GLOBAL Float3* sa_begin_position_gpu, // GPU
+	GLOBAL Float3* sa_iter_position_cpu, // CPU
+	GLOBAL Float3* sa_iter_position_gpu, // GPU
 	const float weight)
 {
 	Float3 pos_self = sa_iter_position_gpu[vid];
@@ -804,9 +804,9 @@ inline void assemble_result_from_2_devices(
 
 
 inline void copy_current_position_to_2_constraints(
-	const uint vid, const Device Float3* sa_iter_position, 
-	Device Float3* sa_iter_position_1, 
-	Device Float3* sa_iter_position_2
+	const uint vid, const GLOBAL Float3* sa_iter_position, 
+	GLOBAL Float3* sa_iter_position_1, 
+	GLOBAL Float3* sa_iter_position_2
 	)
 {
 	const Float3 curr_pos = sa_iter_position[vid];
@@ -816,10 +816,10 @@ inline void copy_current_position_to_2_constraints(
 
 inline void read_and_solve_conflict(
 	const uint vid, 
-	Device Float3* sa_begin_position_self, 
-	Device Float3* sa_begin_position_other,
-	Device Float3* sa_iter_position_self, 
-	Device Float3* sa_iter_position_other, 
+	GLOBAL Float3* sa_begin_position_self, 
+	GLOBAL Float3* sa_begin_position_other,
+	GLOBAL Float3* sa_iter_position_self, 
+	GLOBAL Float3* sa_iter_position_other, 
 	const float weight
 	)
 {

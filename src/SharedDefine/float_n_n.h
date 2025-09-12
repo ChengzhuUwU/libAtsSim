@@ -60,30 +60,30 @@ inline Thread auto& get_scalar(ThreadRef(MatType) mat, ConstRef(uint) columnIdx,
 }
 
     #ifdef METAL_CODE
-    template<typename MatType>                   inline Device auto& get       (Device       MatType& mat, ConstRef(uint) columnIdx)  { return mat.columns[columnIdx];}
-    template<typename MatType>                   inline Device auto& get_scalar(Device       MatType& mat, ConstRef(uint) columnIdx)  { return mat.columns[columnIdx];}
-    template<typename MatType>                   inline        auto  get       (Device const MatType& mat, ConstRef(uint) columnIdx)  { return mat.columns[columnIdx];}
-    template<typename MatType>                   inline        auto  get_scalar(Device const MatType& mat, ConstRef(uint) columnIdx)  { return mat.columns[columnIdx];}
-    template<typename MatType, typename VecType> inline void set       (Device MatType& mat, ConstRef(uint) columnIdx, ConstRef(VecType) vec) { mat.columns[columnIdx] = vec;}
-    template<typename MatType, typename VecType> inline void set_scalar(Device MatType& mat, ConstRef(uint) columnIdx, ConstRef(VecType) vec) { mat.columns[columnIdx] = vec;}
+    template<typename MatType>                   inline GLOBAL auto& get       (GLOBAL       MatType& mat, ConstRef(uint) columnIdx)  { return mat.columns[columnIdx];}
+    template<typename MatType>                   inline GLOBAL auto& get_scalar(GLOBAL       MatType& mat, ConstRef(uint) columnIdx)  { return mat.columns[columnIdx];}
+    template<typename MatType>                   inline        auto  get       (GLOBAL const MatType& mat, ConstRef(uint) columnIdx)  { return mat.columns[columnIdx];}
+    template<typename MatType>                   inline        auto  get_scalar(GLOBAL const MatType& mat, ConstRef(uint) columnIdx)  { return mat.columns[columnIdx];}
+    template<typename MatType, typename VecType> inline void set       (GLOBAL MatType& mat, ConstRef(uint) columnIdx, ConstRef(VecType) vec) { mat.columns[columnIdx] = vec;}
+    template<typename MatType, typename VecType> inline void set_scalar(GLOBAL MatType& mat, ConstRef(uint) columnIdx, ConstRef(VecType) vec) { mat.columns[columnIdx] = vec;}
     
     // Get/Set Scalar
     template<typename MatType> 
-    inline Device auto& get(Device MatType& mat, ConstRef(uint) columnIdx, ConstRef(uint) rowIdx) { 
+    inline GLOBAL auto& get(GLOBAL MatType& mat, ConstRef(uint) columnIdx, ConstRef(uint) rowIdx) { 
         using ScalarType = Meta::get_mat_scalar_type<MatType>;
-        Device ScalarType* ptr = (Device ScalarType*)(&mat.columns[columnIdx]);
+        GLOBAL ScalarType* ptr = (GLOBAL ScalarType*)(&mat.columns[columnIdx]);
         return ptr[rowIdx];
     }
     template<typename MatType> 
-    inline Device auto& get_scalar(Device MatType& mat, ConstRef(uint) columnIdx, ConstRef(uint) rowIdx) { 
+    inline GLOBAL auto& get_scalar(GLOBAL MatType& mat, ConstRef(uint) columnIdx, ConstRef(uint) rowIdx) { 
         using ScalarType = Meta::get_mat_scalar_type<MatType>;
-        Device ScalarType* ptr = (Device ScalarType*)(&mat.columns[columnIdx]);
+        GLOBAL ScalarType* ptr = (GLOBAL ScalarType*)(&mat.columns[columnIdx]);
         return ptr[rowIdx];
     }
-    template<typename MatType>                      inline auto get       (Device const MatType& mat, ConstRef(uint) columnIdx, ConstRef(uint) rowIdx) { return mat.columns[columnIdx][rowIdx]; }
-    template<typename MatType>                      inline auto get_scalar(Device const MatType& mat, ConstRef(uint) columnIdx, ConstRef(uint) rowIdx) { return mat.columns[columnIdx][rowIdx]; }
-    template<typename MatType, typename ScalarType> inline void set       (Device MatType& mat, ConstRef(uint) columnIdx, ConstRef(uint) rowIdx, ConstRef(ScalarType) value) { mat.columns[columnIdx][rowIdx] = value;}
-    template<typename MatType, typename ScalarType> inline void set_scalar(Device MatType& mat, ConstRef(uint) columnIdx, ConstRef(uint) rowIdx, ConstRef(ScalarType) value) { mat.columns[columnIdx][rowIdx] = value;}
+    template<typename MatType>                      inline auto get       (GLOBAL const MatType& mat, ConstRef(uint) columnIdx, ConstRef(uint) rowIdx) { return mat.columns[columnIdx][rowIdx]; }
+    template<typename MatType>                      inline auto get_scalar(GLOBAL const MatType& mat, ConstRef(uint) columnIdx, ConstRef(uint) rowIdx) { return mat.columns[columnIdx][rowIdx]; }
+    template<typename MatType, typename ScalarType> inline void set       (GLOBAL MatType& mat, ConstRef(uint) columnIdx, ConstRef(uint) rowIdx, ConstRef(ScalarType) value) { mat.columns[columnIdx][rowIdx] = value;}
+    template<typename MatType, typename ScalarType> inline void set_scalar(GLOBAL MatType& mat, ConstRef(uint) columnIdx, ConstRef(uint) rowIdx, ConstRef(ScalarType) value) { mat.columns[columnIdx][rowIdx] = value;}
     #endif
 
 #elif SIM_USE_GLM

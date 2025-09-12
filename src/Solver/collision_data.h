@@ -38,7 +38,7 @@ struct ProximityVV
     ProximityVV(ConstRef(ProximityVV) right) : indeces(right.indeces), vec2(right.vec2) {}
 
 #ifdef METAL_CODE
-    ProximityVV(Device const ProximityVV& right) : indeces(right.indeces), vec2(right.vec2) {  }
+    ProximityVV(GLOBAL const ProximityVV& right) : indeces(right.indeces), vec2(right.vec2) {  }
 #endif
 
     // 'normal' Is The Normal of vid2, Because We Want That 'project(v0 - v1, normal)' Is Their Distance 

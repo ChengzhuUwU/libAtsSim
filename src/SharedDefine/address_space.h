@@ -3,7 +3,7 @@
 #ifdef  METAL_CODE
     #define Thread thread
     #define ThreadRef(T) thread T&
-    #define Device device 
+    #define GLOBAL device 
     #define Pointer(T) device T*
     #define Constant(T) constant T&
     #define ConstRef(T) thread const T&
@@ -16,7 +16,7 @@
 #else
     #define Thread 
     #define ThreadRef(T) T&
-    #define Device 
+    #define GLOBAL
     #define Pointer(T) T*
     #define Constant(T) const T&
     #define Const(T) const T
@@ -62,4 +62,4 @@ using uint = unsigned int;
 #define GPU_PREFIX 
 
 template <typename T>
-Thread T tothread(Device T& data) { return data; }
+Thread T tothread(GLOBAL T& data) { return data; }

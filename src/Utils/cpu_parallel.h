@@ -255,8 +255,24 @@ inline void parallel_copy(const std::vector<T>& src, std::vector<T>& dst)
         dst[index] = src[index];
     });
 }
+template <typename T>
+inline void parallel_copy(const T* src, T* dst, const uint array_size)
+{
+    parallel_for(0, array_size, [&](const uint index)
+    {
+        dst[index] = src[index];
+    });
+}
 template <typename T1, typename T2>
 inline void parallel_set(T1& dst, const uint array_size, const T2& value)
+{
+    parallel_for(0, array_size, [&](const uint index)
+    {
+        dst[index] = value;
+    });
+}
+template <typename T1, typename T2>
+inline void parallel_set(T1* dst, const uint array_size, const T2& value)
 {
     parallel_for(0, array_size, [&](const uint index)
     {

@@ -136,10 +136,10 @@ kernel void copy_from_A_to_B_and_C(
     bufferC[vid] = bufferA[vid];
 }
 kernel void read_and_solve_conflict(
-    Device Float3* sa_begin_position_self, // GPU
-	Device Float3* sa_begin_position_other, // CPU
-	Device Float3* sa_iter_position_self, // GPU
-	Device Float3* sa_iter_position_other, // CPU
+    GLOBAL Float3* sa_begin_position_self, // GPU
+	GLOBAL Float3* sa_begin_position_other, // CPU
+	GLOBAL Float3* sa_iter_position_self, // GPU
+	GLOBAL Float3* sa_iter_position_other, // CPU
     Constant(float) stretch_bending_assemble_weight, 
     uint vid [[thread_position_in_grid]]
 )

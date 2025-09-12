@@ -271,8 +271,8 @@ inline Float4 get_default_color_by_id(uint idx){
 
 #ifdef METAL_CODE
 template<typename T>
-inline Device atomic_float* to_atomic_float_ptr(Device T* ptr){
-    return reinterpret_cast<Device atomic_float*>(ptr);
+inline GLOBAL atomic_float* to_atomic_float_ptr(GLOBAL T* ptr){
+    return reinterpret_cast<GLOBAL atomic_float*>(ptr);
 }
 #endif
 

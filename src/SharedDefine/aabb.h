@@ -21,15 +21,15 @@ struct AABB{
     //     max_pos = aabb.max_pos;
     // }
 #ifdef METAL_CODE
-    AABB(Device const AABB& aabb){
+    AABB(GLOBAL const AABB& aabb){
         min_pos = aabb.min_pos;
         max_pos = aabb.max_pos;
     }
-    AABB(Device const Float3& pos){
+    AABB(GLOBAL const Float3& pos){
         min_pos = pos;
         max_pos = pos;
     }
-    // AABB(Device volatile const AABB& aabb){
+    // AABB(GLOBAL volatile const AABB& aabb){
     //     min_pos = aabb.min_pos;
     //     max_pos = aabb.max_pos;
     // }
