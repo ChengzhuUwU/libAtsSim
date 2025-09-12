@@ -2377,7 +2377,8 @@ void GpuSolver::physics_step_vbd_async()
     // LaunchModeHetero
     // LaunchModeGpu
     // LaunchModePartialGPU
-    constexpr auto launch_mode = Launcher::Scheduler::LaunchModeHetero;  
+    // const auto launch_mode = Launcher::Scheduler::LaunchModeHetero;  
+    const auto launch_mode = (Launcher::Scheduler::LaunchMode)get_scene_params().launch_mode;
     
     // Run
     SimClock clock; clock.start_clock(); 
@@ -2390,7 +2391,7 @@ void GpuSolver::physics_step_vbd_async()
         // The final result should be the same as LaunchModeHetero 
         // (Since we use multi-buffer to identity the inputs, so if we miss the relationship, we will get NAN or exposition)
         // We will use runtime profiling to update the computation matrix and re-schedule 
-        if constexpr (launch_mode == Launcher::Scheduler::LaunchModeFakeHetero)
+        if (launch_mode == Launcher::Scheduler::LaunchModeFakeHetero)
         {   
             auto fn_task_to_param = [](const Launcher::Task& task) 
             { 
@@ -2416,7 +2417,7 @@ void GpuSolver::physics_step_vbd_async()
         //                                 we may not write the data transfering stragegy correctly which may result buffer conflict or access)
         // This is limited to the hardware, maybe we can solve it by segmenting the commission of gpu commands
         // If you have some ideas to fix it, hope you can help me (you find my contact information in my homepage: https://chengzhuuwu.github.io/)
-        else if constexpr (launch_mode == Launcher::Scheduler::LaunchModeHetero || launch_mode == Launcher::Scheduler::LaunchModePartialGPU)
+        else if (launch_mode == Launcher::Scheduler::LaunchModeHetero || launch_mode == Launcher::Scheduler::LaunchModePartialGPU)
         {   
             auto fn_task_to_param = [](const Launcher::Task& task) 
             { 
@@ -2438,7 +2439,7 @@ void GpuSolver::physics_step_vbd_async()
         }
 
         // In this mode, you will run tasks sorted by ranku on single device
-        else if constexpr (launch_mode == Launcher::Scheduler::LaunchModeCpu || launch_mode == Launcher::Scheduler::LaunchModeGpu)
+        else if (launch_mode == Launcher::Scheduler::LaunchModeCpu || launch_mode == Launcher::Scheduler::LaunchModeGpu)
         {    
             auto fn_task_to_param = [](const Launcher::Task& task) 
             { 
@@ -2448,8 +2449,8 @@ void GpuSolver::physics_step_vbd_async()
                     .cluster_idx = task.cluster_idx, 
                     .is_allocated_to_main_device = true,
                     .buffer_idx = Launcher::default_buffer_mask, 
-                    .left_buffer_idx = -1u, 
-                    .right_buffer_idx = -1u, 
+                    .left_buffer_idx = -1u, // We do not use asynchronous iteration on sequential mode
+                    .right_buffer_idx = -1u, // Sin it brings more cost on data copying and weighting
                     .input_buffer_idxs = {}, 
                 }; 
             };
@@ -2465,17 +2466,29 @@ void GpuSolver::physics_step_vbd_async()
     
     computation_matrix = scheduler.computation_matrix;
     scheduler.update_costs_from_computation_matrix();
-    if (get_scene_params().current_frame == 29) scheduler.print_task_costs_map();
+    
+    if (launch_mode == Launcher::Scheduler::LaunchModeHetero)
+    {
+        fast_format("   In Frame {:2} : Hybrid Cost/Desire = {:.2f}/{:5.2f}, speedup = {:5.2f}%/{:5.2f}% to GPU/CPU (profile time = {:5.2f}/{:5.2f}), scheuling cost = {:3.2f}",
+            get_scene_params().current_frame, 
+            frame_cost, scheduler.get_scheduled_end_time() * num_substep, // get_scheduled_end_time() should near to actual time in LaunchModeHetero
+            scheduler.get_scheduled_speedups()[1] * 100, 
+            scheduler.get_scheduled_speedups()[0] * 100,
+            num_substep * scheduler.get_proc_costs()[1], // GPU is proc 1
+            num_substep * scheduler.get_proc_costs()[0]  // CPU is proc 0
+            , scheule_clock.duration()
+        ); 
+    }
+    else 
+    {
+        fast_format("   In Frame {} : {} Cost = {:6.3f}",
+            get_scene_params().current_frame, 
+            launch_mode == Launcher::Scheduler::LaunchModeCpu ? "CPU" : "GPU",
+            frame_cost
+        ); 
+    }
 
-    fast_format("   In Frame {:2} : Hybrid Cost/Desire = {:.2f}/{:5.2f}, speedup = {:5.2f}%/{:5.2f}% to GPU/CPU (profile time = {:5.2f}/{:5.2f}), scheuling cost = {:3.2f}",
-        get_scene_params().current_frame, 
-        frame_cost, scheduler.get_scheduled_end_time() * num_substep, // get_scheduled_end_time() should near to actual time in LaunchModeHetero
-        scheduler.get_scheduled_speedups()[1] * 100, 
-        scheduler.get_scheduled_speedups()[0] * 100,
-        num_substep * scheduler.get_proc_costs()[1], // GPU is proc 1
-        num_substep * scheduler.get_proc_costs()[0]  // CPU is proc 0
-        , scheule_clock.duration()
-    ); 
+    if (get_scene_params().current_frame == 29 && launch_mode == Launcher::Scheduler::LaunchModeHetero) scheduler.print_task_costs_map();
 
     {
         if (get_scene_params().print_xpbd_convergence)
@@ -2816,12 +2829,14 @@ int main()
         fast_format("");
         fast_format("");
         fast_format("Sync CPU part");
+        get_scene_params().launch_mode = Launcher::Scheduler::LaunchModeCpu;
     }
     {   
         for (uint frame = 0; frame < max_frame; frame++)
         {   get_scene_params().current_frame = frame;    
 
             // solver.physics_step(SolverTypeVBD_CPU);
+            solver.physics_step(SolverTypeVBD_async);
         }
     }
     {
@@ -2832,12 +2847,14 @@ int main()
     {
         solver.restart_system();
         fast_format("Sync GPU part");
+        get_scene_params().launch_mode = Launcher::Scheduler::LaunchModeGpu;
     }
     {   
         for (uint frame = 0; frame < max_frame; frame++)
         {   get_scene_params().current_frame = frame; 
 
             // solver.physics_step(SolverTypeVBD_GPU);
+            solver.physics_step(SolverTypeVBD_async);
         }
     }
     {
@@ -2849,6 +2866,7 @@ int main()
     {
         solver.restart_system();
         fast_format("Hybrid part");
+        get_scene_params().launch_mode = Launcher::Scheduler::LaunchModeHetero;
     }
     {
         for (uint frame = 0; frame < max_frame; frame++)

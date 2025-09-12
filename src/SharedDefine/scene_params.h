@@ -72,6 +72,7 @@ struct SceneParams {
     uint current_it = 0;
 
     uint animation_start_frame = 9999;
+    uint launch_mode = 0;
 
     
     uint max_vv_per_vert_broad_self_collision = 32;
