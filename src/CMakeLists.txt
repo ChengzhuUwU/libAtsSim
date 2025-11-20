@@ -4,6 +4,7 @@ set(CODES_DIR
               ${CMAKE_CURRENT_SOURCE_DIR}/SharedDefine
               ${CMAKE_CURRENT_SOURCE_DIR}/Utils
               ${CMAKE_CURRENT_SOURCE_DIR}/Heterogeneous
+              ${CMAKE_CURRENT_SOURCE_DIR}/CollisionUtils
               ${CMAKE_CURRENT_SOURCE_DIR}/Solver
 )
 
