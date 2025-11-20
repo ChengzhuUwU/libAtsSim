@@ -48,6 +48,7 @@ add_executable(Example2 ${EXAMPLE_PATH}/example2_async_iter.cpp)
 
 if (APPLE)
     add_executable(Example3 ${EXAMPLE_PATH}/example3_hybrid_cpu_gpu.cpp)
+    add_executable(Example4 ${EXAMPLE_PATH}/example4_case_letter.cpp)
     add_executable(Test1 ${EXAMPLE_PATH}/test_1_waiting_events.cpp)
 endif()
 
@@ -55,11 +56,12 @@ endif()
 
 
 if(APPLE)
-add_custom_target(MetalShader 
-                  COMMAND  python3 ${CMAKE_CURRENT_SOURCE_DIR}/compile_shader_and_make_proj.py
-                  WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-                 )
-add_dependencies(Example3 MetalShader)
+    add_custom_target(MetalShader 
+                    COMMAND  python3 ${CMAKE_CURRENT_SOURCE_DIR}/compile_shader_and_make_proj.py
+                    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+                    )
+    add_dependencies(Example3 MetalShader)
+    add_dependencies(Example4 MetalShader)
 endif()
 
 # For xcode: cmake -G Xcode ..
