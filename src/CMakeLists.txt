@@ -83,27 +83,26 @@ list(APPEND EXTRA_LIBS glm::glm)
 # add_compile_definitions(__TBB_DYNAMIC_LOAD_ENABLED=0) # tbb
 # add_compile_definitions(-DTBB_ENABLE_IPO=OFF) # tbb
 
+
+
 if(APPLE)
-    # 第三方库：metal
     list(APPEND EXTRA_LIBS "-framework Foundation")
     list(APPEND EXTRA_LIBS "-framework Metal")
     list(APPEND EXTRA_LIBS "-framework QuartzCore")
     list(APPEND EXTRA_LIBS "-framework AppKit")
 endif()
-
-
-# list(APPEND EXTRA_LIBS nanogui)
-
 set(METAL_CPP_DIR ${THIRDPARTY_DIR}/metal\-cpp)
-message(STATUS "METAL_CPP_DIR: ${METAL_CPP_DIR}")
-target_link_libraries(Scheduler PUBLIC ${EXTRA_LIBS})
-
-target_include_directories(Scheduler PUBLIC ${CODES_DIR})
-target_include_directories(Scheduler PUBLIC ${PROJECT_BINARY_DIR}) # projectbinatydir为build目录
-
 if(APPLE)
 target_include_directories(Scheduler PUBLIC ${METAL_CPP_DIR})
 endif()
 
+
+# list(APPEND EXTRA_LIBS nanogui)
+
+
+
+target_link_libraries(Scheduler PUBLIC ${EXTRA_LIBS})
+target_include_directories(Scheduler PUBLIC ${CODES_DIR})
+target_include_directories(Scheduler PUBLIC ${PROJECT_BINARY_DIR}) # projectbinatydir为build目录
 
 

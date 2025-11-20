@@ -34,25 +34,25 @@ Our HEFT implementation is based on a [python-version heft](https://github.com/m
 
 ### HEFT scheduling algorithm
 
-1. Rrepresent the relationship between tasks as *DAG*(Directed Acyclic Graph): In DAG, each node represent for each tasks, each edge represent for the relying dependencies (e.g., broadphase collision detection should complete before narrowphase collision detection. If two tasks perform on different devices, we may need to copy the relative data to target device). 
+1. Rrepresent the relationship between tasks as **DAG**(Directed Acyclic Graph): In DAG, each node represent for each tasks, each edge represent for the relying dependencies (e.g., broadphase collision detection should complete before narrowphase collision detection. If two tasks perform on different devices, we may need to copy the relative data to target device). 
 
-- In practical, we can save the information of *edge* in node's data struct as two lists: predecessors and  successors (of each node).
+- In practical, we can save the information of **edges** in node's data structrue as two lists: predecessors, and successors (of each node).
 
 2. Topology sorting: By perfoming ropology soring, we can get a ordered list, which generates an ordered table that ensures the dependencies between tasks (Which means by execute tasks in the order of this list, we can ensure that the dependencies of each task can be satisfied). 
 
 - We can use DFS-based or BFS-based tojpology sorting. Both methods can satisfy the dependencies, however, we recommend using the DFS-based (Depth First Traversal) topology sorting, which tends to group a set of tasks with tighter relationships together, making it easier for us to perform tasks merging and other operations in the future. In addition, the topology sorting method based on DFS can also facilitate us to identify the loops in DAG
 
-3. (Optional) We cab execute the sorted list in sequence several times, to obtain the *computation matrix* for each task. and *communication matrix* between devices. For UMA (Unified Memory Architecture), the communication matrix is a constant matrix (About 0.2ms accross decices).
+3. (Optional) We cab execute the sorted list in sequence several times, to obtain the **computation matrix** for each task. and **communication matrix** between devices. For UMA (Unified Memory Architecture), the communication matrix is a constant matrix (About 0.2ms accross decices).
 
 4. $rank_u$ calculation: We traverse the *reverse order* of list by topology sorting, and for each node $i$, we calculte its $rank_u$ value as (Condiering we have $m$ processors): 
 
 $$ rank_u [i] = \frac{1}{m} \sum_{p \in \text{processors}} \text{comp}[i][p] + \max_{j \in \text{successors}} (rank_u[j] + \frac{1}{m} \sum_{p \in \text{processors}} \text{comm}[i][j][p] ) $$
 
-- Which means we calculate $rank_u$ from the last task to the first task. $rank_u$ represents the *estimated time* span from the current task to the last task. It quantifies the dependency of each task. If a task has more subsequent tasks, it represents a higher degree of dependency, that is, its $rank_u$ value will also be higher. 
+- Which means we calculate $rank_u$ from the last task to the first task. $rank_u$ represents the **estimated time** span from the current task to the last task. It quantifies the dependency of each task. If a task has more subsequent tasks, it represents a higher degree of dependency, that is, its $rank_u$ value will also be higher. 
 
 5. EFT calculation and task assignment: We traverse the task list sorted in reverse order by $rank_u$, and calculate the EFT (Eerlest Finish Time) of each task on different devices. We use the device with the smallest EFT value as the inserted device. 
 
-    - Since We need to satisfy the dependency relationship between tasks, so the earliest execution time of the task must *not be earlier than the finish time of its predecessors* (if its predecessors are executed on other devices, the communication cost between devices also needs to be considered)
+    - Since We need to satisfy the dependency relationship between tasks, so the earliest execution time of the task must **not be earlier than the finish time of its predecessors** (if its predecessors are executed on other devices, the communication cost between devices also needs to be considered)
 
     - How do to calculate EFT: Researchers will divide the time average into discrete timestamps (e.g., 100 or 1000 timestamps), traverse these timestamps, and calculate the earlist available time. This method is inefficient and relies on timestamp partitioning. We refer to the implentation from [python-version heft](https://github.com/mackncheesiest/heft), which only need to consider the following situations (Given the ealist start time `ready_time`):
 
