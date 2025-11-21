@@ -1,17 +1,17 @@
 #pragma once
 
-#ifndef  METAL_CODE
+#ifndef METAL_CODE
 #include "shared_array.h"
 #endif
 
 #include "float_n.h"
 
 struct SceneParams {
-// public:
+    // public:
     bool simulate_cloth = false;
     bool simulate_tet = false;
     bool simulate_obstacle = false;
-    
+
     bool use_explicit = false;
     bool use_gpu = false;
     bool use_jacobi = false;
@@ -63,8 +63,8 @@ struct SceneParams {
     bool sod_use_jacobi = false;
 
     uint current_frame = 0;
-    
-    uint num_iteration = 96;   
+
+    uint num_iteration = 96;
     uint num_substep = 8;
     uint collision_detection_frequece = 1;
     uint current_substep = 0;
@@ -74,7 +74,6 @@ struct SceneParams {
     uint animation_start_frame = 9999;
     uint launch_mode = 0;
 
-    
     uint max_vv_per_vert_broad_self_collision = 32;
     uint max_vf_per_vert_broad_self_collision = 32;
     uint max_vv_per_vert_narrow_self_collision = 16;
@@ -90,9 +89,9 @@ struct SceneParams {
     float laplasion_damping_tet_weight = 0.5;
 
     uint use_big_damping_frame = 999999;
-    uint dag_mode = -1u; // -1u:non, 0:full cloth, 1:full tet, 2:hybrid
+    uint dag_mode = -1u;// -1u:non, 0:full cloth, 1:full tet, 2:hybrid
 
-    float implicit_dt = 1.f/30.f;
+    float implicit_dt = 1.f / 30.f;
     // float implicit_dt = 1.f/1000.f;
     float explicit_dt = 1E-4;
     float dt = implicit_dt;
@@ -101,7 +100,7 @@ struct SceneParams {
     float stiffness_stretch_BaraffWitkin = 200.f;
     float stiffness_stretch_spring = 1e4;
     float youngs_modulus_cloth = 1e7;
-    float youngs_modulus_tet = 1e7;
+    float youngs_modulus_tet = 1e4;
     float poisson_ratio_cloth = 0.2f;
     float poisson_ratio_tet = 0.2f;
     float stiffness_bending_ui = 0.5f;
@@ -111,10 +110,10 @@ struct SceneParams {
     float stiffness_DAB_bending = stiffness_quadratic_bending;
     float stiffness_ef_ui = 5.f;
     float stiffness_ef_basic = 0.1f;
-    float balloon_scale_rate = 1.0f; 
-    float stiffness_pressure = 1e5; 
-    float damping_cloth = 2.0f; 
-    float damping_tet = 0.0f; 
+    float balloon_scale_rate = 1.0f;
+    float stiffness_pressure = 1e5;
+    float damping_cloth = 2.0f;
+    float damping_tet = 0.0f;
 
     // float stiffness_collision = pow_scalar(10.f, stiffness_collision_ui);
     float stiffness_ef = stiffness_ef_ui * stiffness_ef_basic;
@@ -141,7 +140,6 @@ struct SceneParams {
     float density_cloth = 0.01;
     float density_tet = 10.0;
     float chebyshev_omega = 1.0f;
-    
 
     Float3 gravity{0, -9.8f, 0};
     Float3 floor{0, -0.5f, 0};
@@ -154,20 +152,19 @@ struct SceneParams {
     bool use_fixed_verts = false;
     bool use_attach = false;
 
-    SceneParams(){}
-    
+    SceneParams() {}
+
     uint get_curr_iteration_with_substep() { return num_substep * current_substep + current_it; }
     float get_substep_dt() { return implicit_dt / float(num_substep); }
     float get_stiffness_quadratic_bending() { return stiffness_quadratic_bending * stiffness_bending_ui; }
     float get_stiffness_DAB_bending() { return stiffness_DAB_bending * stiffness_bending_ui; }
-    
 };
 
-#ifndef  METAL_CODE
+#ifndef METAL_CODE
 
 void init_scene_params();
-SceneParams& get_scene_params();
-SharedArray<SceneParams>& get_scene_params_array();
+SceneParams &get_scene_params();
+SharedArray<SceneParams> &get_scene_params_array();
 
 #endif
 

@@ -157,6 +157,8 @@ struct XpbdData {
     Array(Float3) sa_x_iter_start;
     Array(Float3) sa_x_step_start;
 
+    Array(FlagType) sa_vert_mutex;
+
     Array(float)
         debug_buffer;
     Array(AABB)

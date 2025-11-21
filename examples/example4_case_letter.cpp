@@ -316,22 +316,6 @@ void init_tet_mesh(TetData *mesh_data) {
                 mesh_data->sa_is_fixed[vid] = false;
             });
         }
-
-        // Set vert mass
-        {
-            mesh_data->sa_vert_mass.resize(num_verts);
-            mesh_data->sa_vert_mass_inv.resize(num_verts);
-
-            const float defulat_density = 0.01f;
-            const float defulat_mass =
-                defulat_density * get_scene_params().default_mass;
-            parallel_for(0, num_verts, [&](const uint vid) {
-                bool is_fixed = mesh_data->sa_is_fixed[vid] != 0;
-                mesh_data->sa_vert_mass[vid] = (defulat_mass);
-                mesh_data->sa_vert_mass_inv[vid] =
-                    is_fixed ? 0.0f : 1.0f / (defulat_mass);
-            });
-        }
     }
 
     // Init adjacent list
@@ -370,6 +354,30 @@ void init_tet_mesh(TetData *mesh_data) {
             mesh_data->sa_Dm[tid] = Dm;
             mesh_data->sa_Dm_inv[tid] = Dm_inv;
             mesh_data->sa_tet_volumn[tid] = compute_tet_volumn(vert_pos[0], vert_pos[1], vert_pos[2], vert_pos[3]);
+        });
+    }
+
+    // Set vert mass
+    {
+        mesh_data->sa_vert_mass.resize(num_verts);
+        mesh_data->sa_vert_mass_inv.resize(num_verts);
+
+        const float defulat_density = 10.0f;
+        const float defulat_mass =
+            defulat_density * get_scene_params().default_mass;
+        parallel_for(0, num_verts, [&](const uint vid) {
+            bool is_fixed = mesh_data->sa_is_fixed[vid] != 0;
+
+            float curr_volumn = 0.0f;
+            const auto &adj_tets = mesh_data->vert_adj_tets[vid];
+            for (auto tid : adj_tets) {
+                curr_volumn += mesh_data->sa_tet_volumn[tid] * defulat_density;
+            }
+            curr_volumn /= float(adj_tets.size());
+            float current_mass = curr_volumn * defulat_density;
+            mesh_data->sa_vert_mass[vid] = current_mass;
+            mesh_data->sa_vert_mass_inv[vid] =
+                is_fixed ? 0.0f : 1.0f / (current_mass);
         });
     }
 
@@ -436,6 +444,8 @@ void XpbdData::resize(TetData *tetrahedral, ObstacleData *obstacle) {
 
     for (auto &buffer : sa_async_iter_positions_tet) { buffer.resize(num_verts_tet); }
     for (auto &buffer : sa_async_begin_positions_tet) { buffer.resize(num_verts_tet); }
+
+    sa_vert_mutex.resize(num_verts_tet);
 
     sa_detection_position_bg.resize(num_verts_collision_total);
     sa_detection_position_ed.resize(num_verts_collision_total);
@@ -924,22 +934,7 @@ void CpuSolver::init_simulation_params() {
         get_scene_params().num_substep * get_scene_params().constraint_iter_count;
     get_scene_params().collision_detection_frequece = 1;
 
-    get_scene_params().stiffness_stretch_BaraffWitkin =
-        FEM::calcSecondLame(get_scene_params().youngs_modulus_cloth,
-                            get_scene_params().poisson_ratio_cloth);// mu;
-    get_scene_params().stiffness_stretch_spring =
-        FEM::calcSecondLame(get_scene_params().youngs_modulus_cloth,
-                            get_scene_params().poisson_ratio_cloth);// mu;
     get_scene_params().xpbd_stiffness_collision = 1e7;
-    get_scene_params().balloon_scale_rate = 1.0;
-    get_scene_params().stiffness_pressure = 1e6;
-
-    {
-        get_scene_params().stiffness_stretch_spring = 1e4;
-        get_scene_params().xpbd_stiffness_collision = 1e7;
-        get_scene_params().stiffness_quadratic_bending = 5e-3;
-        get_scene_params().stiffness_DAB_bending = 5e-3;
-    }
 }
 
 void CpuSolver::collision_detection() {
@@ -977,20 +972,20 @@ void CpuSolver::update_velocity() {
     parallel_for(0, mesh_data->num_verts_total, [&](const uint vid) {
         Constrains::Core::update_velocity(
             vid, xpbd_data->sa_v.data(), xpbd_data->sa_x.data(),
-            xpbd_data->sa_x_iter_start.data(), xpbd_data->sa_x_step_start.data(),
+            xpbd_data->sa_x_step_start.data(), xpbd_data->sa_x_step_start.data(),
             xpbd_data->sa_v.data(), get_scene_params().get_substep_dt(),
-            get_scene_params().damping_cloth, false);
+            get_scene_params().damping_tet, false);
     });
 }
 void GpuSolver::update_velocity() {
     get_command_list().add_task(fn_update_velocity);
     fn_update_velocity.bind_ptr(xpbd_data->sa_v);
     fn_update_velocity.bind_ptr(xpbd_data->sa_x);
-    fn_update_velocity.bind_ptr(xpbd_data->sa_x_iter_start);
+    fn_update_velocity.bind_ptr(xpbd_data->sa_x_step_start);
     fn_update_velocity.bind_ptr(xpbd_data->sa_x_step_start);
     fn_update_velocity.bind_ptr(xpbd_data->sa_v);
     fn_update_velocity.bind_constant(get_scene_params().get_substep_dt());
-    fn_update_velocity.bind_constant(get_scene_params().damping_cloth);
+    fn_update_velocity.bind_constant(get_scene_params().damping_tet);
     fn_update_velocity.bind_constant(false);
     fn_update_velocity.launch_async(mesh_data->num_verts_total);
 }
@@ -1178,6 +1173,35 @@ void CpuSolver::solve_constraint_tet_stress(Buffer<Float3> &sa_iter_position, co
         32);
 }
 void GpuSolver::solve_constraint_tet_stress(Buffer<Float3> &sa_iter_position, const uint cluster_idx) {
+    if (!get_scene_params().simulate_tet) return;
+
+    const float m_first_lame = FEM::calcFirstLame(get_scene_params().youngs_modulus_tet, get_scene_params().poisson_ratio_tet);  // lambda
+    const float m_second_lame = FEM::calcSecondLame(get_scene_params().youngs_modulus_tet, get_scene_params().poisson_ratio_tet);// mu
+
+    const uint curr_prefix = xpbd_data->prefix_tet_stress[cluster_idx];
+    const uint next_prefix = xpbd_data->prefix_tet_stress[cluster_idx + 1];
+    const uint num_elements_clustered = next_prefix - curr_prefix;
+
+    get_command_list().add_task(fn_xpbd_constraint_neohookean);
+    fn_xpbd_constraint_neohookean.bind_ptr(sa_iter_position);
+    fn_xpbd_constraint_neohookean.bind_ptr(sa_iter_position);
+    fn_xpbd_constraint_neohookean.bind_ptr(xpbd_data->sa_x_step_start);
+    fn_xpbd_constraint_neohookean.bind_ptr(xpbd_data->sa_vert_mutex);
+    fn_xpbd_constraint_neohookean.bind_ptr(xpbd_data->lambda_tet_stress_hydrostatic_term);
+    fn_xpbd_constraint_neohookean.bind_ptr(xpbd_data->lambda_tet_stress_deviatoric_term);
+    fn_xpbd_constraint_neohookean.bind_ptr(mesh_data->sa_vert_mass_inv);
+    fn_xpbd_constraint_neohookean.bind_ptr(xpbd_data->sa_merged_tets);
+    fn_xpbd_constraint_neohookean.bind_ptr(xpbd_data->sa_merged_tet_volumn);
+    fn_xpbd_constraint_neohookean.bind_ptr(xpbd_data->sa_merged_Dm_inv);
+
+    fn_xpbd_constraint_neohookean.bind_ptr(xpbd_data->prefix_tet_stress);
+    fn_xpbd_constraint_neohookean.bind_constant(true);
+    fn_xpbd_constraint_neohookean.bind_constant(cluster_idx);
+    fn_xpbd_constraint_neohookean.bind_constant(m_first_lame);
+    fn_xpbd_constraint_neohookean.bind_constant(m_second_lame);
+    fn_xpbd_constraint_neohookean.bind_constant(get_scene_params().get_substep_dt());
+    fn_xpbd_constraint_neohookean.bind_constant(false);
+    fn_xpbd_constraint_neohookean.launch_async(num_elements_clustered);
 }
 void CpuSolver::solve_constraint_ground_collision(Buffer<Float3> &sa_iter_position) {
     parallel_for(
@@ -1316,6 +1340,9 @@ void CpuSolver::physics_step_xpbd() {
 
             collision_detection();
 
+            reset_constrains();
+            reset_collision_constrains();
+
             // Constraint iteration part
             {
                 for (uint iter = 0; iter < constraint_iter_count; iter++)// 200 or 1 ?
@@ -1364,6 +1391,8 @@ void GpuSolver::physics_step_xpbd() {
     SimClock clock;
     clock.start_clock();
 
+    fast_format("Num substep = {}, num Iter  = {}", num_substep, constraint_iter_count);
+
     for (uint substep = 0; substep < num_substep; substep++)// 1 or 50 ?
     {
         {
@@ -1376,6 +1405,9 @@ void GpuSolver::physics_step_xpbd() {
 
             collision_detection();
 
+            reset_constrains();
+            reset_collision_constrains();
+
             // Constraint iteration part
             {
                 for (uint iter = 0; iter < constraint_iter_count; iter++)// 200 or 1 ?
@@ -1383,11 +1415,7 @@ void GpuSolver::physics_step_xpbd() {
                     {
                         get_scene_params().current_it = iter;
                     }
-                    if (get_scene_params().use_vbd_solver) {
-                        solve_constraints_XPBD();
-                    } else {
-                        fast_format_err("empty solver");
-                    }
+                    solve_constraints_XPBD();
                 }
             }
 
@@ -2504,11 +2532,11 @@ void CpuSolver::solve_constraints_XPBD() {
         for (uint i = 0; i < xpbd_data->num_clusters_tet_stress; i++) {
             solve_constraint_tet_stress(iter_position, i);
         }
-        solve_constraint_ground_collision(iter_position);
-        solve_constraint_obstacle_collision(iter_position);
-        for (uint i = 0; i < xpbd_data->num_combined_clusters_self_collision; i++) {
-            solve_constraint_self_collision(iter_position, i);
-        }
+        // solve_constraint_ground_collision(iter_position);
+        // solve_constraint_obstacle_collision(iter_position);
+        // for (uint i = 0; i < xpbd_data->num_combined_clusters_self_collision; i++) {
+        //     solve_constraint_self_collision(iter_position, i);
+        // }
     }
 
     if (get_scene_params().print_xpbd_convergence) {
@@ -2787,7 +2815,7 @@ int main() {
         get_scene_params().use_vbd_solver = true;
     }
 
-    const uint max_frame = 30;
+    const uint max_frame = 15;
 
     // Synchronous CPU Implementation
     {
@@ -2802,6 +2830,7 @@ int main() {
         for (uint frame = 0; frame < max_frame; frame++) {
             get_scene_params().current_frame = frame;
 
+            // solver.physics_step(SolverType::XPBD_CPU);
             solver.physics_step(SolverType::XPBD_CPU);
         }
     }
