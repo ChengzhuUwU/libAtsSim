@@ -57,7 +57,7 @@ struct BasicMeshData {
     Buffer<float> sa_system_energy;
 };
 
-struct XpbdData {
+struct ExbpdData {
     Buffer<Float3> sa_x_tilde;
     Buffer<Float3> sa_x;
     Buffer<Float3> sa_v;
@@ -393,7 +393,7 @@ public:
     ~CpuSolver() {}
 
     // TODO: Replace to shared_ptr
-    void get_data_pointer(XpbdData *xpbd_ptr, BasicMeshData *mesh_ptr) {
+    void get_data_pointer(ExbpdData *xpbd_ptr, BasicMeshData *mesh_ptr) {
         xpbd_data = xpbd_ptr;
         mesh_data = mesh_ptr;
     }
@@ -428,7 +428,7 @@ private:
     void vbd_step(Buffer<Float3> &curr_cloth_position, const uint cluster_idx);
 
 private:
-    XpbdData *xpbd_data;
+    ExbpdData *xpbd_data;
     BasicMeshData *mesh_data;
 };
 static uint energy_idx = 0;
@@ -1454,7 +1454,7 @@ private:
     BasicMeshData *mesh_data;
 
 private:
-    XpbdData xpbd_data;
+    ExbpdData xpbd_data;
     CpuSolver cpu_solver;
 };
 

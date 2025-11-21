@@ -1,11 +1,15 @@
 #include "command_list.h"
 #include "fem_energy.h"
 #include "launcher.h"
+#include "lbvh_interface.h"
 #include "mesh_reader.h"
+#include "obstacle_data.h"
 #include "scene_params.h"
 #include "shared_array.h"
+#include "sim_data.h"
 #include "struct_to_string.h"
 #include "xpbd_constraints.h"
+#include "xpbd_data.h"
 #include <iostream>
 #include <tbb/tbb.h>
 
@@ -13,84 +17,65 @@ template<typename T>
 using Buffer = SharedArray<T>;
 // using Buffer = std::vector<T>;
 
-struct BasicMeshData {
-    uint num_verts;
-    uint num_faces;
-    uint num_edges;
-    uint num_bending_edges;
-
-    Buffer<Float3> sa_rest_x;
-    Buffer<Float3> sa_rest_v;
-
-    Buffer<Float3> sa_x_frame_start;
-    Buffer<Float3> sa_v_frame_start;
-    Buffer<Float3> sa_x_frame_end;
-    Buffer<Float3> sa_v_frame_end;
-    Buffer<Float3> sa_x_frame_saved;
-    Buffer<Float3> sa_v_frame_saved;
-
-    Buffer<Int3> sa_faces;
-    Buffer<Int2> sa_edges;
-    Buffer<Int4> sa_bending_edges;
-
-    Buffer<float> sa_vert_mass;
-    Buffer<float> sa_vert_mass_inv;
-    Buffer<uchar> sa_is_fixed;
-
-    Buffer<float> sa_edges_rest_state_length;
-    Buffer<float> sa_bending_edges_rest_angle;
-    Buffer<Float4x4> sa_bending_edges_Q;
-
-    Buffer<uint> sa_vert_adj_verts;
-    std::vector<std::vector<uint>> vert_adj_verts;
-    Buffer<uint> sa_vert_adj_verts_with_bending;
-    std::vector<std::vector<uint>> vert_adj_verts_with_bending;
-    Buffer<uint> sa_vert_adj_faces;
-    std::vector<std::vector<uint>> vert_adj_faces;
-    Buffer<uint> sa_vert_adj_edges;
-    std::vector<std::vector<uint>> vert_adj_edges;
-    Buffer<uint> sa_vert_adj_bending_edges;
-    std::vector<std::vector<uint>> vert_adj_bending_edges;
-
-    Buffer<float> sa_system_energy;
-    Buffer<float> sa_system_energy_2;
+struct InputTriangleMesh {
+    std::string mesh_name;
+    std::string mtl_filename = "";
+    std::string use_mtl_name = "";
+    TriangleMeshData mesh;
+    std::vector<bool> fixed_points;
+    uint m_inner_order;
+    Float3 m_translation;
+    Float3 m_rotation;
+    Float3 m_scale;
+    Float4x4 m_matrix;// MVP中的M
+    InputTriangleMesh() {}
+    InputTriangleMesh(
+        const std::string &mesh_name,
+        // const std::string& mtl_filename,
+        // const std::string& use_mtl_name,
+        const TriangleMeshData &mesh,
+        const std::vector<bool> &fixed_points,
+        const Float3 &m_translation,
+        const Float3 &m_rotation,
+        const Float3 &m_scale) : mesh_name(mesh_name),
+                                 // mtl_filename(mtl_filename),
+                                 // use_mtl_name(use_mtl_name),
+                                 mesh(mesh),
+                                 fixed_points(fixed_points),
+                                 m_inner_order(0),
+                                 m_translation(m_translation),
+                                 m_rotation(m_rotation),
+                                 m_scale(m_scale),
+                                 m_matrix(make_model_matrix(m_translation, m_rotation, m_scale)) {}
 };
+struct InputTetrahedralMesh {
+    std::vector<Float3> positions;
+    std::vector<bool> fixed_points;
+    std::vector<Int4> tets;
+    std::vector<uint> inner_tets;
+    std::vector<uint> outer_tets;
+    std::vector<Int3> surface_faces;
+    std::vector<Int2> surface_edges;
+    std::vector<uint> surface_verts;
+    std::string mesh_name;
+    std::string mtl_filename;
+    std::string use_mtl_name;
 
-struct XpbdData {
-    Buffer<Float3> sa_x_tilde;
-    Buffer<Float3> sa_x;
-    Buffer<Float3> sa_v;
-    Buffer<Float3> sa_v_start;
-    Buffer<Float3> sa_x_start;// For calculating velocity
+    Float3 m_translation;
+    Float3 m_rotation;
+    Float3 m_scale;
+    Float4x4 m_matrix;
 
-    Buffer<Int2> sa_merged_edges;
-    Buffer<float> sa_merged_edges_rest_length;
-
-    Buffer<Int4> sa_merged_bending_edges;
-    Buffer<float> sa_merged_bending_edges_angle;
-    Buffer<Float4x4> sa_merged_bending_edges_Q;
-
-    uint num_clusters_stretch_mass_spring = 0;
-    Buffer<uint> clusterd_constraint_stretch_mass_spring;
-    Buffer<uint> prefix_stretch_mass_spring;
-    Buffer<float> sa_lambda_stretch_mass_spring;
-
-    uint num_clusters_bending = 0;
-    Buffer<uint> clusterd_constraint_bending;
-    Buffer<uint> prefix_bending;
-    Buffer<float> sa_lambda_bending;
-
-    // VBD
-    uint num_clusters_per_vertex_bending = 0;
-    Buffer<uint> prefix_per_vertex_bending;
-    Buffer<uint> clusterd_per_vertex_bending;
-    Buffer<uchar> per_vertex_bending_cluster_id;
-    Buffer<Float4x3> sa_Hf;
-    Buffer<Float4x3> sa_Hf_2;
-
-    // Async
-    Buffer<Float3> sa_async_iter_positions_cloth[32];
-    Buffer<Float3> sa_async_begin_positions_cloth[32];
+    void release() {
+        positions.shrink_to_fit();
+        tets.shrink_to_fit();
+        inner_tets.shrink_to_fit();
+        outer_tets.shrink_to_fit();
+        surface_faces.shrink_to_fit();
+        surface_edges.shrink_to_fit();
+        surface_verts.shrink_to_fit();
+        mesh_name.shrink_to_fit();
+    }
 };
 
 template<typename T>
@@ -142,15 +127,125 @@ upload_2d_csr_from(SharedArray<uint> &dest,
     return dest.upload_2d_csr(input_map);
 }
 
-void init_mesh(BasicMeshData *mesh_data) {
-    std::string model_name = "square8K.obj";
-    // std::string model_name = "square40K.obj";
-    Float3 transform = make<Float3>(0.0f);
-    Float3 rotation = make<Float3>(0.0f * Pi);
-    Float3 scale = makeFloat3(1.0f);
+void add_tet_mesh(std::vector<Float3> &position, std::vector<Int4> &tets,
+                  std::string tet_name, std::function<void(const std::vector<Float3> &, std::vector<bool> &is_fixed)> get_fixed_verts_func,
+                  Float3 t, Float3 r, Float3 s, InputTetrahedralMesh &input_tet) {
+    get_scene_params().simulate_tet = true;
+    // {
+    //     std::vector<Float3> position_copy(position);
+    //     std::vector<Int4> tets_copy(tets);
+    //     sort_vert_and_element_by_morton(position_copy, tets_copy, position, tets);
+    // }
 
-    TriangleMeshData input_mesh;
-    bool second_read = SimMesh::read_mesh_file(model_name, input_mesh, true);
+    input_tet.mesh_name = (tet_name);
+
+    input_tet.m_translation = (t);
+    input_tet.m_rotation = (r);
+    input_tet.m_scale = (s);
+    input_tet.m_matrix = (make_model_matrix(t, r, s));
+
+    // Prapare Surface Mat Data
+    {
+        // Get Surface Faces
+        const uint num_verts = position.size();
+        const uint num_tets = tets.size();
+
+        uint num_surface_faces = 0;
+        std::vector<Int3> curr_surface_faces;
+        std::vector<uint> curr_outer_tets;
+        std::vector<uint> curr_inner_tets;
+        uint num_surface_edges = 0;
+        std::vector<Int2> curr_surface_edges;
+        std::vector<Int4> tmp_bending_edges;
+        uint num_surface_verts = 0;
+        std::vector<uint> curr_suface_verts;
+
+        SimMesh::extract_surface_face_and_vert_from_tets(position, tets, curr_inner_tets, curr_outer_tets, curr_surface_faces, curr_suface_verts);
+
+        // fast_format("Surface Vert Size = {}, Total Size = {}, LastIndices of Surface Verts = {}", curr_suface_verts.size(), num_verts, curr_suface_verts.back());
+
+        {
+            // Sort Tet By Surface
+            const uint num_inner = curr_inner_tets.size();
+            const uint num_outer = curr_outer_tets.size();
+            if (num_inner + num_outer != num_tets) {
+                fast_format_err("Sum of Inner Tets & Outer Tets Is Not Equal To Total Tets");
+                exit(0);
+            }
+
+            std::vector<Int4> tets_copy(tets);
+            parallel_for(0, num_outer, [&](const uint tid) {
+                const uint index = curr_outer_tets[tid];
+                tets[tid] = tets_copy[index];
+            });
+            parallel_for(0, num_inner, [&](const uint tid) {
+                const uint index = curr_inner_tets[tid];
+                tets[num_outer + tid] = tets_copy[index];
+            });
+        }
+
+        SimMesh::extract_edges_from_surface<false>(curr_surface_faces, curr_surface_edges, tmp_bending_edges);
+
+        input_tet.positions = (position);
+        input_tet.tets = (tets);
+        input_tet.inner_tets = (curr_inner_tets);
+        input_tet.outer_tets = (curr_outer_tets);
+        input_tet.surface_verts = (curr_suface_verts);
+        input_tet.surface_faces = (curr_surface_faces);
+        input_tet.surface_edges = (curr_surface_edges);// Actually To Be Filled
+    }
+
+    std::vector<bool> is_fixed(position.size(), false);
+    get_fixed_verts_func(position, is_fixed);
+    input_tet.fixed_points = (is_fixed);
+
+    AABB aabb = parallel_for_and_reduce_sum<AABB>(0, position.size(), [&](const uint vid) {
+        return AABB(position[vid]);
+    });
+    fast_format("Tetrahedral Info : NumVerts = {} , NumTets = {} , NumSurfaceVerts = {} , NumSurfaceFaces = {} , NumSurfaceTets = {} , NumSurfaceEdges = {} ",
+                position.size(), tets.size(), input_tet.surface_verts.size(), input_tet.surface_faces.size(), input_tet.outer_tets.size(), input_tet.surface_edges.size());
+}
+
+void AppendTetrahedralModel(std::string model_name,
+                            std::function<void(const std::vector<Float3> &local_position, std::vector<bool> &is_fixed)> get_fixed_verts_func,
+                            Float3 position,
+                            Float3 rotation,
+                            Float3 scale, bool use_default_path, InputTetrahedralMesh &input_tet) {
+    std::vector<Float3> sa_position;
+    std::vector<Int4> sa_tets;
+
+    auto dot_pos = model_name.find_last_of('.');
+    if (dot_pos == std::string::npos) {
+        fast_format_err("Error: File extension not found in model name: {} ", model_name);
+        return;
+    }
+    std::string extension = model_name.substr(dot_pos + 1);
+    std::transform(extension.begin(), extension.end(), extension.begin(), ::tolower);
+
+    std::string obj_name = model_name;
+    {
+        std::filesystem::path path(obj_name);
+        obj_name = path.stem().string() + "_" + std::to_string(input_tet.tets.size());
+    }
+
+    bool read_result;
+    if (extension == "t") {
+        read_result = SimMesh::read_tet_file_t(model_name, sa_position, sa_tets, true);
+        add_tet_mesh(sa_position, sa_tets, obj_name, get_fixed_verts_func, position, rotation, scale, input_tet);
+    } else if (extension == "vtk") {
+        read_result = SimMesh::read_tet_file_vtk(model_name, sa_position, sa_tets, true);
+        add_tet_mesh(sa_position, sa_tets, obj_name, get_fixed_verts_func, position, rotation, scale, input_tet);
+    } else {
+        std::cerr << "Error: Unsupported file format: " << extension << std::endl;
+        fast_format_err("Error: Unsupported file format:", extension);
+        return;
+    }
+}
+void AppendTriangleObstacleModel(std::string model_name,
+                                 Float3 position, Float3 rotation, Float3 scale, bool use_default_path,
+                                 const std::map<uint, AnimationPerFrameData> &animation_info, InputTriangleMesh &input_mesh) {
+    TriangleMeshData curr_mesh;
+    bool second_read = SimMesh::read_mesh_file(model_name, curr_mesh, use_default_path);
 
     std::string obj_name = model_name;
     {
@@ -158,69 +253,59 @@ void init_mesh(BasicMeshData *mesh_data) {
         obj_name = path.stem().string();
     }
 
-    const uint num_verts = input_mesh.model_positions.size();
-    const uint num_faces = input_mesh.faces.size();
-    const uint num_edges = input_mesh.edges.size();
-    const uint num_bending_edges = input_mesh.bending_edges.size();
+    // {
+    //     cloth_initializer.add_obstacle_mesh(curr_mesh, obj_name, position, rotation, scale);
+    //     list_animation_obstacle.push_back(animation_info);
+    //     list_animation_position_obstacle.push_back({});
+    // }
+}
 
-    fast_format("Cloth : (numVerts : {}) (numFaces : {})  (numEdges : {}) "
-                "(numBendingEdges : {})",
-                num_verts, num_faces, num_edges, num_bending_edges);
+void init_tet_mesh(TetData *mesh_data) {
+
+    InputTetrahedralMesh input_mesh;
+    AppendTetrahedralModel(
+        "SIGGRAPH.vtk", [](const std::vector<Float3> &local_position, std::vector<bool> &is_fixed) {}, makeFloat3(0.0f), makeFloat3(0.0f), makeFloat3(1.0f), true, input_mesh);
+
+    const uint num_verts = input_mesh.positions.size();
+    const uint num_faces = input_mesh.surface_faces.size();
+    const uint num_edges = input_mesh.surface_edges.size();
+    const uint num_tets = input_mesh.tets.size();
+
+    fast_format("Tetrahedron : (numVerts : {}) (numFaces : {})  (numEdges : {}) "
+                "(numTets : {})",
+                num_verts, num_faces, num_edges, num_tets);
 
     // Constant scalar
     {
-        mesh_data->num_verts = num_verts;
-        upload_from(mesh_data->sa_rest_x, input_mesh.model_positions);
-        mesh_data->num_faces = num_faces;
-        upload_from(mesh_data->sa_faces, input_mesh.faces);
-        mesh_data->num_edges = num_edges;
-        upload_from(mesh_data->sa_edges, input_mesh.edges);
-        mesh_data->num_bending_edges = num_bending_edges;
-        upload_from(mesh_data->sa_bending_edges, input_mesh.bending_edges);
+        mesh_data->num_verts_total = num_verts;
+        mesh_data->num_surface_faces_total = num_faces;
+        mesh_data->num_surface_edges_total = num_edges;
+        mesh_data->num_tets_total = num_tets;
     }
+
+    upload_from(mesh_data->sa_rest_position, input_mesh.positions);
+    upload_from(mesh_data->sa_surface_faces, input_mesh.surface_faces);
+    upload_from(mesh_data->sa_surface_edges, input_mesh.surface_edges);
+    upload_from(mesh_data->sa_tets, input_mesh.tets);
 
     // Init vert info
     {
         // Set rest position & velocity
         {
-            mesh_data->sa_rest_v.resize(num_verts);
             parallel_for(0, num_verts, [&](const uint vid) {
-                Float3 model_position = mesh_data->sa_rest_x[vid];
-                Float4x4 model_matrix = make_model_matrix(transform, rotation, scale);
+                Float3 model_position = mesh_data->sa_rest_position[vid];
+                Float4x4 model_matrix = make_model_matrix(input_mesh.m_translation, input_mesh.m_rotation, input_mesh.m_scale);
                 Float3 world_position = affine_position(model_matrix, model_position);
-                mesh_data->sa_rest_x[vid] = world_position;
-                mesh_data->sa_rest_v[vid] = Zero3;
+                mesh_data->sa_rest_position[vid] = world_position;
+                mesh_data->sa_rest_velocity[vid] = makeFloat3(0.0f);
             });
         }
 
         // Set fixed-points
         {
             mesh_data->sa_is_fixed.resize(num_verts);
-
-            AABB local_aabb = parallel_for_and_reduce_sum<AABB>(
-                0, mesh_data->sa_rest_x.size(),
-                [&](const uint vid) { return AABB(mesh_data->sa_rest_x[vid]); });
-
-            Float3 pos_min = local_aabb.min_pos;
-            Float3 pos_max = local_aabb.max_pos;
-            Float3 pos_dim = local_aabb.range();
-            Float3 pos_dim_inv = local_aabb.range_inv();
-
-            parallel_for(0, mesh_data->sa_rest_x.size(), [&](const uint vid) {
-                Float3 orig_pos = mesh_data->sa_rest_x[vid];
-                Float3 norm_pos = (orig_pos - pos_min) * pos_dim_inv;
-
-                bool is_fixed = false;
-                // is_fixed = norm_pos.y > 0.9f;
-                // is_fixed = norm_pos.z < 0.5;
-                // is_fixed = (norm_pos.x > 0.97f || norm_pos.x < 0.03f ) ;
-                // is_fixed = (norm_pos.x > 0.999f || norm_pos.x < 0.001f ) ;
-                is_fixed =
-                    norm_pos.z < 0.01f && (norm_pos.x > 0.99f || norm_pos.x < 0.01f);
-                // is_fixed = norm_pos.z < 0.001f && (norm_pos.x > 0.999f || norm_pos.x
-                // < 0.001f ) ; is_fixed = norm_pos.z < 0.001f && (norm_pos.x < 0.001f)
-                // ;
-                mesh_data->sa_is_fixed[vid] = is_fixed;
+            parallel_for(0, num_verts, [&](const uint vid) {
+                mesh_data->sa_is_fixed[vid] = false;
             });
         }
 
@@ -243,170 +328,74 @@ void init_mesh(BasicMeshData *mesh_data) {
 
     // Init adjacent list
     {
-        mesh_data->vert_adj_faces.resize(num_verts);
-        mesh_data->vert_adj_edges.resize(num_verts);
-        mesh_data->vert_adj_bending_edges.resize(num_verts);
+        mesh_data->vert_adj_tets.resize(num_verts);
 
-        // Vert adj faces
-        for (uint eid = 0; eid < num_faces; eid++) {
-            auto edge = mesh_data->sa_faces[eid];
-            for (uint j = 0; j < 3; j++)
-                mesh_data->vert_adj_faces[edge[j]].push_back(eid);
-        }
-        upload_2d_csr_from(mesh_data->sa_vert_adj_faces, mesh_data->vert_adj_faces);
-
-        // Vert adj edges
-        for (uint eid = 0; eid < num_edges; eid++) {
-            auto edge = mesh_data->sa_edges[eid];
-            for (uint j = 0; j < 2; j++)
-                mesh_data->vert_adj_edges[edge[j]].push_back(eid);
-        }
-        upload_2d_csr_from(mesh_data->sa_vert_adj_edges, mesh_data->vert_adj_edges);
-
-        // Vert adj bending-edges
-        for (uint eid = 0; eid < num_bending_edges; eid++) {
-            auto edge = mesh_data->sa_bending_edges[eid];
+        // Vert adj tets
+        for (uint tid = 0; tid < num_tets; tid++) {
+            auto tet = mesh_data->sa_tets[tid];
             for (uint j = 0; j < 4; j++)
-                mesh_data->vert_adj_bending_edges[edge[j]].push_back(eid);
+                mesh_data->vert_adj_tets[tet[j]].push_back(tid);
         }
-        upload_2d_csr_from(mesh_data->sa_vert_adj_bending_edges,
-                           mesh_data->vert_adj_bending_edges);
+        upload_2d_csr_from(mesh_data->sa_vert_adj_tets_csr,
+                           mesh_data->vert_adj_tets);
 
         // Vert adj verts based on 1-order connection
         mesh_data->vert_adj_verts.resize(num_verts);
-        for (uint eid = 0; eid < num_edges; eid++) {
-            auto edge = mesh_data->sa_edges[eid];
-            for (uint j = 0; j < 2; j++) {
-                const uint left = edge[j];
-                const uint right = edge[1 - j];
-                mesh_data->vert_adj_verts[left].push_back(right);
-            }
-        }
-        upload_2d_csr_from(mesh_data->sa_vert_adj_verts, mesh_data->vert_adj_verts);
-
-        // Vert adj verts based on 1-order bending-connection
-        auto insert_adj_vert = [](std::vector<std::vector<uint>> &adj_map,
-                                  const uint &vid1, const uint &vid2) {
-            if (vid1 == vid2)
-                std::cerr << "redudant!";
-            auto &inner_list = adj_map[vid1];
-            auto find_result = std::find(inner_list.begin(), inner_list.end(), vid2);
-            if (find_result == inner_list.end()) {
-                inner_list.push_back(vid2);
+        auto insert_adj_vert = [&](const uint vid, const uint adj_vid) {
+            auto &list = mesh_data->vert_adj_verts[vid];
+            if (std::find(list.begin(), list.end(), adj_vid) == list.end()) {
+                list.push_back(adj_vid);
             }
         };
-        mesh_data->vert_adj_verts_with_bending = mesh_data->vert_adj_verts;
-        for (uint eid = 0; eid < mesh_data->num_bending_edges; eid++) {
-            const Int4 edge = mesh_data->sa_bending_edges[eid];
-            for (size_t i = 0; i < 4; i++) {
-                for (size_t j = 0; j < 4; j++) {
-                    if (i != j) {
-                        insert_adj_vert(mesh_data->vert_adj_verts_with_bending, edge[i],
-                                        edge[j]);
-                    }
-                    if (i != j) {
-                        if (edge[i] == edge[j]) {
-                            fast_format("Redundant Edge {} : {} & {}", eid, edge[i], edge[j]);
-                        }
-                    }
+        for (uint tid = 0; tid < num_tets; tid++) {
+            auto tet = mesh_data->sa_tets[tid];
+            for (uint ii = 0; ii < 4; ii++) {
+                const uint vid = tet[ii];
+                for (uint jj = ii + 1; jj < 4; jj++) {
+                    const uint adj_vid = tet[jj];
+                    insert_adj_vert(vid, adj_vid);
+                    insert_adj_vert(adj_vid, vid);
                 }
             }
         }
-        upload_2d_csr_from(mesh_data->sa_vert_adj_verts_with_bending,
-                           mesh_data->vert_adj_verts_with_bending);
+        upload_2d_csr_from(mesh_data->sa_vert_adj_verts_csr, mesh_data->vert_adj_verts);
     }
 
     // Init energy
     {
         // Rest spring length
-        mesh_data->sa_edges_rest_state_length.resize(num_edges);
-        parallel_for(0, num_edges, [&](const uint eid) {
-            Int2 edge = mesh_data->sa_edges[eid];
-            Float3 x1 = mesh_data->sa_rest_x[edge[0]];
-            Float3 x2 = mesh_data->sa_rest_x[edge[1]];
-            mesh_data->sa_edges_rest_state_length[eid] = length_vec(x1 - x2);///
-        });
-
-        // Rest bending info
-        mesh_data->sa_bending_edges_rest_angle.resize(num_bending_edges);
-        mesh_data->sa_bending_edges_Q.resize(num_bending_edges);
-        parallel_for(0, num_bending_edges, [&](const uint eid) {
-            const Int4 edge = mesh_data->sa_bending_edges[eid];
-            const Float3 vert_pos[4] = {
-                mesh_data->sa_rest_x[edge[0]], mesh_data->sa_rest_x[edge[1]],
-                mesh_data->sa_rest_x[edge[2]], mesh_data->sa_rest_x[edge[3]]};
-
-            // Rest state angle
-            {
-                const Float3 &x1 = vert_pos[2];
-                const Float3 &x2 = vert_pos[3];
-                const Float3 &x3 = vert_pos[0];
-                const Float3 &x4 = vert_pos[1];
-
-                Float3 tmp;
-                const float angle = Constrains::CalcGradientsAndAngle(
-                    x1, x2, x3, x4, tmp, tmp, tmp, tmp);
-                if (is_nan_scalar(angle))
-                    fast_format_err("is nan rest angle {}", eid);
-
-                mesh_data->sa_bending_edges_rest_angle[eid] = angle;
-            }
-
-            // Rest state Q
-            {
-                auto calculateCotTheta = [](const Float3 &x, const Float3 &y) {
-                    // const float scaled_cos_theta = dot_vec(x, y);
-                    // const float scaled_sin_theta = (sqrt_scalar(1.0f -
-                    // square_scalar(scaled_cos_theta)));
-                    const float scaled_cos_theta = dot_vec(x, y);
-                    const float scaled_sin_theta = length_vec(cross_vec(x, y));
-                    return scaled_cos_theta / scaled_sin_theta;
-                };
-
-                Float3 e0 = vert_pos[1] - vert_pos[0];
-                Float3 e1 = vert_pos[2] - vert_pos[0];
-                Float3 e2 = vert_pos[3] - vert_pos[0];
-                Float3 e3 = vert_pos[2] - vert_pos[1];
-                Float3 e4 = vert_pos[3] - vert_pos[1];
-                const float cot_01 = calculateCotTheta(e0, -e1);
-                const float cot_02 = calculateCotTheta(e0, -e2);
-                const float cot_03 = calculateCotTheta(e0, e3);
-                const float cot_04 = calculateCotTheta(e0, e4);
-                const Float4 K = makeFloat4(cot_03 + cot_04, cot_01 + cot_02,
-                                            -cot_01 - cot_03, -cot_02 - cot_04);
-                const float A_0 = 0.5f * length_vec(cross_vec(e0, e1));
-                const float A_1 = 0.5f * length_vec(cross_vec(e0, e2));
-                // if (is_nan_vec<Float4>(K) || is_inf_vec<Float4>(K)) fast_print_err("Q
-                // of Bending is Illigal");
-                const Float4x4 m_Q =
-                    (3.f / (A_0 + A_1)) *
-                    outer_product(K, K);// Q = 3 qq^T / (A0+A1) ==> Q is symmetric
-                mesh_data->sa_bending_edges_Q[eid] =
-                    m_Q;// See : A quadratic bending model for inextensible surfaces.
-            }
+        mesh_data->sa_Dm.resize(num_edges);
+        mesh_data->sa_Dm_inv.resize(num_edges);
+        mesh_data->sa_tet_volumn.resize(num_edges);
+        parallel_for(0, num_tets, [&](const uint tid) {
+            Int4 tet = mesh_data->sa_tets[tid];
+            Float3 vert_pos[4] = {
+                mesh_data->sa_rest_position[tet[0]],
+                mesh_data->sa_rest_position[tet[1]],
+                mesh_data->sa_rest_position[tet[2]],
+                mesh_data->sa_rest_position[tet[3]],
+            };
+            Float3x3 Dm = makeFloat3x3(
+                vert_pos[1] - vert_pos[0],
+                vert_pos[2] - vert_pos[0],
+                vert_pos[3] - vert_pos[0]);
+            Float3x3 Dm_inv = inverse_mat(Dm);
+            mesh_data->sa_Dm[tid] = Dm;
+            mesh_data->sa_Dm_inv[tid] = Dm_inv;
+            mesh_data->sa_tet_volumn[tid] = compute_tet_volumn(vert_pos[0], vert_pos[1], vert_pos[2], vert_pos[3]);
         });
     }
 
     // Init vert status
     {
-        mesh_data->sa_x_frame_start.resize(num_verts);
-        mesh_data->sa_x_frame_start = mesh_data->sa_rest_x;
-        mesh_data->sa_v_frame_start.resize(num_verts);
-        mesh_data->sa_v_frame_start = mesh_data->sa_rest_v;
-
-        mesh_data->sa_x_frame_end.resize(num_verts);
-        mesh_data->sa_x_frame_end = mesh_data->sa_rest_x;
-        mesh_data->sa_v_frame_end.resize(num_verts);
-        mesh_data->sa_v_frame_end = mesh_data->sa_rest_v;
-
-        mesh_data->sa_x_frame_saved.resize(num_verts);
-        mesh_data->sa_x_frame_saved = mesh_data->sa_rest_x;
-        mesh_data->sa_v_frame_saved.resize(num_verts);
-        mesh_data->sa_v_frame_saved = mesh_data->sa_rest_v;
-
-        mesh_data->sa_system_energy.resize(10240);
-        mesh_data->sa_system_energy_2.resize(10240);
     }
+}
+void init_obstacle_mesh(ObstacleData *mesh_data) {
+    // To Be Done
+}
+void init_xpbd_data(TetData *mesh_data, ObstacleData *obstacle_data, XpbdData *xpbd_data) {
+    // To Be Done
+    xpbd_data->resize(mesh_data, obstacle_data);
 }
 
 class CpuSolver {
@@ -414,10 +403,20 @@ public:
     CpuSolver() {}
     ~CpuSolver() {}
 
-    // TODO: Replace to shared_ptr
-    void get_data_pointer(XpbdData *xpbd_ptr, BasicMeshData *mesh_ptr) {
-        xpbd_data = xpbd_ptr;
-        mesh_data = mesh_ptr;
+    void get_data_pointer(XpbdData *xpbd_data,
+                          TetData *mesh_data,
+                          ObstacleData *obstacle_data,
+                          LbvhFaceEdgeData *lbvh_data_obstacle,
+                          LbvhFaceEdgeData *lbvh_data_tet,
+                          XpbdSelfCollision *self_collision_data_tet,
+                          XpbdObstacleCollision *obstacle_collision_data_tet) {
+        this->xpbd_data = xpbd_data;
+        this->mesh_data = mesh_data;
+        this->obstacle_data = obstacle_data;
+        this->lbvh_data_obstacle = lbvh_data_obstacle;
+        this->lbvh_data_tet = lbvh_data_tet;
+        this->self_collision_data_tet = self_collision_data_tet;
+        this->obstacle_collision_data_tet = obstacle_collision_data_tet;
     }
     void init_xpbd_system();
     static void init_simulation_params();
@@ -428,7 +427,7 @@ public:
     // void physics_step_vbd_async();
     void fn_dispatch(const Launcher::LaunchParam &param);
     void compute_energy(const Buffer<Float3> &curr_cloth_position);
-    void solve_constraints_VBD();
+    void solve_constraints_XPBD();
 
 private:
     void collision_detection();
@@ -438,38 +437,45 @@ private:
     void reset_collision_constrains();
 
 private:
-    Buffer<Float4x3> &get_Hf();
-    void solve_constraints_XPBD();
-    void solve_constraint_stretch_spring(Buffer<Float3> &curr_cloth_position,
-                                         const uint cluster_idx);
-    void solve_constraint_bending(Buffer<Float3> &curr_cloth_position,
-                                  const uint cluster_idx);
-
-private:
-    void vbd_evaluate_inertia(Buffer<Float3> &curr_cloth_position,
-                              const uint cluster_idx);
-    void vbd_evaluate_stretch_spring(Buffer<Float3> &curr_cloth_position,
-                                     const uint cluster_idx);
-    void vbd_evaluate_bending(Buffer<Float3> &curr_cloth_position,
-                              const uint cluster_idx);
-    void vbd_step(Buffer<Float3> &curr_cloth_position, const uint cluster_idx);
+    void solve_constraint_tet_stress(Buffer<Float3> &curr_cloth_position, const uint cluster_idx);
+    void solve_constraint_self_collision(Buffer<Float3> &curr_cloth_position, const uint cluster_idx);
+    void solve_constraint_ground_collision(Buffer<Float3> &curr_cloth_position);
+    void solve_constraint_obstacle_collision(Buffer<Float3> &curr_cloth_position);
 
 private:
     XpbdData *xpbd_data;
-    BasicMeshData *mesh_data;
+    TetData *mesh_data;
+    ObstacleData *obstacle_data;
+    LbvhFaceEdgeData *lbvh_data_obstacle;
+    LbvhFaceEdgeData *lbvh_data_tet;
+
+    LbvhFaceEdge<LBVHUpdateTypeObstacle> *lbvh_obstacle;
+    LbvhFaceEdge<LBVHUpdateTypeCloth> *lbvh_tet;
+
+    XpbdSelfCollision *self_collision_data_tet;
+    XpbdObstacleCollision *obstacle_collision_data_tet;
 };
 class GpuSolver {
 public:
     GpuSolver() {}
     ~GpuSolver() {}
 
-    // TODO: Replace to shared_ptr
-    void get_data_pointer(XpbdData *xpbd_ptr, BasicMeshData *mesh_ptr,
-                          CpuSolver *cpu_ptr) {
-        xpbd_data = xpbd_ptr;
-        mesh_data = mesh_ptr;
-        cpu_solver = cpu_ptr;
+    void get_data_pointer(XpbdData *xpbd_data,
+                          TetData *mesh_data,
+                          ObstacleData *obstacle_data,
+                          LbvhFaceEdgeData *lbvh_data_obstacle,
+                          LbvhFaceEdgeData *lbvh_data_tet,
+                          XpbdSelfCollision *self_collision_data_tet,
+                          XpbdObstacleCollision *obstacle_collision_data_tet) {
+        this->xpbd_data = xpbd_data;
+        this->mesh_data = mesh_data;
+        this->obstacle_data = obstacle_data;
+        this->lbvh_data_obstacle = lbvh_data_obstacle;
+        this->lbvh_data_tet = lbvh_data_tet;
+        this->self_collision_data_tet = self_collision_data_tet;
+        this->obstacle_collision_data_tet = obstacle_collision_data_tet;
     }
+
     void init_xpbd_system();
 
 public:
@@ -480,7 +486,7 @@ public:
     void evaluate_compuatation_matrix(Launcher::Scheduler &scheduler);
     void fn_dispatch(const Launcher::LaunchParam &param);
     void compute_energy(const Buffer<Float3> &curr_cloth_position);
-    void solve_constraints_VBD();
+    void solve_constraints_XPBD();
 
 private:
     void collision_detection();
@@ -490,12 +496,10 @@ private:
     void reset_collision_constrains();
 
 private:
-    Buffer<Float4x3> &get_Hf();
-    void solve_constraints_XPBD();
-    void solve_constraint_stretch_spring(Buffer<Float3> &curr_cloth_position,
-                                         const uint cluster_idx);
-    void solve_constraint_bending(Buffer<Float3> &curr_cloth_position,
-                                  const uint cluster_idx);
+    void solve_constraint_tet_stress(Buffer<Float3> &curr_cloth_position, const uint cluster_idx);
+    void solve_constraint_self_collision(Buffer<Float3> &curr_cloth_position, const uint cluster_idx);
+    void solve_constraint_ground_collision(Buffer<Float3> &curr_cloth_position);
+    void solve_constraint_obstacle_collision(Buffer<Float3> &curr_cloth_position);
 
 private:
     void vbd_evaluate_inertia(Buffer<Float3> &curr_cloth_position,
@@ -508,8 +512,18 @@ private:
 
 private:
     XpbdData *xpbd_data;
-    BasicMeshData *mesh_data;
+    TetData *mesh_data;
+    ObstacleData *obstacle_data;
+    LbvhFaceEdgeData *lbvh_data_obstacle;
+    LbvhFaceEdgeData *lbvh_data_tet;
+    XpbdSelfCollision *self_collision_data_tet;
+    XpbdObstacleCollision *obstacle_collision_data_tet;
+
+    LbvhFaceEdge<LBVHUpdateTypeObstacle> *lbvh_obstacle;
+    LbvhFaceEdge<LBVHUpdateTypeCloth> *lbvh_tet;
+
     CpuSolver *cpu_solver;
+
 
 private:
     gpuFunction fn_empty;
@@ -523,37 +537,46 @@ private:
     gpuFunction fn_predict_position;
     gpuFunction fn_update_velocity;
 
-    gpuFunction fn_evaluate_inertia;
-    gpuFunction fn_evaluate_stretch_mass_spring;
-    gpuFunction fn_evaluate_bending;
-    gpuFunction fn_vbd_step;
+    gpuFunction fn_xpbd_constraint_neohookean;
+    gpuFunction fn_xpbd_constraint_ground_collision;
 
     gpuFunction fn_compute_energy_inertia;
-    gpuFunction fn_compute_energy_stretch_mass_spring;
-    gpuFunction fn_compute_energy_bending;
+    gpuFunction fn_compute_energy_stress;
+    gpuFunction fn_compute_energy_collision_vf;
+    gpuFunction fn_compute_energy_collision_vv;
     gpuFunction fn_test_sum;
     gpuFunction fn_test_sum_2;
 };
 static uint energy_idx = 0;
 
 void CpuSolver::init_xpbd_system() {
-    xpbd_data->sa_x_tilde.resize(mesh_data->num_verts);
-    xpbd_data->sa_x.resize(mesh_data->num_verts);
-    xpbd_data->sa_v.resize(mesh_data->num_verts);
-    xpbd_data->sa_v = mesh_data->sa_rest_v;
-    xpbd_data->sa_v_start.resize(mesh_data->num_verts);
-    xpbd_data->sa_v_start = mesh_data->sa_rest_v;
-    xpbd_data->sa_x_start.resize(mesh_data->num_verts);
 
-    for (auto &buffer : xpbd_data->sa_async_iter_positions_cloth)
-        buffer.resize(mesh_data->num_verts);
-    for (auto &buffer : xpbd_data->sa_async_begin_positions_cloth)
-        buffer.resize(mesh_data->num_verts);
+    xpbd_data->sa_system_energy.resize(10240);
+
+    const uint num_verts = mesh_data->num_verts_total;
+    xpbd_data->sa_x_tilde.resize(num_verts);
+    xpbd_data->sa_x.resize(num_verts);
+    xpbd_data->sa_v.resize(num_verts);
+    xpbd_data->sa_x_iter_start.resize(num_verts);
+    xpbd_data->sa_x_step_start.resize(num_verts);
+
+    xpbd_data->sa_v.set_zero();
+
+    for (auto &buffer : xpbd_data->sa_async_iter_positions_tet)
+        buffer.resize(mesh_data->num_verts_total);
+    for (auto &buffer : xpbd_data->sa_async_begin_positions_tet)
+        buffer.resize(mesh_data->num_verts_total);
+
+    // Init Constraints
+    {
+        xpbd_data->lambda_tet_stress_deviatoric_term.resize(
+            mesh_data->num_tets_total);
+        xpbd_data->lambda_tet_stress_hydrostatic_term.resize(
+            mesh_data->num_tets_total);
+    }
 
     // Graph Coloring
-    std::vector<std::vector<uint>> tmp_clusterd_constraint_stretch_mass_spring;
-    std::vector<std::vector<uint>> tmp_clusterd_constraint_bending;
-
+    std::vector<std::vector<uint>> tmp_clusterd_constraint_tet_stress;
     {
         auto fn_graph_coloring_sequenced_constraint =
             [](const uint num_elements, const std::string &constraint_name,
@@ -637,203 +660,90 @@ void CpuSolver::init_xpbd_system() {
             };
 
         fn_graph_coloring_sequenced_constraint(
-            mesh_data->num_edges, "Distance  Spring Constraint",
-            tmp_clusterd_constraint_stretch_mass_spring, mesh_data->vert_adj_edges,
-            mesh_data->sa_edges, 2);
+            mesh_data->num_tets_total, "NeoHook Stress Constraint",
+            tmp_clusterd_constraint_tet_stress, mesh_data->vert_adj_tets,
+            mesh_data->sa_tets, 4);
 
-        fn_graph_coloring_sequenced_constraint(
-            mesh_data->num_bending_edges, "Bending   Angle  Constraint",
-            tmp_clusterd_constraint_bending, mesh_data->vert_adj_bending_edges,
-            mesh_data->sa_bending_edges, 4);
+        xpbd_data->num_clusters_tet_stress =
+            tmp_clusterd_constraint_tet_stress.size();
 
-        xpbd_data->num_clusters_stretch_mass_spring =
-            tmp_clusterd_constraint_stretch_mass_spring.size();
-        xpbd_data->num_clusters_bending = tmp_clusterd_constraint_bending.size();
+        fn_get_prefix(xpbd_data->prefix_tet_stress,
+                      tmp_clusterd_constraint_tet_stress);
 
-        fn_get_prefix(xpbd_data->prefix_stretch_mass_spring,
-                      tmp_clusterd_constraint_stretch_mass_spring);
-        fn_get_prefix(xpbd_data->prefix_bending, tmp_clusterd_constraint_bending);
-
-        upload_2d_csr_from(xpbd_data->clusterd_constraint_stretch_mass_spring,
-                           tmp_clusterd_constraint_stretch_mass_spring);
-        upload_2d_csr_from(xpbd_data->clusterd_constraint_bending,
-                           tmp_clusterd_constraint_bending);
-    }
-
-    // Vertex Block Descent Coloring
-    {
-        // Graph Coloring
-        const uint num_verts_total = mesh_data->num_verts;
-        xpbd_data->sa_Hf.resize(mesh_data->num_verts);
-        xpbd_data->sa_Hf_2.resize(mesh_data->num_verts);
-
-        const std::vector<std::vector<uint>> &vert_adj_verts =
-            mesh_data->vert_adj_verts_with_bending;
-        std::vector<std::vector<uint>> clusterd_vertices_bending;
-        std::vector<uint> prefix_vertices_bending;
-
-        auto fn_graph_coloring_pervertex =
-            [&](const std::vector<std::vector<uint>> &vert_adj_,
-                std::vector<std::vector<uint>> &clusterd_vertices,
-                std::vector<uint> &prefix_vert) {
-                std::vector<bool> marked_verts(num_verts_total, false);
-                uint total_marked_count = 0;
-
-                while (true) {
-                    std::vector<uint> current_cluster;
-                    std::vector<bool> current_marked(marked_verts);
-
-                    for (uint vid = 0; vid < num_verts_total; vid++) {
-                        if (current_marked[vid]) {
-                            continue;
-                        } else {
-                            // Add To Sets
-                            marked_verts[vid] = true;
-                            current_cluster.push_back(vid);
-
-                            // Mark
-                            current_marked[vid] = true;
-                            const auto &list = vert_adj_[vid];
-                            for (const uint &adj_vid : list) {
-                                current_marked[adj_vid] = true;
-                            }
-                        }
-                    }
-                    clusterd_vertices.push_back(current_cluster);
-                    total_marked_count += current_cluster.size();
-
-                    if (total_marked_count == num_verts_total)
-                        break;
-                }
-
-                prefix_vert.resize(clusterd_vertices.size() + 1);
-                uint curr_prefix = 0;
-                for (uint cluster = 0; cluster < clusterd_vertices.size();
-                     cluster++) {
-                    prefix_vert[cluster] = curr_prefix;
-                    curr_prefix += clusterd_vertices[cluster].size();
-                }
-                prefix_vert[clusterd_vertices.size()] = curr_prefix;
-            };
-
-        fn_graph_coloring_pervertex(vert_adj_verts, clusterd_vertices_bending,
-                                    prefix_vertices_bending);
-        xpbd_data->num_clusters_per_vertex_bending =
-            clusterd_vertices_bending.size();
-        upload_from(xpbd_data->prefix_per_vertex_bending, prefix_vertices_bending);
-        upload_2d_csr_from(xpbd_data->clusterd_per_vertex_bending,
-                           clusterd_vertices_bending);
-
-        // Reverse map
-        xpbd_data->per_vertex_bending_cluster_id.resize(mesh_data->num_verts);
-        for (uint cluster = 0; cluster < xpbd_data->num_clusters_per_vertex_bending;
-             cluster++) {
-            const uint next_prefix =
-                xpbd_data->clusterd_per_vertex_bending[cluster + 1];
-            const uint curr_prefix = xpbd_data->clusterd_per_vertex_bending[cluster];
-            const uint num_verts_cluster = next_prefix - curr_prefix;
-            parallel_for(0, num_verts_cluster, [&](const uint i) {
-                const uint vid =
-                    xpbd_data->clusterd_per_vertex_bending[curr_prefix + i];
-                xpbd_data->per_vertex_bending_cluster_id[vid] = cluster;
-            });
-        }
+        upload_2d_csr_from(xpbd_data->clusterd_constraint_tet_stress,
+                           tmp_clusterd_constraint_tet_stress);
     }
 
     // Precomputation
     {
-        // Spring Constraint
+        // Tet Stress Constraint
         {
-            xpbd_data->sa_merged_edges.resize(mesh_data->num_edges);
-            xpbd_data->sa_merged_edges_rest_length.resize(mesh_data->num_edges);
-            xpbd_data->sa_lambda_stretch_mass_spring.resize(mesh_data->num_edges);
+            xpbd_data->sa_merged_tets.resize(mesh_data->num_tets_total);
+            xpbd_data->sa_merged_tet_volumn.resize(mesh_data->num_tets_total);
+            xpbd_data->sa_merged_Dm_inv.resize(
+                mesh_data->num_tets_total);
 
             uint prefix = 0;
-            for (uint cluster = 0;
-                 cluster < tmp_clusterd_constraint_stretch_mass_spring.size();
+            for (uint cluster = 0; cluster < tmp_clusterd_constraint_tet_stress.size();
                  cluster++) {
-                const auto &curr_cluster =
-                    tmp_clusterd_constraint_stretch_mass_spring[cluster];
+                const auto &curr_cluster = tmp_clusterd_constraint_tet_stress[cluster];
                 parallel_for(0, curr_cluster.size(), [&](const uint i) {
                     const uint eid = curr_cluster[i];
                     {
-                        xpbd_data->sa_merged_edges[prefix + i] = mesh_data->sa_edges[eid];
-                        xpbd_data->sa_merged_edges_rest_length[prefix + i] =
-                            mesh_data->sa_edges_rest_state_length[eid];
+                        xpbd_data->sa_merged_tets[prefix + i] =
+                            mesh_data->sa_tets[eid];
+                        xpbd_data->sa_merged_tet_volumn[prefix + i] =
+                            mesh_data->sa_tet_volumn[eid];
+                        xpbd_data->sa_merged_Dm_inv[prefix + i] =
+                            mesh_data->sa_Dm_inv[eid];
                     }
                 });
                 prefix += curr_cluster.size();
             }
-            if (prefix != mesh_data->num_edges)
-                fast_format_err("Sum of Mass Spring Cluster Is Not Equal  Than Orig");
-        }
-
-        // Bending Constraint
-        {
-            xpbd_data->sa_merged_bending_edges.resize(mesh_data->num_bending_edges);
-            xpbd_data->sa_merged_bending_edges_angle.resize(
-                mesh_data->num_bending_edges);
-            xpbd_data->sa_merged_bending_edges_Q.resize(mesh_data->num_bending_edges);
-            xpbd_data->sa_lambda_bending.resize(mesh_data->num_bending_edges);
-
-            uint prefix = 0;
-            for (uint cluster = 0; cluster < tmp_clusterd_constraint_bending.size();
-                 cluster++) {
-                const auto &curr_cluster = tmp_clusterd_constraint_bending[cluster];
-                parallel_for(0, curr_cluster.size(), [&](const uint i) {
-                    const uint eid = curr_cluster[i];
-                    {
-                        xpbd_data->sa_merged_bending_edges[prefix + i] =
-                            mesh_data->sa_bending_edges[eid];
-                        xpbd_data->sa_merged_bending_edges_angle[prefix + i] =
-                            mesh_data->sa_bending_edges_rest_angle[eid];
-                        xpbd_data->sa_merged_bending_edges_Q[prefix + i] =
-                            mesh_data->sa_bending_edges_Q[eid];
-                    }
-                });
-                prefix += curr_cluster.size();
-            }
-            if (prefix != mesh_data->num_bending_edges)
+            if (prefix != mesh_data->num_tets_total) {
                 fast_format_err("Sum of Bending Cluster Is Not Equal Than Orig");
+            }
         }
     }
 }
 void GpuSolver::init_xpbd_system() {
-#if __APPLE__
-    NS::Error *err;
+    {
+        NS::Error *err;
 
-    std::string full_path_xpbd = std::string(SELF_RESOURCES_PATH) +
-                                 std::string("/metal_libs/") +
-                                 std::string("example3.metallib");
-    MTL::Library *library_xpbd =
-        get_device()->newLibrary(std_string_to_ns_string(full_path_xpbd), &err);
-    check_err(library_xpbd, err);
+        std::string full_path_xpbd = std::string(SELF_RESOURCES_PATH) +
+                                     std::string("/metal_libs/") +
+                                     std::string("example3.metallib");
+        MTL::Library *library_xpbd =
+            get_device()->newLibrary(std_string_to_ns_string(full_path_xpbd), &err);
+        check_err(library_xpbd, err);
 
-    fn_empty.load(library_xpbd, "empty");
-    fn_reset_bool.load(library_xpbd, "reset_bool");
-    fn_reset_uint.load(library_xpbd, "reset_uint");
-    fn_reset_float.load(library_xpbd, "reset_float");
+        fn_empty.load(library_xpbd, "empty");
+        fn_reset_bool.load(library_xpbd, "reset_bool");
+        fn_reset_uint.load(library_xpbd, "reset_uint");
+        fn_reset_float.load(library_xpbd, "reset_float");
 
-    fn_copy_from_A_to_B.load(library_xpbd, "copy_from_A_to_B");
-    fn_copy_from_A_to_B_and_C.load(library_xpbd, "copy_from_A_to_B_and_C");
-    fn_read_and_solve_conflict.load(library_xpbd, "read_and_solve_conflict");
+        fn_copy_from_A_to_B.load(library_xpbd, "copy_from_A_to_B");
+        fn_copy_from_A_to_B_and_C.load(library_xpbd, "copy_from_A_to_B_and_C");
+        fn_read_and_solve_conflict.load(library_xpbd, "read_and_solve_conflict");
 
-    fn_predict_position.load(library_xpbd, "predict_position");
-    fn_update_velocity.load(library_xpbd, "update_velocity");
+        fn_predict_position.load(library_xpbd, "predict_position");
+        fn_update_velocity.load(library_xpbd, "update_velocity");
 
-    fn_evaluate_inertia.load(library_xpbd, "evaluate_inertia");
-    fn_evaluate_stretch_mass_spring.load(library_xpbd,
-                                         "evaluate_stretch_mass_spring");
-    fn_evaluate_bending.load(library_xpbd, "evaluate_bending");
-    fn_vbd_step.load(library_xpbd, "vbd_step");
+        fn_xpbd_constraint_neohookean.load(library_xpbd, "constraint_neohookean");
+        fn_xpbd_constraint_ground_collision.load(library_xpbd, "constraint_ground_collision");
 
-    fn_compute_energy_inertia.load(library_xpbd, "compute_energy_inertia");
-    fn_compute_energy_stretch_mass_spring.load(
-        library_xpbd, "compute_energy_stretch_mass_spring");
-    fn_compute_energy_bending.load(library_xpbd, "compute_energy_bending");
-    fn_test_sum.load(library_xpbd, "test_sum");
-    fn_test_sum_2.load(library_xpbd, "test_sum_2");
-#endif
+        fn_compute_energy_inertia.load(library_xpbd, "compute_energy_inertia");
+        fn_compute_energy_stress.load(
+            library_xpbd, "compute_energy_stress_neohookean");
+        fn_compute_energy_collision_vv.load(library_xpbd, "compute_energy_collision_vv");
+        fn_compute_energy_collision_vf.load(library_xpbd, "compute_energy_collision_vf");
+        fn_test_sum.load(library_xpbd, "test_sum");
+        fn_test_sum_2.load(library_xpbd, "test_sum_2");
+    }
+
+    // Init LBVH and Vivace
+    {
+    }
 }
 
 void CpuSolver::reset_constrains() {
@@ -841,8 +751,8 @@ void CpuSolver::reset_constrains() {
         parallel_set(buffer.data(), buffer.size(), 0.0f);
     };
 
-    fn_reset_template(xpbd_data->sa_lambda_stretch_mass_spring);
-    fn_reset_template(xpbd_data->sa_lambda_bending);
+    fn_reset_template(xpbd_data->lambda_tet_stress_deviatoric_term);
+    fn_reset_template(xpbd_data->lambda_tet_stress_hydrostatic_term);
 }
 void GpuSolver::reset_constrains() {
     auto fn_reset_template = [&](Buffer<float> &buffer) {
@@ -851,8 +761,8 @@ void GpuSolver::reset_constrains() {
         fn_reset_float.launch_async(buffer.size());
     };
 
-    fn_reset_template(xpbd_data->sa_lambda_stretch_mass_spring);
-    fn_reset_template(xpbd_data->sa_lambda_bending);
+    fn_reset_template(xpbd_data->lambda_tet_stress_deviatoric_term);
+    fn_reset_template(xpbd_data->lambda_tet_stress_hydrostatic_term);
 }
 
 void CpuSolver::reset_collision_constrains() {}
@@ -904,10 +814,10 @@ void GpuSolver::collision_detection() {
 }
 
 void CpuSolver::predict_position() {
-    parallel_for(0, mesh_data->num_verts, [&](const uint vid) {
+    parallel_for(0, mesh_data->num_verts_total, [&](const uint vid) {
         Constrains::Core::predict_position(
             vid, xpbd_data->sa_x.data(), xpbd_data->sa_v.data(),
-            xpbd_data->sa_x_start.data(), xpbd_data->sa_x_tilde.data(), false,
+            xpbd_data->sa_x_step_start.data(), xpbd_data->sa_x_tilde.data(), false,
             nullptr, mesh_data->sa_vert_mass.data(), mesh_data->sa_is_fixed.data(),
             get_scene_params().get_substep_dt(), false);
     });
@@ -916,7 +826,7 @@ void GpuSolver::predict_position() {
     get_command_list().add_task(fn_predict_position);
     fn_predict_position.bind_ptr(xpbd_data->sa_x);
     fn_predict_position.bind_ptr(xpbd_data->sa_v);
-    fn_predict_position.bind_ptr(xpbd_data->sa_x_start);
+    fn_predict_position.bind_ptr(xpbd_data->sa_x_step_start);
     fn_predict_position.bind_ptr(xpbd_data->sa_x_tilde);
     fn_predict_position.bind_constant(false);
     fn_predict_position.bind_ptr(xpbd_data->sa_x);
@@ -924,15 +834,15 @@ void GpuSolver::predict_position() {
     fn_predict_position.bind_ptr(mesh_data->sa_is_fixed);
     fn_predict_position.bind_constant(get_scene_params().get_substep_dt());
     fn_predict_position.bind_constant(false);
-    fn_predict_position.launch_async(mesh_data->num_verts);
+    fn_predict_position.launch_async(mesh_data->num_verts_total);
 }
 
 void CpuSolver::update_velocity() {
-    parallel_for(0, mesh_data->num_verts, [&](const uint vid) {
+    parallel_for(0, mesh_data->num_verts_total, [&](const uint vid) {
         Constrains::Core::update_velocity(
             vid, xpbd_data->sa_v.data(), xpbd_data->sa_x.data(),
-            xpbd_data->sa_x_start.data(), mesh_data->sa_x_frame_start.data(),
-            xpbd_data->sa_v_start.data(), get_scene_params().get_substep_dt(),
+            xpbd_data->sa_x_iter_start.data(), xpbd_data->sa_x_step_start.data(),
+            xpbd_data->sa_v.data(), get_scene_params().get_substep_dt(),
             get_scene_params().damping_cloth, false);
     });
 }
@@ -940,13 +850,13 @@ void GpuSolver::update_velocity() {
     get_command_list().add_task(fn_update_velocity);
     fn_update_velocity.bind_ptr(xpbd_data->sa_v);
     fn_update_velocity.bind_ptr(xpbd_data->sa_x);
-    fn_update_velocity.bind_ptr(xpbd_data->sa_x_start);
-    fn_update_velocity.bind_ptr(mesh_data->sa_x_frame_start);
-    fn_update_velocity.bind_ptr(xpbd_data->sa_v_start);
+    fn_update_velocity.bind_ptr(xpbd_data->sa_x_iter_start);
+    fn_update_velocity.bind_ptr(xpbd_data->sa_x_step_start);
+    fn_update_velocity.bind_ptr(xpbd_data->sa_v);
     fn_update_velocity.bind_constant(get_scene_params().get_substep_dt());
     fn_update_velocity.bind_constant(get_scene_params().damping_cloth);
     fn_update_velocity.bind_constant(false);
-    fn_update_velocity.launch_async(mesh_data->num_verts);
+    fn_update_velocity.launch_async(mesh_data->num_verts_total);
 }
 
 void CpuSolver::compute_energy(const Buffer<Float3> &curr_position) {
@@ -963,7 +873,7 @@ void CpuSolver::compute_energy(const Buffer<Float3> &curr_position) {
     // Inertia
     {
         energy_inertia = parallel_for_and_reduce_sum<double>(
-            0, mesh_data->num_verts, [&](const uint vid) {
+            0, mesh_data->num_verts_total, [&](const uint vid) {
                 return Constrains::Energy::compute_energy_inertia(
                     vid, curr_position.data(), &get_scene_params(),
                     mesh_data->sa_is_fixed.data(), mesh_data->sa_vert_mass.data(),
@@ -973,41 +883,29 @@ void CpuSolver::compute_energy(const Buffer<Float3> &curr_position) {
 
     // Stretch
     {
-        const float stiffness = get_scene_params().stiffness_stretch_spring;
+        auto lambda = FEM::calcFirstLame(get_scene_params().youngs_modulus_tet, get_scene_params().poisson_ratio_tet);
+        auto mu = FEM::calcSecondLame(get_scene_params().youngs_modulus_tet, get_scene_params().poisson_ratio_tet);
         energy_stretch = parallel_for_and_reduce_sum<double>(
-            0, mesh_data->num_edges, [&](const uint eid) {
-                return Constrains::Energy::compute_energy_stretch_mass_spring(
-                    eid, curr_position.data(), xpbd_data->sa_merged_edges.data(),
-                    xpbd_data->sa_merged_edges_rest_length.data(), stiffness);
+            0, mesh_data->num_tets_total, [&](const uint tid) {
+                return Constrains::Energy::compute_energy_stress_neohookean(tid,
+                                                                            curr_position.data(),
+                                                                            mesh_data->sa_tets.data(),
+                                                                            mesh_data->sa_Dm_inv.data(),
+                                                                            mesh_data->sa_tet_volumn.data(),
+                                                                            lambda, mu);
             });
     }
 
-    // Bending
-    const auto bending_type =
-        (get_scene_params().use_vbd_solver// Our VBD solver only add quadratic
-                                          // bending implementation
-         || get_scene_params().use_quadratic_bending_model) ?
-            Constrains::BendingTypeQuadratic :
-            Constrains::BendingTypeDAB;
-    const bool use_xpbd_solver = true;
-    if (get_scene_params().use_bending) {
-        const float stiffness_bending_quadratic =
-            get_scene_params().get_stiffness_quadratic_bending();
-        const float stiffness_bending_DAB =
-            get_scene_params().get_stiffness_DAB_bending();
-
-        energy_bending = parallel_for_and_reduce_sum<double>(
-            0, mesh_data->num_bending_edges, [&](const uint eid) {
-                float energy = 0.f;
-                Constrains::Energy::compute_energy_bending(
-                    bending_type, eid, curr_position.data(),
-                    xpbd_data->sa_merged_bending_edges.data(), nullptr, nullptr,
-                    xpbd_data->sa_merged_bending_edges_Q.data(),
-                    xpbd_data->sa_merged_bending_edges_angle.data(),
-                    stiffness_bending_DAB, stiffness_bending_quadratic,
-                    use_xpbd_solver);
-                return energy;
-            });
+    // Ground Collision
+    float energy_ground_collision = 0.0f;
+    if (get_scene_params().use_floor) {
+        energy_ground_collision += parallel_for_and_reduce_sum<float>(0,
+                                                                      mesh_data->num_verts_total, [&](const uint vid) {
+                                                                          return Constrains::Energy::compute_energy_collision_ground(vid,
+                                                                                                                                     curr_position.data(),
+                                                                                                                                     get_scene_params().xpbd_stiffness_collision,
+                                                                                                                                     get_scene_params().thickness_vv_obstacle);
+                                                                      });
     }
 
     // Obstacle Collisoin
@@ -1045,9 +943,9 @@ void CpuSolver::compute_energy(const Buffer<Float3> &curr_position) {
     // }
 
     double total_energy = energy_inertia + energy_stretch + energy_bending +
-                          energy_obs_collision + energy_self_collision;
+                          energy_ground_collision + energy_obs_collision + energy_self_collision;
 
-    mesh_data->sa_system_energy[energy_idx++] = total_energy;
+    xpbd_data->sa_system_energy[energy_idx++] = total_energy;
 }
 void GpuSolver::compute_energy(const Buffer<Float3> &curr_position) {
     // return;
@@ -1064,7 +962,7 @@ void GpuSolver::compute_energy(const Buffer<Float3> &curr_position) {
     // Inertia
     {
         get_command_list().add_task(fn_compute_energy_inertia);
-        fn_compute_energy_inertia.bind_ptr(mesh_data->sa_system_energy);
+        fn_compute_energy_inertia.bind_ptr(xpbd_data->sa_system_energy);
         fn_compute_energy_inertia.bind_constant(energy_idx);
         fn_compute_energy_inertia.bind_ptr(curr_position);
 
@@ -1073,61 +971,43 @@ void GpuSolver::compute_energy(const Buffer<Float3> &curr_position) {
         fn_compute_energy_inertia.bind_ptr(mesh_data->sa_vert_mass);
         fn_compute_energy_inertia.bind_ptr(xpbd_data->sa_x_tilde);
 
-        fn_compute_energy_inertia.launch_async(mesh_data->num_verts);
+        fn_compute_energy_inertia.launch_async(mesh_data->num_verts_total);
     }
 
-    // Stretch
+    // Stress
     {
-        get_command_list().add_task(fn_compute_energy_stretch_mass_spring);
-        fn_compute_energy_stretch_mass_spring.bind_ptr(mesh_data->sa_system_energy);
-        fn_compute_energy_stretch_mass_spring.bind_constant(energy_idx);
-        fn_compute_energy_stretch_mass_spring.bind_ptr(curr_position);
+        const float m_first_lame = FEM::calcFirstLame(get_scene_params().youngs_modulus_tet, get_scene_params().poisson_ratio_tet);  // lambda
+        const float m_second_lame = FEM::calcSecondLame(get_scene_params().youngs_modulus_tet, get_scene_params().poisson_ratio_tet);// mu
+        {
+            get_command_list().add_task(fn_compute_energy_stress);
+            fn_compute_energy_stress.bind_ptr(xpbd_data->sa_system_energy);
+            fn_compute_energy_stress.bind_constant(energy_idx);
+            fn_compute_energy_stress.bind_ptr(curr_position);
 
-        fn_compute_energy_stretch_mass_spring.bind_ptr(xpbd_data->sa_merged_edges);
-        fn_compute_energy_stretch_mass_spring.bind_ptr(
-            xpbd_data->sa_merged_edges_rest_length);
-        fn_compute_energy_stretch_mass_spring.bind_constant(
-            get_scene_params().stiffness_stretch_spring);
+            fn_compute_energy_stress.bind_ptr(mesh_data->sa_tets);
+            fn_compute_energy_stress.bind_ptr(mesh_data->sa_Dm_inv);
+            fn_compute_energy_stress.bind_ptr(mesh_data->sa_tet_volumn);
+            fn_compute_energy_stress.bind_constant(m_first_lame);
+            fn_compute_energy_stress.bind_constant(m_second_lame);
 
-        fn_compute_energy_stretch_mass_spring.launch_async(mesh_data->num_edges);
+            fn_compute_energy_stress.launch_async(mesh_data->num_tets_total);
+        }
     }
-
-    // Bending
-    if (get_scene_params().use_bending) {
-        const auto bending_type =
-            (get_scene_params().use_vbd_solver// Our VBD solver only add quadratic
-                                              // bending implementation
-             || get_scene_params().use_quadratic_bending_model) ?
-                Constrains::BendingTypeQuadratic :
-                Constrains::BendingTypeDAB;
-        const bool use_xpbd_solver = get_scene_params().use_xpbd_solver;
-
-        const float stiffness_bending_quadratic =
-            get_scene_params().get_stiffness_quadratic_bending();
-        const float stiffness_bending_DAB =
-            get_scene_params().get_stiffness_DAB_bending();
-
-        get_command_list().add_task(fn_compute_energy_bending);
-        fn_compute_energy_bending.bind_ptr(mesh_data->sa_system_energy);
-        fn_compute_energy_bending.bind_constant(energy_idx);
-        fn_compute_energy_bending.bind_ptr(curr_position);
-
-        fn_compute_energy_bending.bind_ptr(xpbd_data->sa_merged_bending_edges);
-        // fn_compute_energy_bending.bind_ptr(cloth_data->sa_bending_edge_adj_faces);
-        // fn_compute_energy_bending.bind_ptr(cloth_data->sa_face_area);
-        fn_compute_energy_bending.bind_ptr(xpbd_data->sa_merged_bending_edges_Q);
-        fn_compute_energy_bending.bind_ptr(
-            xpbd_data->sa_merged_bending_edges_angle);
-
-        fn_compute_energy_bending.bind_constant(stiffness_bending_quadratic);
-        fn_compute_energy_bending.bind_constant(stiffness_bending_DAB);
-        fn_compute_energy_bending.bind_constant(bending_type);
-        fn_compute_energy_bending.bind_constant(use_xpbd_solver);
-
-        fn_compute_energy_bending.launch_async(mesh_data->num_bending_edges);
-    }
-
     if (get_scene_params().use_obstacle_collision) {
+        const auto &obstacle_collision_data = obstacle_collision_data_tet;
+        const float thickness1 = 0.0f;
+        const float thickness2 = get_scene_params().thickness_vv_obstacle;
+
+        get_command_list().add_task(fn_compute_energy_collision_vf);
+        fn_compute_energy_collision_vf.bind_ptr(xpbd_data->sa_system_energy);
+        fn_compute_energy_collision_vf.bind_constant(energy_idx);
+        fn_compute_energy_collision_vf.bind_ptr(curr_position);
+        fn_compute_energy_collision_vf.bind_ptr(obstacle_data->sa_substep_position);
+
+        fn_compute_energy_collision_vf.bind_ptr(obstacle_collision_data->narrow_phase_list_pair_vf);
+        fn_compute_energy_collision_vf.bind_ptr(obstacle_collision_data->collision_count);
+        fn_compute_energy_collision_vf.bind_constant(thickness2);
+        fn_compute_energy_collision_vf.launch_async(obstacle_collision_data->obstacle_collision_indirect_cmd_buffer, 0);
     }
 
     if (get_scene_params().use_self_collision) {
@@ -1137,345 +1017,155 @@ void GpuSolver::compute_energy(const Buffer<Float3> &curr_position) {
 }
 
 // XPBD constraints
-void CpuSolver::solve_constraint_stretch_spring(
-    Buffer<Float3> &curr_cloth_position, const uint cluster_idx) {
-    const uint curr_prefix = xpbd_data->prefix_stretch_mass_spring[cluster_idx];
-    const uint next_prefix =
-        xpbd_data->prefix_stretch_mass_spring[cluster_idx + 1];
+
+void CpuSolver::solve_constraint_tet_stress(Buffer<Float3> &sa_iter_position, const uint cluster_idx) {
+    const uint curr_prefix = xpbd_data->prefix_tet_stress[cluster_idx];
+    const uint next_prefix = xpbd_data->prefix_tet_stress[cluster_idx + 1];
     const uint num_elements_clustered = next_prefix - curr_prefix;
 
+    const float m_first_lame = FEM::calcFirstLame(get_scene_params().youngs_modulus_tet, get_scene_params().poisson_ratio_tet);  // lambda
+    const float m_second_lame = FEM::calcSecondLame(get_scene_params().youngs_modulus_tet, get_scene_params().poisson_ratio_tet);// mu
+
     parallel_for(
-        0, num_elements_clustered,
-        [&](const uint i) {
-            const uint eid = curr_prefix + i;
-            Constrains::solve_stretch_mass_spring_template(
-                eid, curr_cloth_position.data(), curr_cloth_position.data(),
-                xpbd_data->sa_x_start.data(), nullptr,
-                xpbd_data->sa_lambda_stretch_mass_spring.data(),
+        0, num_elements_clustered, [&](const uint i) {
+            const uint tet_id = curr_prefix + i;
+            Constrains::solve_tetrahedral_fem_NeoHookean_template(
+                tet_id,
+                sa_iter_position.data(), sa_iter_position.data(), xpbd_data->sa_x_step_start.data(),
+                nullptr,
+                xpbd_data->lambda_tet_stress_hydrostatic_term.data(), xpbd_data->lambda_tet_stress_deviatoric_term.data(),
                 mesh_data->sa_vert_mass_inv.data(),
-                xpbd_data->sa_merged_edges.data(),
-                xpbd_data->sa_merged_edges_rest_length.data(),// Here
-                get_scene_params().stiffness_stretch_spring,
+                xpbd_data->sa_merged_tets.data(), xpbd_data->sa_merged_tet_volumn.data(), xpbd_data->sa_merged_Dm_inv.data(),
+                m_first_lame, m_second_lame,
                 get_scene_params().get_substep_dt(), false);
         },
         32);
 }
-void CpuSolver::solve_constraint_bending(Buffer<Float3> &curr_cloth_position,
-                                         const uint cluster_idx) {
-    if (!get_scene_params().use_bending)
-        return;
-
-    // auto& fn_bending = Constrains::solve_bending_quadratic_template;
-    auto &fn_bending = get_scene_params().use_quadratic_bending_model ? Constrains::solve_bending_quadratic_template : Constrains::solve_bending_DAB_template_v2;
-
-    // fast_format("do i iter more ? substep = {} , iter = {}, cluster = {}",
-    // get_scene_params().current_substep, get_scene_params().current_it,
-    // cluster_idx);
-    const float stiffness_bending_quadratic =
-        get_scene_params().get_stiffness_quadratic_bending();
-    const float stiffness_bending_DAB =
-        get_scene_params().get_stiffness_DAB_bending();
-
-    const uint curr_prefix = xpbd_data->prefix_bending[cluster_idx];
-    const uint next_prefix = xpbd_data->prefix_bending[cluster_idx + 1];
-    const uint num_elements_clustered = next_prefix - curr_prefix;
-
+void GpuSolver::solve_constraint_tet_stress(Buffer<Float3> &sa_iter_position, const uint cluster_idx) {
+    
+}
+void CpuSolver::solve_constraint_ground_collision(Buffer<Float3> &sa_iter_position) {
     parallel_for(
-        0, num_elements_clustered,
-        [&](const uint i) {
-            const uint eid = curr_prefix + i;
-            fn_bending(eid, curr_cloth_position.data(), curr_cloth_position.data(),
-                       xpbd_data->sa_x_start.data(), nullptr,
-                       xpbd_data->sa_lambda_bending.data(),
-                       mesh_data->sa_vert_mass_inv.data(),
-                       xpbd_data->sa_merged_bending_edges.data(), nullptr,
-                       xpbd_data->sa_merged_bending_edges_Q.data(),
-                       xpbd_data->sa_merged_bending_edges_angle.data(),
-                       stiffness_bending_quadratic, stiffness_bending_DAB,
-                       get_scene_params().get_substep_dt(), false);
+        0, mesh_data->num_verts_total, [&](const uint vid) {
+            Constrains::solve_ground_collision_template(vid,
+                                                        &get_scene_params(),
+                                                        sa_iter_position.data(), xpbd_data->sa_x_step_start.data(),
+                                                        xpbd_data->lambda_ground_collision_tet.data(),
+                                                        mesh_data->sa_vert_mass_inv.data());
         },
         32);
 }
-
-// VBD constraints (energy)
-Buffer<Float4x3> &CpuSolver::get_Hf() { return xpbd_data->sa_Hf; }
-Buffer<Float4x3> &GpuSolver::get_Hf()// Remember to use the saperate buffer!!!
-{
-    return xpbd_data->sa_Hf_2;
-    // return xpbd_data->sa_Hf;
+void GpuSolver::solve_constraint_ground_collision(Buffer<Float3> &sa_iter_position) {
+    
 }
-
-void CpuSolver::vbd_evaluate_inertia(Buffer<Float3> &sa_iter_position,
-                                     const uint cluster_idx) {
-    auto &clusters = xpbd_data->clusterd_per_vertex_bending;
-    const uint next_prefix = clusters[cluster_idx + 1];
-    const uint curr_prefix = clusters[cluster_idx];
-    const uint num_verts_cluster = next_prefix - curr_prefix;
-
-    parallel_for(0, num_verts_cluster, [&](const uint i) {
-        const uint vid = clusters[curr_prefix + i];
-        Float4x3 Hf = Constrains::VBD::compute_inertia(
-            vid, sa_iter_position.data(), xpbd_data->sa_x_tilde.data(),
-            mesh_data->sa_is_fixed.data(), mesh_data->sa_vert_mass.data(),
-            &get_scene_params(), get_scene_params().get_substep_dt());
-        get_Hf()[vid] = Hf;
-    });
-}
-void GpuSolver::vbd_evaluate_inertia(Buffer<Float3> &sa_iter_position,
-                                     const uint cluster_idx) {
-    auto &clusters = xpbd_data->clusterd_per_vertex_bending;
-    const uint next_prefix = clusters[cluster_idx + 1];
-    const uint curr_prefix = clusters[cluster_idx];
-    const uint num_verts_cluster = next_prefix - curr_prefix;
-
-    get_command_list().add_task(fn_evaluate_inertia);
-    fn_evaluate_inertia.bind_ptr(get_Hf());
-    fn_evaluate_inertia.bind_ptr(sa_iter_position);
-    fn_evaluate_inertia.bind_ptr(xpbd_data->sa_x_tilde);
-    fn_evaluate_inertia.bind_ptr(mesh_data->sa_is_fixed);
-    fn_evaluate_inertia.bind_ptr(mesh_data->sa_vert_mass);
-    fn_evaluate_inertia.bind_ptr(get_scene_params_array());
-    fn_evaluate_inertia.bind_constant(get_scene_params().get_substep_dt());
-
-    fn_evaluate_inertia.bind_ptr(clusters);
-    fn_evaluate_inertia.bind_constant(cluster_idx);
-    fn_evaluate_inertia.launch_async(num_verts_cluster);
-}
-
-void CpuSolver::vbd_evaluate_stretch_spring(Buffer<Float3> &sa_iter_position,
-                                            const uint cluster_idx) {
-    auto &clusters = xpbd_data->clusterd_per_vertex_bending;
-    const uint next_prefix = clusters[cluster_idx + 1];
-    const uint curr_prefix = clusters[cluster_idx];
-    const uint num_verts_cluster = next_prefix - curr_prefix;
-
+void CpuSolver::solve_constraint_obstacle_collision(Buffer<Float3> &sa_iter_position) {
     parallel_for(
-        0, num_verts_cluster,
-        [&](const uint i) {
-            const uint vid = clusters[curr_prefix + i];
-            Float4x3 Hf = Constrains::VBD::compute_stretch_mass_spring(
-                vid, sa_iter_position.data(), mesh_data->sa_vert_adj_edges.data(),
-                mesh_data->sa_edges.data(),
-                mesh_data->sa_edges_rest_state_length.data(),
-                get_scene_params().stiffness_stretch_spring);
-            get_Hf()[vid] += Hf;
+        0, mesh_data->num_surface_verts_total, [&](const uint surface_id) {
+            Constrains::solve_obstacle_collision_vf_template_tet(surface_id,
+                                                                 nullptr, sa_iter_position.data(),
+                                                                 obstacle_data->sa_substep_position.data(), obstacle_data->sa_vert_velocity.data(),
+                                                                 nullptr, sa_iter_position.data(),
+                                                                 nullptr, xpbd_data->sa_x_step_start.data(),
+
+                                                                 mesh_data->sa_surface_verts.data(),
+                                                                 nullptr, mesh_data->sa_vert_mass_inv.data(),
+                                                                 nullptr, mesh_data->sa_vert_mutex.data(),
+
+                                                                 obstacle_collision_data_tet->vert_VV_num_narrow_phase.data(), obstacle_collision_data_tet->vert_VV_prefix_narrow_phase.data(),
+                                                                 obstacle_collision_data_tet->vert_adj_elements.data(), obstacle_collision_data_tet->narrow_phase_list_pair_vf.data(),
+                                                                 xpbd_data->lambda_sdf_collision_tet.data(), xpbd_data->lambda_sdf_collision_tet_friction.data(),
+                                                                 get_scene_params().max_vf_per_vert_narrow_obstacle_collision,
+                                                                 get_scene_params().thickness_vv_obstacle, get_scene_params().get_substep_dt(),
+                                                                 get_scene_params().xpbd_stiffness_collision, get_scene_params().friction_obstacle_tet,
+                                                                 0);
         },
         32);
 }
-void GpuSolver::vbd_evaluate_stretch_spring(Buffer<Float3> &sa_iter_position,
-                                            const uint cluster_idx) {
-    auto &clusters = xpbd_data->clusterd_per_vertex_bending;
-    const uint next_prefix = clusters[cluster_idx + 1];
-    const uint curr_prefix = clusters[cluster_idx];
-    const uint num_verts_cluster = next_prefix - curr_prefix;
-
-    get_command_list().add_task(fn_evaluate_stretch_mass_spring);
-    fn_evaluate_stretch_mass_spring.bind_ptr(get_Hf());
-    fn_evaluate_stretch_mass_spring.bind_ptr(sa_iter_position);
-
-    fn_evaluate_stretch_mass_spring.bind_ptr(mesh_data->sa_vert_adj_edges);
-    fn_evaluate_stretch_mass_spring.bind_ptr(mesh_data->sa_edges);
-    fn_evaluate_stretch_mass_spring.bind_ptr(
-        mesh_data->sa_edges_rest_state_length);
-    fn_evaluate_stretch_mass_spring.bind_constant(
-        get_scene_params().stiffness_stretch_spring);
-
-    fn_evaluate_stretch_mass_spring.bind_ptr(clusters);
-    fn_evaluate_stretch_mass_spring.bind_constant(cluster_idx);
-    fn_evaluate_stretch_mass_spring.launch_async(num_verts_cluster);
+void GpuSolver::solve_constraint_obstacle_collision(Buffer<Float3> &sa_iter_position) {
+    
 }
+void CpuSolver::solve_constraint_self_collision(Buffer<Float3> &sa_iter_position, const uint cluster_idx) {
 
-void CpuSolver::vbd_evaluate_bending(Buffer<Float3> &sa_iter_position,
-                                     const uint cluster_idx) {
-    auto &clusters = xpbd_data->clusterd_per_vertex_bending;
-    const uint next_prefix = clusters[cluster_idx + 1];
-    const uint curr_prefix = clusters[cluster_idx];
-    const uint num_verts_cluster = next_prefix - curr_prefix;
+    const float thickness = get_scene_params().thickness_vv_tet;
 
-    parallel_for(
-        0, num_verts_cluster,
-        [&](const uint i) {
-            const uint vid = clusters[curr_prefix + i];
-            Float4x3 Hf = Constrains::VBD::compute_bending_quadratic(
-                vid, sa_iter_position.data(),
-                mesh_data->sa_vert_adj_bending_edges.data(),
-                mesh_data->sa_bending_edges.data(),
-                mesh_data->sa_bending_edges_Q.data(),
-                get_scene_params().get_stiffness_quadratic_bending());
-            get_Hf()[vid] += Hf;
-        },
-        32);
-}
-void GpuSolver::vbd_evaluate_bending(Buffer<Float3> &sa_iter_position,
-                                     const uint cluster_idx) {
-    auto &clusters = xpbd_data->clusterd_per_vertex_bending;
-    const uint next_prefix = clusters[cluster_idx + 1];
-    const uint curr_prefix = clusters[cluster_idx];
-    const uint num_verts_cluster = next_prefix - curr_prefix;
+    auto fn_self_collision_solver_per_element_vv_template = [&](const uint pair_idx) {
+        Constrains::solve_self_collision_vv_per_collision_pair_template_tet(pair_idx,
+                                                                            nullptr, xpbd_data->sa_x_step_start.data(),
+                                                                            nullptr, sa_iter_position.data(),
+                                                                            nullptr, sa_iter_position.data(),
 
-    get_command_list().add_task(fn_evaluate_bending);
-    fn_evaluate_bending.bind_ptr(get_Hf());
-    fn_evaluate_bending.bind_ptr(sa_iter_position);
+                                                                            mesh_data->sa_surface_verts.data(),
+                                                                            nullptr, mesh_data->sa_vert_mass_inv.data(),
+                                                                            nullptr, mesh_data->sa_vert_mutex.data(),
 
-    fn_evaluate_bending.bind_ptr(mesh_data->sa_vert_adj_bending_edges);
-    fn_evaluate_bending.bind_ptr(mesh_data->sa_bending_edges);
-    fn_evaluate_bending.bind_ptr(mesh_data->sa_bending_edges_Q);
-    fn_evaluate_bending.bind_constant(
-        get_scene_params().get_stiffness_quadratic_bending());
+                                                                            self_collision_data_tet->narrow_phase_list_pair_vv_merged.data(),
+                                                                            xpbd_data->lambda_self_collision_tet.data(), xpbd_data->lambda_self_collision_friction_tet.data(),
 
-    fn_evaluate_bending.bind_ptr(clusters);
-    fn_evaluate_bending.bind_constant(cluster_idx);
-    fn_evaluate_bending.launch_async(num_verts_cluster);
-}
+                                                                            get_scene_params().get_substep_dt(), false, thickness,
+                                                                            get_scene_params().xpbd_stiffness_collision, get_scene_params().friction_tet, 0);
+    };
 
-void CpuSolver::vbd_step(Buffer<Float3> &sa_iter_position,
-                         const uint cluster_idx) {
-    auto &clusters = xpbd_data->clusterd_per_vertex_bending;
-    const uint next_prefix = clusters[cluster_idx + 1];
-    const uint curr_prefix = clusters[cluster_idx];
-    const uint num_verts_cluster = next_prefix - curr_prefix;
-
-    parallel_for(
-        0, num_verts_cluster,
-        [&](const uint i) {
-            const uint vid = clusters[curr_prefix + i];
-            Float4x3 Hf = get_Hf()[vid];
-            // Float3x3 H = makeFloat3x3(get(Hf, 0), get(Hf, 1), get(Hf, 2));
-            // Float3 f = get(Hf, 3);
-            Float3x3 H;
-            Float3 f;
-            Constrains::VBD::extractHf(Hf, f, H);
-            float det = determinant_mat(H);
-            if (abs_scalar(det) > Epsilon) {
-                Float3x3 H_inv = inverse_mat(H, det);
-                Float3 dx = H_inv * f;
-                sa_iter_position[vid] += dx;
-            }
-        },
-        32);
-}
-void GpuSolver::vbd_step(Buffer<Float3> &sa_iter_position,
-                         const uint cluster_idx) {
-    auto &clusters = xpbd_data->clusterd_per_vertex_bending;
-    const uint next_prefix = clusters[cluster_idx + 1];
-    const uint curr_prefix = clusters[cluster_idx];
-    const uint num_verts_cluster = next_prefix - curr_prefix;
-
-    get_command_list().add_task(fn_vbd_step);
-    fn_vbd_step.bind_ptr(get_Hf());
-    fn_vbd_step.bind_ptr(sa_iter_position);
-    fn_vbd_step.bind_ptr(clusters);
-    fn_vbd_step.bind_constant(cluster_idx);
-    fn_vbd_step.launch_async(num_verts_cluster);
-
-    // get_command_list().send_and_wait();
-    // for (uint vid = 0; vid < mesh_data->num_verts; vid++)
     // {
-    //     Float3 pos = sa_iter_position[vid];
-    //     if (is_nan_float3(pos))
-    //     {
-    //         fast_format_err("pos in vid {} is nan", vid);
-    //         Float4x3 Hf = get_Hf()[vid];
-    //         Float3x3 H; Float3 f;
-    //         Constrains::VBD::extractHf(Hf, f, H);
-    //         float det = determinant_mat(H);
-    //         if (abs_scalar(det) > Epsilon)
-    //         {
-    //             Float3x3 H_inv = inverse_mat(H, det);
-    //             Float3 dx = H_inv * f;
-    //             fast_format_err("H = {}, f = {}, det = {}, dx = {} ",
-    //                 SimString::mat_to_string(H), SimString::Vec3_to_string(f),
-    //                 det, SimString::Vec3_to_string(dx));
-    //         }
-    //         else
-    //         {
-    //             fast_format_err("det  = {}", det);
-    //         }
-    //         exit(0);
-    //     }
+    //     const uint curr_prefix = vivace_data_tet->cluster_prefix[cluster_idx];
+    //     const uint num_elements_clustered = vivace_data_tet->num_verts_in_cluster[cluster_idx];
+    //     const uint *cluster = vivace_data_tet->clusterd_constraint_self_collision.data() + curr_prefix;
+
+    //     if (num_elements_clustered == 0) return;
+
+    //     parallel_for(
+    //         0, num_elements_clustered, [&](const uint i) {
+    //             const uint pair_idx = curr_prefix + i;
+    //             fn_self_collision_solver_per_element_vv_template(pair_idx);
+    //         },
+    //         32);
+    // }
+}
+void GpuSolver::solve_constraint_self_collision(Buffer<Float3> &sa_iter_position, const uint cluster_idx) {
+
+    const float thickness = get_scene_params().thickness_vv_tet;
+
+    auto fn_self_collision_solver_per_element_vv_template = [&](const uint pair_idx) {
+        Constrains::solve_self_collision_vv_per_collision_pair_template_tet(pair_idx,
+                                                                            nullptr, xpbd_data->sa_x_step_start.data(),
+                                                                            nullptr, sa_iter_position.data(),
+                                                                            nullptr, sa_iter_position.data(),
+
+                                                                            mesh_data->sa_surface_verts.data(),
+                                                                            nullptr, mesh_data->sa_vert_mass_inv.data(),
+                                                                            nullptr, mesh_data->sa_vert_mutex.data(),
+
+                                                                            self_collision_data_tet->narrow_phase_list_pair_vv_merged.data(),
+                                                                            xpbd_data->lambda_self_collision_tet.data(), xpbd_data->lambda_self_collision_friction_tet.data(),
+
+                                                                            get_scene_params().get_substep_dt(), false, thickness,
+                                                                            get_scene_params().xpbd_stiffness_collision, get_scene_params().friction_tet, 0);
+    };
+
+    // {
+    //     const uint curr_prefix = vivace_data_tet->cluster_prefix[cluster_idx];
+    //     const uint num_elements_clustered = vivace_data_tet->num_verts_in_cluster[cluster_idx];
+    //     const uint *cluster = vivace_data_tet->clusterd_constraint_self_collision.data() + curr_prefix;
+
+    //     if (num_elements_clustered == 0) return;
+
+    //     parallel_for(
+    //         0, num_elements_clustered, [&](const uint i) {
+    //             const uint pair_idx = curr_prefix + i;
+    //             fn_self_collision_solver_per_element_vv_template(pair_idx);
+    //         },
+    //         32);
     // }
 }
 
 void CpuSolver::physics_step_xpbd() {
-    xpbd_data->sa_x_start = mesh_data->sa_x_frame_start;
-    xpbd_data->sa_v_start = mesh_data->sa_v_frame_start;
-    xpbd_data->sa_x = mesh_data->sa_x_frame_start;
-    xpbd_data->sa_v = mesh_data->sa_v_frame_start;
+    xpbd_data->sa_x_step_start = xpbd_data->sa_x_frame;
+    xpbd_data->sa_x = xpbd_data->sa_x_frame;
+    xpbd_data->sa_v = xpbd_data->sa_v_frame;
 
     const uint num_substep = get_scene_params().print_xpbd_convergence ? 1 : get_scene_params().num_substep;
     const uint constraint_iter_count = get_scene_params().constraint_iter_count;
 
-    std::memset(mesh_data->sa_system_energy.data(), 0,
-                mesh_data->sa_system_energy.size() * sizeof(float));
-    energy_idx = 0;
-
-    SimClock clock;
-    clock.start_clock();
-
-    for (uint substep = 0; substep < num_substep; substep++)// 1 or 50 ?
-    {
-        {
-            get_scene_params().current_substep = substep;
-        }
-
-        // SimClock substep_clock; substep_clock.start_clock();
-        {
-            predict_position();
-
-            collision_detection();
-
-            // Constraint iteration part
-            {
-                reset_constrains();
-                reset_collision_constrains();
-
-                for (uint iter = 0; iter < constraint_iter_count; iter++)// 200 or 1 ?
-                {
-                    {
-                        get_scene_params().current_it = iter;
-                    }
-                    if (get_scene_params().use_xpbd_solver) {
-                        solve_constraints_XPBD();
-                    } else {
-                        fast_format_err("empty solver");
-                    }
-                }
-            }
-
-            update_velocity();
-        }
-        // substep_clock.end_clock();
-    }
-    float frame_cost = clock.end_clock();
-    // fast_format("Frame {:3} : cost = {:6.3f}",
-    // get_scene_params().current_frame, frame_cost);
-
-    {
-        if (get_scene_params().print_xpbd_convergence) {
-            std::vector<double> list_energy(energy_idx);
-            for (uint it = 0; it < list_energy.size(); it++) {
-                list_energy[it] = mesh_data->sa_system_energy[it];
-            }
-            fast_print_iterator(list_energy, "Energy Convergence");
-            energy_idx = 0;
-        }
-    }
-
-    mesh_data->sa_x_frame_end = xpbd_data->sa_x;
-    mesh_data->sa_v_frame_end = xpbd_data->sa_v;
-}
-
-void CpuSolver::physics_step_vbd() {
-    xpbd_data->sa_x_start = mesh_data->sa_x_frame_start;
-    xpbd_data->sa_v_start = mesh_data->sa_v_frame_start;
-    xpbd_data->sa_x = mesh_data->sa_x_frame_start;
-    xpbd_data->sa_v = mesh_data->sa_v_frame_start;
-
-    const uint num_substep = get_scene_params().print_xpbd_convergence ? 1 : get_scene_params().num_substep;
-    const uint constraint_iter_count = get_scene_params().constraint_iter_count;
-
-    std::memset(mesh_data->sa_system_energy.data(), 0,
-                mesh_data->sa_system_energy.size() * sizeof(float));
+    xpbd_data->sa_system_energy.set_zero();
     energy_idx = 0;
 
     SimClock clock;
@@ -1500,11 +1190,7 @@ void CpuSolver::physics_step_vbd() {
                     {
                         get_scene_params().current_it = iter;
                     }
-                    if (get_scene_params().use_vbd_solver) {
-                        solve_constraints_VBD();
-                    } else {
-                        fast_format_err("empty solver");
-                    }
+                    solve_constraints_XPBD();
                 }
             }
 
@@ -1521,27 +1207,25 @@ void CpuSolver::physics_step_vbd() {
         if (get_scene_params().print_xpbd_convergence) {
             std::vector<double> list_energy(energy_idx);
             for (uint it = 0; it < list_energy.size(); it++) {
-                list_energy[it] = mesh_data->sa_system_energy[it];
+                list_energy[it] = xpbd_data->sa_system_energy[it];
             }
             fast_print_iterator(list_energy, "Energy Convergence");
             energy_idx = 0;
         }
     }
 
-    mesh_data->sa_x_frame_end = xpbd_data->sa_x;
-    mesh_data->sa_v_frame_end = xpbd_data->sa_v;
+    xpbd_data->sa_x_frame = xpbd_data->sa_x;
+    xpbd_data->sa_v_frame = xpbd_data->sa_v;
 }
-void GpuSolver::physics_step_vbd() {
-    xpbd_data->sa_x_start = mesh_data->sa_x_frame_start;
-    xpbd_data->sa_v_start = mesh_data->sa_v_frame_start;
-    xpbd_data->sa_x = mesh_data->sa_x_frame_start;
-    xpbd_data->sa_v = mesh_data->sa_v_frame_start;
+void GpuSolver::physics_step_xpbd() {
+    xpbd_data->sa_x_step_start = xpbd_data->sa_x_frame;
+    xpbd_data->sa_x = xpbd_data->sa_x_frame;
+    xpbd_data->sa_v = xpbd_data->sa_v_frame;
 
     const uint num_substep = get_scene_params().print_xpbd_convergence ? 1 : get_scene_params().num_substep;
     const uint constraint_iter_count = get_scene_params().constraint_iter_count;
 
-    std::memset(mesh_data->sa_system_energy.data(), 0,
-                mesh_data->sa_system_energy.size() * sizeof(float));
+    xpbd_data->sa_system_energy.set_zero();
     energy_idx = 0;
 
     SimClock clock;
@@ -1567,7 +1251,7 @@ void GpuSolver::physics_step_vbd() {
                         get_scene_params().current_it = iter;
                     }
                     if (get_scene_params().use_vbd_solver) {
-                        solve_constraints_VBD();
+                        solve_constraints_XPBD();
                     } else {
                         fast_format_err("empty solver");
                     }
@@ -1589,15 +1273,15 @@ void GpuSolver::physics_step_vbd() {
         if (get_scene_params().print_xpbd_convergence) {
             std::vector<double> list_energy(energy_idx);
             for (uint it = 0; it < list_energy.size(); it++) {
-                list_energy[it] = mesh_data->sa_system_energy[it];
+                list_energy[it] = xpbd_data->sa_system_energy[it];
             }
             fast_print_iterator(list_energy, "Energy Convergence");
             energy_idx = 0;
         }
     }
 
-    mesh_data->sa_x_frame_end = xpbd_data->sa_x;
-    mesh_data->sa_v_frame_end = xpbd_data->sa_v;
+    xpbd_data->sa_x_frame = xpbd_data->sa_x;
+    xpbd_data->sa_v_frame = xpbd_data->sa_v;
 }
 
 void CpuSolver::fn_dispatch(const Launcher::LaunchParam &param) {
@@ -1613,7 +1297,7 @@ void CpuSolver::fn_dispatch(const Launcher::LaunchParam &param) {
         // {}", buffer_idx, buffer_idx % max_buffer_count,
         // xpbd_data->sa_async_iter_positions_cloth[buffer_idx %
         // max_buffer_count].size());
-        return buffer_idx == Launcher::default_buffer_mask ? xpbd_data->sa_x : xpbd_data->sa_async_iter_positions_cloth[buffer_idx % max_buffer_count];
+        return buffer_idx == Launcher::default_buffer_mask ? xpbd_data->sa_x : xpbd_data->sa_async_iter_positions_tet[buffer_idx % max_buffer_count];
     };
     auto fn_get_begin_buffer = [&](const uint buffer_idx) -> Buffer<Float3> & {
         // if constexpr (print_buffer_idx) fast_format("Begin buffer {} ({}) size =
@@ -1621,7 +1305,7 @@ void CpuSolver::fn_dispatch(const Launcher::LaunchParam &param) {
         // xpbd_data->sa_async_begin_positions_cloth[buffer_idx %
         // max_buffer_count].size());
         return xpbd_data
-            ->sa_async_begin_positions_cloth[buffer_idx % max_buffer_count];
+            ->sa_async_begin_positions_tet[buffer_idx % max_buffer_count];
     };
     auto fn_copy_to_start_and_iter = [&](const Buffer<Float3> &input_array,
                                          const uint output_buffer_idx) {
@@ -1648,7 +1332,7 @@ void CpuSolver::fn_dispatch(const Launcher::LaunchParam &param) {
                     fast_format("Weight : from {} and {}", input_buffer_idx,
                                 param.left_buffer_idx);
                 auto &begin_buffer = param.is_allocated_to_main_device ? fn_get_begin_buffer(input_buffer_idx) : fn_get_begin_buffer(param.left_buffer_idx);
-                parallel_for(0, mesh_data->num_verts, [&](const uint vid) {
+                parallel_for(0, mesh_data->num_verts_total, [&](const uint vid) {
                     Constrains::Core::read_and_solve_conflict(
                         vid, begin_buffer.data(), begin_buffer.data(),
                         fn_get_iter_buffer(input_buffer_idx).data(),
@@ -1711,9 +1395,7 @@ void CpuSolver::fn_dispatch(const Launcher::LaunchParam &param) {
                         id_xpbd_constraint_self_collision_vv_half_cloth// Last task
                                                                        // of XPBD
                                                                        // (collision)
-                || (param.cluster_idx ==
-                        xpbd_data->num_clusters_per_vertex_bending - 1 &&
-                    param.function_id == Launcher::id_vbd_all_in_one) ||
+                ||
                 param.function_id == Launcher::id_xpbd_constraint_last_node) {
                 compute_energy(fn_get_iter_buffer(param.buffer_idx));
             }
@@ -1750,25 +1432,27 @@ void CpuSolver::fn_dispatch(const Launcher::LaunchParam &param) {
                               xpbd_data->sa_x.data(), xpbd_data->sa_x.size());
                 break;
             }
-            case Launcher::id_vbd_all_in_one: {
-                auto &iter_position = fn_get_iter_buffer(param.buffer_idx);
-
-                const uint cluster = param.cluster_idx;
-
+            case Launcher::id_xpbd_constraint_stress_half: {
                 fn_cloth_constraint_prev_func(param);
-                {
-                    vbd_evaluate_inertia(iter_position, cluster);
-
-                    vbd_evaluate_stretch_spring(iter_position, cluster);
-
-                    vbd_evaluate_bending(iter_position, cluster);
-
-                    vbd_step(iter_position, cluster);
-                }
-                // const uint iter = param.iter_idx;
-                // if (cluster == xpbd_data->num_clusters_per_vertex_bending - 1)
-                //     chebyshev_step(iter_position, iter); // chebyshev acceleration is
-                //     not supported, which may be future work
+                solve_constraint_tet_stress(fn_get_iter_buffer(param.buffer_idx), param.cluster_idx);
+                fn_cloth_constraint_post_func(param);
+                break;
+            }
+            case Launcher::id_xpbd_constraint_self_collision_vv_half_cloth: {
+                fn_cloth_constraint_prev_func(param);
+                solve_constraint_self_collision(fn_get_iter_buffer(param.buffer_idx), param.cluster_idx);
+                fn_cloth_constraint_post_func(param);
+                break;
+            }
+            case Launcher::id_xpbd_constraint_ground_collision_tet: {
+                fn_cloth_constraint_prev_func(param);
+                solve_constraint_ground_collision(fn_get_iter_buffer(param.buffer_idx));
+                fn_cloth_constraint_post_func(param);
+                break;
+            }
+            case Launcher::id_xpbd_constraint_obstacle_collision_vv_tet: {
+                fn_cloth_constraint_prev_func(param);
+                solve_constraint_obstacle_collision(fn_get_iter_buffer(param.buffer_idx));
                 fn_cloth_constraint_post_func(param);
                 break;
             }
@@ -1785,11 +1469,11 @@ void GpuSolver::fn_dispatch(const Launcher::LaunchParam &param) {
     constexpr uint max_buffer_count = 32;
     constexpr bool print_buffer_idx = false;
     auto fn_get_iter_buffer = [&](const uint buffer_idx) -> Buffer<Float3> & {
-        return buffer_idx == Launcher::default_buffer_mask ? xpbd_data->sa_x : xpbd_data->sa_async_iter_positions_cloth[buffer_idx % max_buffer_count];
+        return buffer_idx == Launcher::default_buffer_mask ? xpbd_data->sa_x : xpbd_data->sa_async_iter_positions_tet[buffer_idx % max_buffer_count];
     };
     auto fn_get_begin_buffer = [&](const uint buffer_idx) -> Buffer<Float3> & {
         return xpbd_data
-            ->sa_async_begin_positions_cloth[buffer_idx % max_buffer_count];
+            ->sa_async_begin_positions_tet[buffer_idx % max_buffer_count];
     };
     auto fn_copy_to_start_and_iter = [&](const Buffer<Float3> &input_array,
                                          const uint output_buffer_idx) {
@@ -1834,7 +1518,7 @@ void GpuSolver::fn_dispatch(const Launcher::LaunchParam &param) {
                 fn_read_and_solve_conflict.bind_ptr(
                     fn_get_iter_buffer(param.left_buffer_idx));
                 fn_read_and_solve_conflict.bind_constant(weight);
-                fn_read_and_solve_conflict.launch_async(mesh_data->num_verts);
+                fn_read_and_solve_conflict.launch_async(mesh_data->num_verts_total);
             }
         } else if (!param.input_buffer_idxs.empty())// Copy from input
         {
@@ -1900,10 +1584,7 @@ void GpuSolver::fn_dispatch(const Launcher::LaunchParam &param) {
                         id_xpbd_constraint_self_collision_vv_half_cloth// Last task
                                                                        // of XPBD
                                                                        // (collision)
-                || (param.cluster_idx ==
-                        xpbd_data->num_clusters_per_vertex_bending - 1 &&
-                    param.function_id == Launcher::id_vbd_all_in_one) ||
-                param.function_id == Launcher::id_xpbd_constraint_last_node) {
+                || param.function_id == Launcher::id_xpbd_constraint_last_node) {
                 compute_energy(fn_get_iter_buffer(param.buffer_idx));
             }
         }
@@ -1936,26 +1617,31 @@ void GpuSolver::fn_dispatch(const Launcher::LaunchParam &param) {
                     get_command_list().add_task(fn_copy_from_A_to_B);
                     fn_copy_from_A_to_B.bind_ptr(fn_get_iter_buffer(param.buffer_idx));
                     fn_copy_from_A_to_B.bind_ptr(xpbd_data->sa_x);
-                    fn_copy_from_A_to_B.launch_async(mesh_data->num_verts);
+                    fn_copy_from_A_to_B.launch_async(mesh_data->num_verts_total);
                 }
                 break;
             }
-            case Launcher::id_vbd_all_in_one: {
-                auto &iter_position = fn_get_iter_buffer(param.buffer_idx);
-                const uint cluster = param.cluster_idx;
-
+            case Launcher::id_xpbd_constraint_stress_half: {
                 fn_cloth_constraint_prev_func(param);
-                {
-                    vbd_evaluate_inertia(iter_position, cluster);
-
-                    vbd_evaluate_stretch_spring(iter_position, cluster);
-
-                    vbd_evaluate_bending(iter_position, cluster);
-
-                    vbd_step(iter_position, cluster);
-
-                    // if (param.cluster_idx == 9 || param.cluster_idx == 10) return;
-                }
+                solve_constraint_tet_stress(fn_get_iter_buffer(param.buffer_idx), param.cluster_idx);
+                fn_cloth_constraint_post_func(param);
+                break;
+            }
+            case Launcher::id_xpbd_constraint_self_collision_vv_half_cloth: {
+                fn_cloth_constraint_prev_func(param);
+                solve_constraint_self_collision(fn_get_iter_buffer(param.buffer_idx), param.cluster_idx);
+                fn_cloth_constraint_post_func(param);
+                break;
+            }
+            case Launcher::id_xpbd_constraint_ground_collision_tet: {
+                fn_cloth_constraint_prev_func(param);
+                solve_constraint_ground_collision(fn_get_iter_buffer(param.buffer_idx));
+                fn_cloth_constraint_post_func(param);
+                break;
+            }
+            case Launcher::id_xpbd_constraint_obstacle_collision_vv_tet: {
+                fn_cloth_constraint_prev_func(param);
+                solve_constraint_obstacle_collision(fn_get_iter_buffer(param.buffer_idx));
                 fn_cloth_constraint_post_func(param);
                 break;
             }
@@ -1983,12 +1669,33 @@ void GpuSolver::register_dag(Launcher::Scheduler &scheduler) {
             std::vector<Launcher::Implementation>
                 implementation_list_xpbd_cpu_and_gpu = {ipm_xpbd_cpu, imp_xpbd_gpu};
 
+            // Init
             uint tid_xpbd_predict_position = scheduler.add_task(
                 Launcher::Task(Launcher::id_xpbd_predict_position, 0,
                                implementation_list_xpbd_cpu_and_gpu));
+            uint tid_xpbd_reset_constrains = scheduler.add_task(Launcher::Task(Launcher::id_xpbd_reset_constrains, 0, implementation_list_xpbd_cpu_and_gpu));
+            uint tid_xpbd_reset_collision_constrains = scheduler.add_task(Launcher::Task(Launcher::id_xpbd_reset_collision_constrains, 0, implementation_list_xpbd_cpu_and_gpu));
+            uint tid_xpbd_copy_current_position_to_2_devices = scheduler.add_task(Launcher::Task(Launcher::id_xpbd_copy_to_cpu_gpu, 0, implementation_list_xpbd_cpu_and_gpu));
 
-            std::vector<uint> constraint_task_orders;
+            scheduler.set_connect(tid_xpbd_predict_position, tid_xpbd_copy_current_position_to_2_devices);
+
+            // Solving Constraints
+            std::vector<uint> prev_tids_stress;
+            std::vector<uint> prev_tids_sdf_collision_vv_tet;
+            std::vector<uint> prev_tids_self_collision_vv_tet;
+            std::vector<uint> prev_prev_tids_self_collision_vv_tet;
+
             std::vector<std::vector<uint>> constraint_tasks;
+            std::vector<uint> constraint_task_orders;
+            const bool use_virtual_sync = true;
+            const uint sync_frequece = 4;
+            const uint sync_distance = 1;
+            std::vector<uint> virtual_nodes;
+
+            {
+                xpbd_data->num_combined_clusters_stress = 8;
+                xpbd_data->num_combined_clusters_self_collision = 1;
+            }
 
             auto fn_connect_single_single = [&](const uint left, const uint right) {
                 scheduler.set_connect(left, right);
@@ -2011,30 +1718,74 @@ void GpuSolver::register_dag(Launcher::Scheduler &scheduler) {
                     }
                 }
             };
-
-            for (uint iter = 0; iter < constraint_iter_count; iter++) {
-                std::vector<uint> curr_tasks;
-                for (uint cluster = 0;
-                     cluster < xpbd_data->num_clusters_per_vertex_bending; cluster++) {
-                    uint tid_vbd_vbd_all_in_one = scheduler.add_task(
-                        Launcher::Task(Launcher::id_vbd_all_in_one, iter, -1u, cluster,
-                                       implementation_list_xpbd_cpu_and_gpu));
-
-                    fn_connect_single_single(tid_xpbd_predict_position,
-                                             tid_vbd_vbd_all_in_one);
-
-                    curr_tasks.push_back(tid_vbd_vbd_all_in_one);
+            auto fn_add_brothers_to_graph = [&](
+                                                const uint &iter_idx, const uint &constraint_idx,
+                                                const Launcher::FunctionID &func_id,
+                                                const uint &num_clusters) -> std::vector<uint> {
+                std::vector<uint> tids_constraint(num_clusters);
+                for (uint cluster_idx = 0; cluster_idx < num_clusters; cluster_idx++) {
+                    const uint curr_idx = scheduler.add_task(Launcher::Task(func_id, iter_idx, constraint_idx, cluster_idx, implementation_list_xpbd_cpu_and_gpu));
+                    tids_constraint[cluster_idx] = (curr_idx);
                 }
-                constraint_tasks.push_back(curr_tasks);
-                constraint_task_orders.insert(constraint_task_orders.end(),
-                                              curr_tasks.begin(), curr_tasks.end());
+                return tids_constraint;
+            };
 
-                if (iter >= 1) {
-                    const auto &prev_tasks = constraint_tasks[iter - 1];
-                    for (uint cluster = 0; cluster < prev_tasks.size(); cluster++) {
-                        // Single cluster should maintain sequency
-                        fn_connect_single_single(prev_tasks[cluster], curr_tasks[cluster]);
+            std::vector<uint> sync_nodes;
+            for (uint iter = 0; iter < constraint_iter_count; iter++) {
+
+                const uint tid_xpbd_constraint_ground_collision_tet = scheduler.add_task(
+                    Launcher::Task(Launcher::id_xpbd_constraint_ground_collision_tet, iter, CONSTRAINT_IDX_COLLISION, 0, implementation_list_xpbd_cpu_and_gpu));
+                const uint tid_xpbd_constraint_obstacle_collision_tet = scheduler.add_task(
+                    Launcher::Task(Launcher::id_xpbd_constraint_obstacle_collision_vv_tet, iter, CONSTRAINT_IDX_COLLISION, 0, implementation_list_xpbd_cpu_and_gpu));
+                const std::vector<uint> tids_sdf_collision_vv_tet = {tid_xpbd_constraint_ground_collision_tet, tid_xpbd_constraint_obstacle_collision_tet};
+                scheduler.set_connect(tid_xpbd_constraint_ground_collision_tet, tid_xpbd_constraint_obstacle_collision_tet);
+
+                // Iteractive Constraints
+                const std::vector<uint> tids_tet_stress = fn_add_brothers_to_graph(iter, CONSTRAINT_IDX_STRESS,
+                                                                                   Launcher::id_xpbd_constraint_stress_half,
+                                                                                   xpbd_data->num_combined_clusters_stress);
+
+                const std::vector<uint> tids_self_collision_vv_tet = fn_add_brothers_to_graph(iter, CONSTRAINT_IDX_COLLISION,
+                                                                                              Launcher::id_xpbd_constraint_self_collision_vv_half_tet,
+                                                                                              xpbd_data->num_combined_clusters_self_collision);
+                if (iter == 0) {
+                    fn_connect_single_multiple(tid_xpbd_copy_current_position_to_2_devices, tids_tet_stress);
+                    fn_connect_single_multiple(tid_xpbd_copy_current_position_to_2_devices, tids_sdf_collision_vv_tet);
+                    fn_connect_single_multiple(tid_xpbd_copy_current_position_to_2_devices, tids_self_collision_vv_tet);
+                    fn_connect_single_multiple(tid_xpbd_reset_constrains, tids_tet_stress);
+                    fn_connect_single_multiple(tid_xpbd_reset_collision_constrains, tids_sdf_collision_vv_tet);
+                    fn_connect_single_multiple(tid_xpbd_reset_collision_constrains, tids_self_collision_vv_tet);
+                } else {
+                    fn_connect_multiple_multiple(prev_tids_stress, tids_tet_stress);
+                    fn_connect_multiple_multiple(prev_tids_sdf_collision_vv_tet, tids_sdf_collision_vv_tet);
+                    fn_connect_multiple_multiple(prev_tids_self_collision_vv_tet, tids_self_collision_vv_tet);
+                }
+
+                // Set Virtual Connection
+                {
+                    std::vector<uint> curr_tasks;
+                    curr_tasks.insert(curr_tasks.end(), tids_tet_stress.begin(), tids_tet_stress.end());
+                    curr_tasks.insert(curr_tasks.end(), tids_sdf_collision_vv_tet.begin(), tids_sdf_collision_vv_tet.end());
+                    curr_tasks.insert(curr_tasks.end(), tids_self_collision_vv_tet.begin(), tids_self_collision_vv_tet.end());
+
+                    constraint_tasks.push_back(curr_tasks);
+                    constraint_task_orders.insert(constraint_task_orders.end(), curr_tasks.begin(), curr_tasks.end());// fast_format("Insert In Iter {} = {}", iter, curr_tasks.size());
+                    if (use_virtual_sync) {
+                        const bool use_pipeline = true;
+                        if (use_pipeline) {
+                            auto half_stress = std::vector<uint>(tids_tet_stress.begin(), tids_tet_stress.begin() + tids_tet_stress.size() / 2);
+                            fn_connect_multiple_multiple(half_stress, tids_sdf_collision_vv_tet);
+                            fn_connect_multiple_multiple(tids_sdf_collision_vv_tet, tids_self_collision_vv_tet);
+                        }
                     }
+                }
+
+                // Need To Set At Last : We Need The Previous Last Information To Connect With Constraints Above
+                {
+                    prev_tids_stress = tids_tet_stress;
+                    prev_tids_sdf_collision_vv_tet = tids_sdf_collision_vv_tet;
+                    prev_prev_tids_self_collision_vv_tet = prev_tids_self_collision_vv_tet;
+                    prev_tids_self_collision_vv_tet = tids_self_collision_vv_tet;
                 }
             }
 
@@ -2048,7 +1799,11 @@ void GpuSolver::register_dag(Launcher::Scheduler &scheduler) {
                 uint tid_xpbd_update_velocity = scheduler.add_task(
                     Launcher::Task(Launcher::id_xpbd_update_velocity, 0,
                                    implementation_list_xpbd_cpu_and_gpu));
-                fn_connect_multiple_single(constraint_tasks.back(), last_node);
+
+                if (!sync_nodes.empty()) scheduler.set_connect(sync_nodes.back(), last_node);
+                fn_connect_multiple_single(prev_tids_stress, last_node);
+                fn_connect_multiple_single(prev_tids_sdf_collision_vv_tet, last_node);
+                fn_connect_multiple_single(prev_tids_self_collision_vv_tet, last_node);
                 scheduler.set_connect(last_node, tid_xpbd_update_velocity);
             }
         }
@@ -2062,20 +1817,15 @@ void GpuSolver::evaluate_compuatation_matrix(Launcher::Scheduler &scheduler) {
     std::vector<double> cost_total;
 
     auto fn_reset_to_load = [&]() {
-        parallel_for(0, mesh_data->num_verts, [&](uint vid) {
-            Float3 saved_pos = mesh_data->sa_x_frame_saved[vid];
-            mesh_data->sa_x_frame_start[vid] = saved_pos;
-            mesh_data->sa_x_frame_end[vid] = saved_pos;
+        parallel_for(0, mesh_data->num_verts_total, [&](uint vid) {
+            Float3 saved_pos = mesh_data->sa_rest_position[vid];
+            xpbd_data->sa_x_frame[vid] = saved_pos;
 
-            Float3 saved_vel = mesh_data->sa_v_frame_saved[vid];
-            mesh_data->sa_v_frame_start[vid] = saved_vel;
-            mesh_data->sa_v_frame_end[vid] = saved_vel;
+            Float3 saved_vel = mesh_data->sa_rest_velocity[vid];
+            xpbd_data->sa_v_frame[vid] = saved_vel;
         });
     };
     auto func_prepare = []() {};
-
-    mesh_data->sa_x_frame_saved = mesh_data->sa_x_frame_end;
-    mesh_data->sa_v_frame_saved = mesh_data->sa_v_frame_end;
 
     const auto &list_task = scheduler.get_list_task();
     const auto &list_order = scheduler.get_list_order();
@@ -2205,8 +1955,6 @@ void GpuSolver::evaluate_compuatation_matrix(Launcher::Scheduler &scheduler) {
 
         // Profile GPU
 
-#if __APPLE__
-
         fast_print_single("GPU Loop...");
         double total_gpu = 0.0;
         auto &auto_fence_count = get_command_list().auto_fence_count;
@@ -2281,7 +2029,6 @@ void GpuSolver::evaluate_compuatation_matrix(Launcher::Scheduler &scheduler) {
         }
         fast_print();
         cost_total.push_back(total_gpu / double(profile_gpu_loop_count - 1));
-#endif
 
         fn_reset_to_load();
 
@@ -2408,16 +2155,14 @@ void GpuSolver::evaluate_compuatation_matrix(Launcher::Scheduler &scheduler) {
     scheduler.profile_from(list_task_id, list_cost, cost_total);
 }
 void GpuSolver::physics_step_vbd_async() {
-    xpbd_data->sa_x_start = mesh_data->sa_x_frame_start;
-    xpbd_data->sa_v_start = mesh_data->sa_v_frame_start;
-    xpbd_data->sa_x = mesh_data->sa_x_frame_start;
-    xpbd_data->sa_v = mesh_data->sa_v_frame_start;
+    xpbd_data->sa_x_step_start = xpbd_data->sa_x_frame;
+    xpbd_data->sa_x = xpbd_data->sa_x_frame;
+    xpbd_data->sa_v = xpbd_data->sa_v_frame;
 
     const uint num_substep = get_scene_params().print_xpbd_convergence ? 1 : get_scene_params().num_substep;
     const uint constraint_iter_count = get_scene_params().constraint_iter_count;
 
-    std::memset(mesh_data->sa_system_energy.data(), 0,
-                mesh_data->sa_system_energy.size() * sizeof(float));
+    xpbd_data->sa_system_energy.set_zero();
     energy_idx = 0;
 
     Launcher::Scheduler scheduler;
@@ -2461,16 +2206,6 @@ void GpuSolver::physics_step_vbd_async() {
         });
 
         scheduler.scheduler_dag();
-
-        // if (get_scene_params().current_frame == 0 &&
-        // get_scene_params().constraint_iter_count < 20)
-        // scheduler.print_schedule_to_graph_xpbd(); if
-        // (get_scene_params().current_frame == 0)
-        // scheduler.print_speedups_to_each_device(); if
-        // (get_scene_params().current_frame == 0)
-        // scheduler.print_schedule_to_graph_xpbd(); if
-        // (get_scene_params().current_frame == 29 && constraint_iter_count < 20)
-        // scheduler.print_schedule_to_graph_xpbd();
 
         scheduler.make_wait_events();
     }
@@ -2614,100 +2349,68 @@ void GpuSolver::physics_step_vbd_async() {
         if (get_scene_params().print_xpbd_convergence) {
             std::vector<double> list_energy(energy_idx);
             for (uint it = 0; it < list_energy.size(); it++) {
-                list_energy[it] = mesh_data->sa_system_energy[it];
+                list_energy[it] = xpbd_data->sa_system_energy[it];
             }
             fast_print_iterator(list_energy, "Energy Convergence");
             energy_idx = 0;
         }
     }
 
-    mesh_data->sa_x_frame_end = xpbd_data->sa_x;
-    mesh_data->sa_v_frame_end = xpbd_data->sa_v;
-}
-void CpuSolver::solve_constraints_VBD() {
-    auto &iter_position = xpbd_data->sa_x;
-
-    if (get_scene_params().print_xpbd_convergence &&
-        get_scene_params().current_it == 0) {
-        compute_energy(iter_position);
-    }
-
-    for (uint cluster = 0; cluster < xpbd_data->num_clusters_per_vertex_bending;
-         cluster++) {
-        const uint next_prefix =
-            xpbd_data->clusterd_per_vertex_bending[cluster + 1];
-        const uint curr_prefix = xpbd_data->clusterd_per_vertex_bending[cluster];
-        const uint num_verts_cluster = next_prefix - curr_prefix;
-
-        vbd_evaluate_inertia(iter_position, cluster);
-
-        vbd_evaluate_stretch_spring(iter_position, cluster);
-
-        vbd_evaluate_bending(iter_position, cluster);
-
-        vbd_step(iter_position, cluster);
-    }
-
-    if (get_scene_params().print_xpbd_convergence) {
-        compute_energy(iter_position);
-    }
-}
-void GpuSolver::solve_constraints_VBD() {
-    auto &iter_position = xpbd_data->sa_x;
-
-    if (get_scene_params().print_xpbd_convergence &&
-        get_scene_params().current_it == 0) {
-        compute_energy(iter_position);
-    }
-
-    for (uint cluster = 0; cluster < xpbd_data->num_clusters_per_vertex_bending;
-         cluster++) {
-        const uint next_prefix =
-            xpbd_data->clusterd_per_vertex_bending[cluster + 1];
-        const uint curr_prefix = xpbd_data->clusterd_per_vertex_bending[cluster];
-        const uint num_verts_cluster = next_prefix - curr_prefix;
-
-        vbd_evaluate_inertia(iter_position, cluster);
-
-        vbd_evaluate_stretch_spring(iter_position, cluster);
-
-        vbd_evaluate_bending(iter_position, cluster);
-
-        vbd_step(iter_position, cluster);
-    }
-
-    if (get_scene_params().print_xpbd_convergence) {
-        compute_energy(iter_position);
-    }
+    xpbd_data->sa_x_frame = xpbd_data->sa_x;
+    xpbd_data->sa_v_frame = xpbd_data->sa_v;
 }
 void CpuSolver::solve_constraints_XPBD() {
-    auto &iter_position_cloth = xpbd_data->sa_x;
+    auto &iter_position = xpbd_data->sa_x;
 
     if (get_scene_params().print_xpbd_convergence &&
         get_scene_params().current_it == 0) {
-        compute_energy(iter_position_cloth);
+        compute_energy(iter_position);
     }
 
     {
-        for (uint i = 0; i < xpbd_data->num_clusters_stretch_mass_spring; i++) {
-            solve_constraint_stretch_spring(iter_position_cloth, i);
+        for (uint i = 0; i < xpbd_data->num_clusters_tet_stress; i++) {
+            solve_constraint_tet_stress(iter_position, i);
         }
-        for (uint i = 0; i < xpbd_data->num_clusters_bending; i++) {
-            solve_constraint_bending(iter_position_cloth, i);
+        solve_constraint_ground_collision(iter_position);
+        solve_constraint_obstacle_collision(iter_position);
+        for (uint i = 0; i < xpbd_data->num_combined_clusters_self_collision; i++) {
+            solve_constraint_self_collision(iter_position, i);
         }
     }
 
     if (get_scene_params().print_xpbd_convergence) {
-        compute_energy(iter_position_cloth);
+        compute_energy(iter_position);
+    }
+}
+void GpuSolver::solve_constraints_XPBD() {
+    auto &iter_position = xpbd_data->sa_x;
+
+    if (get_scene_params().print_xpbd_convergence &&
+        get_scene_params().current_it == 0) {
+        compute_energy(iter_position);
+    }
+
+    {
+        for (uint i = 0; i < xpbd_data->num_clusters_tet_stress; i++) {
+            solve_constraint_tet_stress(iter_position, i);
+        }
+        solve_constraint_ground_collision(iter_position);
+        solve_constraint_obstacle_collision(iter_position);
+        for (uint i = 0; i < xpbd_data->num_combined_clusters_self_collision; i++) {
+            solve_constraint_self_collision(iter_position, i);
+        }
+    }
+
+    if (get_scene_params().print_xpbd_convergence) {
+        compute_energy(iter_position);
     }
 }
 
-enum SolverType {
-    SolverTypeGaussNewton,
-    SolverTypeXPBD_CPU,
-    SolverTypeVBD_CPU,
-    SolverTypeVBD_GPU,
-    SolverTypeVBD_async,
+enum class SolverType {
+    GaussNewton,
+    XPBD_CPU,
+    XPBD_GPU,
+    XPBD_async,
 };
 
 class SolverInterface {
@@ -2715,16 +2418,31 @@ public:
     SolverInterface() {}
     ~SolverInterface() {}
 
-    void set_data_pointer(BasicMeshData *mesh_ptr, XpbdData *xpbd_ptr) {
-        mesh_data = mesh_ptr;
-        xpbd_data = xpbd_ptr;
+    void set_data_pointer(
+        XpbdData *xpbd_data,
+        TetData *mesh_data,
+        ObstacleData *obstacle_data) {
+        this->xpbd_data = xpbd_data;
+        this->mesh_data = mesh_data;
+        this->obstacle_data = obstacle_data;
+
+        this->lbvh_data_obstacle = &xpbd_data->lbvh_data_obstacle;
+        this->lbvh_data_tet = &xpbd_data->lbvh_data_tet;
+        this->self_collision_data_tet = &xpbd_data->tet_collision;
+        this->obstacle_collision_data_tet = &xpbd_data->obs_collision_tet;
     }
     void register_solver_type(SolverType type) {
-        if (type == SolverTypeGaussNewton) {
+        if (type == SolverType::GaussNewton) {
             fast_format_err("Empty NewtonSolver implementation");
         } else {
-            cpu_solver.get_data_pointer(xpbd_data, mesh_data);
-            gpu_solver.get_data_pointer(xpbd_data, mesh_data, &cpu_solver);
+            cpu_solver.get_data_pointer(xpbd_data, mesh_data, obstacle_data,
+                                        lbvh_data_obstacle, lbvh_data_tet,
+                                        self_collision_data_tet,
+                                        obstacle_collision_data_tet);
+            gpu_solver.get_data_pointer(xpbd_data, mesh_data, obstacle_data,
+                                        lbvh_data_obstacle, lbvh_data_tet,
+                                        self_collision_data_tet,
+                                        obstacle_collision_data_tet);
             cpu_solver.init_xpbd_system();
             gpu_solver.init_xpbd_system();
 
@@ -2736,12 +2454,18 @@ public:
     void physics_step(SolverType type);
     void restart_system();
     void save_mesh_to_obj(const std::string &addition_str = "");
-    void save_current_frame_state();
-    void load_saved_state();
 
 private:
-    BasicMeshData *mesh_data;
     XpbdData *xpbd_data;
+    TetData *mesh_data;
+    ObstacleData *obstacle_data;
+    LbvhFaceEdgeData *lbvh_data_obstacle;
+    LbvhFaceEdgeData *lbvh_data_tet;
+    XpbdSelfCollision *self_collision_data_tet;
+    XpbdObstacleCollision *obstacle_collision_data_tet;
+
+    LbvhFaceEdge<LBVHUpdateTypeObstacle> *lbvh_obstacle;
+    LbvhFaceEdge<LBVHUpdateTypeCloth> *lbvh_tet;
 
 private:
     CpuSolver cpu_solver;
@@ -2749,34 +2473,25 @@ private:
 };
 
 void SolverInterface::restart_system() {
-    parallel_for(0, mesh_data->num_verts, [&](uint vid) {
-        Float3 rest_pos = mesh_data->sa_rest_x[vid];
-        mesh_data->sa_x_frame_start[vid] = rest_pos;
-        mesh_data->sa_x_frame_end[vid] = rest_pos;
+    parallel_for(0, mesh_data->num_verts_total, [&](uint vid) {
+        Float3 rest_pos = mesh_data->sa_rest_position[vid];
+        xpbd_data->sa_x_frame[vid] = rest_pos;
 
-        Float3 rest_vel = mesh_data->sa_rest_v[vid];
-        mesh_data->sa_v_frame_start[vid] = rest_vel;
-        mesh_data->sa_v_frame_end[vid] = rest_vel;
+        Float3 rest_vel = mesh_data->sa_rest_velocity[vid];
+        xpbd_data->sa_v[vid] = rest_vel;
     });
 }
 void SolverInterface::physics_step(SolverType type) {
-    mesh_data->sa_x_frame_start = mesh_data->sa_x_frame_end;
-    mesh_data->sa_v_frame_start = mesh_data->sa_v_frame_end;
-
     switch (type) {
-        case SolverTypeXPBD_CPU: {
+        case SolverType::XPBD_CPU: {
             cpu_solver.physics_step_xpbd();/////////////
             break;
         }
-        case SolverTypeVBD_CPU: {
-            cpu_solver.physics_step_vbd();/////////////
+        case SolverType::XPBD_GPU: {
+            gpu_solver.physics_step_xpbd();/////////////
             break;
         }
-        case SolverTypeVBD_GPU: {
-            gpu_solver.physics_step_vbd();/////////////
-            break;
-        }
-        case SolverTypeVBD_async: {
+        case SolverType::XPBD_async: {
             gpu_solver.physics_step_vbd_async();/////////////
             break;
         }
@@ -2829,19 +2544,19 @@ void SolverInterface::save_mesh_to_obj(const std::string &addition_str) {
             const uint clothIdx = 0;
             {
                 file << "o mesh_" << (glocal_mesh_id_prefix + clothIdx) << std::endl;
-                for (uint vid = 0; vid < mesh_data->num_verts; vid++) {
-                    const Float3 vertex = mesh_data->sa_x_frame_end[vid];
+                for (uint vid = 0; vid < mesh_data->num_verts_total; vid++) {
+                    const Float3 vertex = xpbd_data->sa_x_frame[vid];
                     file << "v " << vertex.x << " " << vertex.y << " " << vertex.z
                          << std::endl;
                 }
 
-                for (uint fid = 0; fid < mesh_data->num_faces; fid++) {
-                    const Int3 f = mesh_data->sa_faces[fid] + makeInt3(1) +
+                for (uint fid = 0; fid < mesh_data->num_surface_faces_total; fid++) {
+                    const Int3 f = mesh_data->sa_surface_faces[fid] + makeInt3(1) +
                                    makeInt3(glocal_vert_id_prefix);
                     file << "f " << f.x << " " << f.y << " " << f.z << std::endl;
                 }
             }
-            glocal_vert_id_prefix += mesh_data->num_verts;
+            glocal_vert_id_prefix += mesh_data->num_verts_total;
             glocal_mesh_id_prefix += 1;
         }
 
@@ -2850,21 +2565,6 @@ void SolverInterface::save_mesh_to_obj(const std::string &addition_str) {
     } else {
         std::cerr << "Unable to open file: " << full_path << std::endl;
     }
-}
-void SolverInterface::save_current_frame_state() {
-    mesh_data->sa_x_frame_saved = mesh_data->sa_x_frame_end;
-    mesh_data->sa_v_frame_saved = mesh_data->sa_v_frame_end;
-}
-void SolverInterface::load_saved_state() {
-    parallel_for(0, mesh_data->num_verts, [&](uint vid) {
-        Float3 saved_pos = mesh_data->sa_x_frame_saved[vid];
-        mesh_data->sa_x_frame_start[vid] = saved_pos;
-        mesh_data->sa_x_frame_end[vid] = saved_pos;
-
-        Float3 saved_vel = mesh_data->sa_v_frame_saved[vid];
-        mesh_data->sa_v_frame_start[vid] = saved_vel;
-        mesh_data->sa_v_frame_end[vid] = saved_vel;
-    });
 }
 
 int main() {
@@ -2880,16 +2580,21 @@ int main() {
     }
 
     // Init mesh
-    BasicMeshData mesh_data;
-    { init_mesh(&mesh_data); }
+    TetData mesh_data;
+    { init_tet_mesh(&mesh_data); }
+
+    ObstacleData obstacle_data;
+    { init_obstacle_mesh(&obstacle_data); }
+
+    XpbdData xpbd_data;
+    { init_xpbd_data(&mesh_data, &obstacle_data, &xpbd_data); }
 
     // Init solver
     SolverInterface solver;
-    XpbdData xpbd_data;
     {
-        solver.set_data_pointer(&mesh_data, &xpbd_data);
+        solver.set_data_pointer(&xpbd_data, &mesh_data, &obstacle_data);
 
-        solver.register_solver_type(SolverTypeVBD_CPU);
+        solver.register_solver_type(SolverType::XPBD_CPU);
     }
 
     // Some params
@@ -2921,13 +2626,14 @@ int main() {
         for (uint frame = 0; frame < max_frame; frame++) {
             get_scene_params().current_frame = frame;
 
-            // solver.physics_step(SolverTypeVBD_CPU);
-            solver.physics_step(SolverTypeVBD_async);
+            solver.physics_step(SolverType::XPBD_CPU);
         }
     }
     {
         // solver.save_mesh_to_obj("_sync_CPU");
     }
+
+    return 0;
 
     // Synchronous GPU Implementation
     {
@@ -2940,7 +2646,7 @@ int main() {
             get_scene_params().current_frame = frame;
 
             // solver.physics_step(SolverTypeVBD_GPU);
-            solver.physics_step(SolverTypeVBD_async);
+            solver.physics_step(SolverType::XPBD_GPU);
         }
     }
     {
@@ -2957,7 +2663,7 @@ int main() {
         for (uint frame = 0; frame < max_frame; frame++) {
             get_scene_params().current_frame = frame;
 
-            solver.physics_step(SolverTypeVBD_async);
+            solver.physics_step(SolverType::XPBD_async);
         }
     }
     { solver.save_mesh_to_obj("_hybrid_CPU_GPU"); }

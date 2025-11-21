@@ -33,14 +33,6 @@ struct TetData {
         sa_surface_verts;
     Array(uint)
         sa_surface_verts_reverse_index;
-    Array(Int4)
-        sa_outer_tets;
-    Array(Int4)
-        sa_inner_tets;
-    Array(uint)
-        sa_outer_tets_indices;
-    Array(uint)
-        sa_inner_tets_indices;
     Array(Int2)
         sa_surface_edges;
     Array(Int3)
@@ -52,23 +44,18 @@ struct TetData {
     Array(Float4)
         sa_default_color;
 
+#if !defined(METAL_CODE)
+    std::vector<std::vector<uint>> vert_adj_faces;
+    std::vector<std::vector<uint>> vert_adj_tets;
+    std::vector<std::vector<uint>> vert_adj_verts;
+#endif
+
     Array(uint)
         sa_vert_adj_faces;
-    // Array(uint) sa_vert_adj_edges;
-    // Array(uint) sa_vert_adj_verts;
     Array(uint)
         sa_vert_adj_verts_csr;
-    // Array(Int2) sa_edge_adj_faces;
     Array(uint)
         sa_vert_adj_tets_csr;
-    Array(uint)
-        sa_vert_adj_inner_tets_csr;
-    Array(uint)
-        sa_vert_adj_outer_tets_csr;
-    Array(uint)
-        sa_vert_adj_tets_num;
-    // Array(uint) sa_tet_adj_faces;
-    // Array(uint) sa_face_adj_tets;
 
     Array(float)
         sa_vert_mass;
@@ -94,34 +81,13 @@ struct TetData {
     Array(Float2)
         sa_meterial_position;// uv
     Array(Float3)
-        sa_start_position;
+        sa_rest_position;
+    Array(Float3)
+        sa_rest_velocity;
     Array(Float3)
         sa_surface_position;
     Array(Float3)
         sa_surface_rest_position;
-    Array(Float3)
-        sa_iter_position;// x_{k}
-    Array(Float3)
-        sa_iter_start_position;// copy of x_{k} copy
-    Array(Float3)
-        sa_prev_1_iter_position;// x_{k - 1}
-    Array(Float3)
-        sa_prev_2_iter_position;// x_{k - 2}
-    Array(Float3)
-        sa_iter_position_copy_for_jacobi;
-    Array(Float3)
-        sa_next_position;
-    Array(Float3)
-        sa_rest_position;
-    Array(Float3)
-        sa_vert_force;
-    Array(Float3)
-        sa_start_velocity;
-    Array(Float3)
-        sa_vert_velocity_jacobi;
-    Array(Float3)
-        sa_vert_velocity;
-
     Array(Float4x4)
         sa_model_matrix;
 
@@ -150,18 +116,12 @@ struct TetData {
     uint num_meshes;
     uint num_verts_total;
     uint num_tets_total;
-    uint num_inner_tets_total;
-    uint num_outer_tets_total;
     uint num_surface_verts_total;
     uint num_surface_edges_total;
     uint num_surface_faces_total;
 
     Array(uint)
         num_verts;
-    Array(uint)
-        num_inner_tets;
-    Array(uint)
-        num_outer_tets;
     Array(uint)
         num_surface_verts;
     Array(uint)
@@ -176,38 +136,18 @@ struct TetData {
     Array(uint)
         prefix_tets;
     Array(uint)
-        prefix_inner_tets;
-    Array(uint)
-        prefix_outer_tets;
-    Array(uint)
         prefix_surface_verts;
     Array(uint)
         prefix_surface_edges;
     Array(uint)
         prefix_surface_faces;
 
-    uint max_vert_adj_inner_tets;
-    uint max_vert_adj_outer_tets;
-    uint max_vert_adj_surface_faces;
-    uint max_vert_adj_surface_edges;
-    uint max_vert_adj_verts;
-    uint max_vert_adj_tets;
-
     TetData() {
         num_meshes = 0;
         num_verts_total = 0;
         num_tets_total = 0;
-        num_inner_tets_total = 0;
-        num_outer_tets_total = 0;
         num_surface_verts_total = 0;
         num_surface_edges_total = 0;
         num_surface_faces_total = 0;
-
-        max_vert_adj_inner_tets = 0;
-        max_vert_adj_outer_tets = 0;
-        max_vert_adj_surface_faces = 0;
-        max_vert_adj_surface_edges = 0;
-        max_vert_adj_verts = 0;
-        max_vert_adj_tets = 0;
     }
 };

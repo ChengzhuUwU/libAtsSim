@@ -56,7 +56,7 @@ struct BasicMeshData {
     Buffer<float> sa_system_energy_2;
 };
 
-struct XpbdData {
+struct ExbpdData {
     Buffer<Float3> sa_x_tilde;
     Buffer<Float3> sa_x;
     Buffer<Float3> sa_v;
@@ -415,7 +415,7 @@ public:
     ~CpuSolver() {}
 
     // TODO: Replace to shared_ptr
-    void get_data_pointer(XpbdData *xpbd_ptr, BasicMeshData *mesh_ptr) {
+    void get_data_pointer(ExbpdData *xpbd_ptr, BasicMeshData *mesh_ptr) {
         xpbd_data = xpbd_ptr;
         mesh_data = mesh_ptr;
     }
@@ -455,7 +455,7 @@ private:
     void vbd_step(Buffer<Float3> &curr_cloth_position, const uint cluster_idx);
 
 private:
-    XpbdData *xpbd_data;
+    ExbpdData *xpbd_data;
     BasicMeshData *mesh_data;
 };
 class GpuSolver {
@@ -464,7 +464,7 @@ public:
     ~GpuSolver() {}
 
     // TODO: Replace to shared_ptr
-    void get_data_pointer(XpbdData *xpbd_ptr, BasicMeshData *mesh_ptr,
+    void get_data_pointer(ExbpdData *xpbd_ptr, BasicMeshData *mesh_ptr,
                           CpuSolver *cpu_ptr) {
         xpbd_data = xpbd_ptr;
         mesh_data = mesh_ptr;
@@ -507,7 +507,7 @@ private:
     void vbd_step(Buffer<Float3> &curr_cloth_position, const uint cluster_idx);
 
 private:
-    XpbdData *xpbd_data;
+    ExbpdData *xpbd_data;
     BasicMeshData *mesh_data;
     CpuSolver *cpu_solver;
 
@@ -2715,7 +2715,7 @@ public:
     SolverInterface() {}
     ~SolverInterface() {}
 
-    void set_data_pointer(BasicMeshData *mesh_ptr, XpbdData *xpbd_ptr) {
+    void set_data_pointer(BasicMeshData *mesh_ptr, ExbpdData *xpbd_ptr) {
         mesh_data = mesh_ptr;
         xpbd_data = xpbd_ptr;
     }
@@ -2741,7 +2741,7 @@ public:
 
 private:
     BasicMeshData *mesh_data;
-    XpbdData *xpbd_data;
+    ExbpdData *xpbd_data;
 
 private:
     CpuSolver cpu_solver;
@@ -2885,7 +2885,7 @@ int main() {
 
     // Init solver
     SolverInterface solver;
-    XpbdData xpbd_data;
+    ExbpdData xpbd_data;
     {
         solver.set_data_pointer(&mesh_data, &xpbd_data);
 
