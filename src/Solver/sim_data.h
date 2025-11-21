@@ -42,13 +42,15 @@ struct TetData {
         sa_tets;
 
 #if !defined(METAL_CODE)
-    std::vector<std::vector<uint>> vert_adj_faces;
+    std::vector<std::vector<uint>> vert_adj_surface_faces;
     std::vector<std::vector<uint>> vert_adj_tets;
     std::vector<std::vector<uint>> vert_adj_verts;
 #endif
 
     Array(uint)
         sa_vert_adj_tets_csr;
+    Array(uint)
+        sa_vert_adj_surface_vert_csr;
 
     Array(float)
         sa_vert_mass;
@@ -106,28 +108,6 @@ struct TetData {
     uint num_surface_verts_total;
     uint num_surface_edges_total;
     uint num_surface_faces_total;
-
-    Array(uint)
-        num_verts;
-    Array(uint)
-        num_surface_verts;
-    Array(uint)
-        num_surface_faces;
-    Array(uint)
-        num_surface_edges;
-    Array(uint)
-        num_tets;
-
-    Array(uint)
-        prefix_verts;
-    Array(uint)
-        prefix_tets;
-    Array(uint)
-        prefix_surface_verts;
-    Array(uint)
-        prefix_surface_edges;
-    Array(uint)
-        prefix_surface_faces;
 
     TetData() {
         num_meshes = 0;

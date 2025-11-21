@@ -185,6 +185,8 @@ struct XpbdData {
         sa_detection_position_bg;
     Array(Float3)
         sa_detection_position_ed;
+    Array(Float3)
+        sa_detection_position_rest;
 
     Array(float)
         lambda_ground_collision_tet;

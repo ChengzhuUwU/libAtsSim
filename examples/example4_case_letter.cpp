@@ -286,8 +286,6 @@ void init_tet_mesh(TetData *mesh_data) {
     }
 
     upload_from(mesh_data->sa_rest_position, input_mesh.positions);
-    upload_from(mesh_data->sa_surface_faces, input_mesh.surface_faces);
-    upload_from(mesh_data->sa_surface_edges, input_mesh.surface_edges);
     upload_from(mesh_data->sa_tets, input_mesh.tets);
     upload_from(mesh_data->sa_surface_verts, input_mesh.surface_verts);
     upload_from(mesh_data->sa_surface_faces, input_mesh.surface_faces);
@@ -321,6 +319,7 @@ void init_tet_mesh(TetData *mesh_data) {
     // Init adjacent list
     {
         mesh_data->vert_adj_tets.resize(num_verts);
+        mesh_data->vert_adj_surface_faces.resize(num_verts);
 
         // Vert adj tets
         for (uint tid = 0; tid < num_tets; tid++) {
@@ -330,6 +329,15 @@ void init_tet_mesh(TetData *mesh_data) {
         }
         upload_2d_csr_from(mesh_data->sa_vert_adj_tets_csr,
                            mesh_data->vert_adj_tets);
+
+        // Vert adj faces
+        for (uint fid = 0; fid < num_surface_faces; fid++) {
+            auto face = mesh_data->sa_surface_faces[fid];
+            for (uint j = 0; j < 3; j++)
+                mesh_data->vert_adj_surface_faces[face[j]].push_back(fid);
+        }
+        upload_2d_csr_from(mesh_data->sa_vert_adj_surface_vert_csr,
+                           mesh_data->vert_adj_surface_faces);
     }
 
     // Init energy
@@ -381,6 +389,30 @@ void init_tet_mesh(TetData *mesh_data) {
         });
     }
 
+    // Init surface data
+    {
+        mesh_data->sa_face_area.resize(num_surface_faces);
+        mesh_data->sa_vert_area.resize(num_surface_verts);
+        parallel_for(0, num_surface_faces, [&](const uint surface_fid) {
+            Int3 face = mesh_data->sa_surface_faces[surface_fid];
+            Float3 vert_post[3] = {
+                mesh_data->sa_rest_position[face[0]],
+                mesh_data->sa_rest_position[face[1]],
+                mesh_data->sa_rest_position[face[2]],
+            };
+            mesh_data->sa_face_area[surface_fid] = compute_face_area(vert_post[0], vert_post[1], vert_post[2]);
+        });
+        parallel_for(0, num_verts, [&](const uint vid) {
+            float curr_area = 0.0f;
+            const auto &adj_faces = mesh_data->vert_adj_surface_faces[vid];
+            for (auto fid : adj_faces) {
+                curr_area += mesh_data->sa_face_area[fid];
+            }
+            curr_area /= 3.0f;
+            mesh_data->sa_vert_area[vid] = curr_area;
+        });
+    }
+
     // Init vert status
     {
     }
@@ -405,9 +437,13 @@ void init_obstacle_mesh(ObstacleData *mesh_data) {
     }
 
     upload_from(mesh_data->sa_rest_position, input_mesh.mesh.model_positions);
+    upload_from(mesh_data->sa_start_position, input_mesh.mesh.model_positions);
+    upload_from(mesh_data->sa_next_position, input_mesh.mesh.model_positions);
+    upload_from(mesh_data->sa_substep_position, input_mesh.mesh.model_positions);
     upload_from(mesh_data->sa_faces, input_mesh.mesh.faces);
     upload_from(mesh_data->sa_edges, input_mesh.mesh.edges);
     mesh_data->sa_rest_velocity.resize(num_verts);
+    mesh_data->sa_vert_velocity.resize(num_verts);
 
     // Set rest position & velocity
     {
@@ -449,6 +485,7 @@ void XpbdData::resize(TetData *tetrahedral, ObstacleData *obstacle) {
 
     sa_detection_position_bg.resize(num_verts_collision_total);
     sa_detection_position_ed.resize(num_verts_collision_total);
+    sa_detection_position_rest.resize(num_verts_collision_total);
     sa_detection_faces.resize(num_surface_faces_tet);
     sa_surface_verts.resize(num_verts_collision_total);
     sa_surface_faces.resize(num_faces_collision_total);
@@ -560,6 +597,16 @@ void XpbdData::resize(TetData *tetrahedral, ObstacleData *obstacle) {
 void init_xpbd_data(TetData *mesh_data, ObstacleData *obstacle_data, XpbdData *xpbd_data) {
     // To Be Done
     xpbd_data->resize(mesh_data, obstacle_data);
+
+    parallel_for(0, xpbd_data->num_verts_collision_total, [&](const uint vid) {
+        Constrains::prepare_position_for_collision_detection(vid,
+                                                             nullptr,
+                                                             mesh_data->sa_rest_position.data(),
+                                                             mesh_data->sa_surface_verts.data(),
+                                                             xpbd_data->sa_detection_position_rest.data(),
+                                                             xpbd_data->sa_detection_position_rest.data(),
+                                                             0);
+    });
 }
 
 class CpuSolver {
@@ -574,15 +621,19 @@ public:
                           LbvhFaceEdgeData *lbvh_data_obstacle,
                           LbvhFaceEdgeData *lbvh_data_tet,
                           XpbdSelfCollision *self_collision_data_tet,
-                          XpbdObstacleCollision *obstacle_collision_data_tet) {
+                          XpbdObstacleCollision *obstacle_collision_data_tet,
+                          VivaceColoringData *vivace_data_tet,
+                          RandomGraphColoringCPU *vivace_cpu_tet) {
         this->xpbd_data = xpbd_data;
         this->mesh_data = mesh_data;
         this->obstacle_data = obstacle_data;
         this->coloring_data = coloring_data;
         this->lbvh_data_obstacle = lbvh_data_obstacle;
         this->lbvh_data_tet = lbvh_data_tet;
+        this->vivace_data_tet = vivace_data_tet;
         this->self_collision_data_tet = self_collision_data_tet;
         this->obstacle_collision_data_tet = obstacle_collision_data_tet;
+        this->vivace_cpu_tet = vivace_cpu_tet;
     }
     void init_xpbd_system();
     static void init_simulation_params();
@@ -594,13 +645,27 @@ public:
     void fn_dispatch(const Launcher::LaunchParam &param);
     void compute_energy(const Buffer<Float3> &curr_cloth_position);
     void solve_constraints_XPBD();
+    SharedArray<Float3> &get_detection_position_bg() { return xpbd_data->sa_detection_position_bg; }
+    SharedArray<Float3> &get_detection_position_ed() { return xpbd_data->sa_detection_position_ed; }
+    SharedArray<Float3> &get_detection_position_rest() { return xpbd_data->sa_detection_position_rest; }
+    SharedArray<Float3> &get_detection_position_obstacle() { return obstacle_data->sa_substep_position; }
 
-private:
-    void collision_detection();
+public:
     void predict_position();
     void update_velocity();
     void reset_constrains();
     void reset_collision_constrains();
+    void collision_detection();
+
+public:
+    void self_collision_detection();
+    void obstacle_collision_detection();
+    void prepare_collision_detection_position();
+    void reset_collision_system_template(const bool is_self_collision, const bool use_spatial_hashing);
+    void self_collision_narrow_phase_vv();
+    void self_collision_scan_and_fill_in_vv_pair();
+    void obstacle_collision_narrow_phase_vf();
+    void obstacle_collision_scan_and_fill_in_vf_pair();
 
 private:
     void solve_constraint_tet_stress(Buffer<Float3> &curr_cloth_position, const uint cluster_idx);
@@ -615,12 +680,13 @@ private:
     VivaceColoringData *coloring_data;
     LbvhFaceEdgeData *lbvh_data_obstacle;
     LbvhFaceEdgeData *lbvh_data_tet;
+    XpbdSelfCollision *self_collision_data_tet;
+    XpbdObstacleCollision *obstacle_collision_data_tet;
+    VivaceColoringData *vivace_data_tet;
 
     LbvhFaceEdge<LBVHUpdateTypeObstacle> *lbvh_obstacle;
     LbvhFaceEdge<LBVHUpdateTypeCloth> *lbvh_tet;
-
-    XpbdSelfCollision *self_collision_data_tet;
-    XpbdObstacleCollision *obstacle_collision_data_tet;
+    RandomGraphColoringCPU *vivace_cpu_tet;
 };
 class GpuSolver {
 public:
@@ -634,15 +700,21 @@ public:
                           LbvhFaceEdgeData *lbvh_data_obstacle,
                           LbvhFaceEdgeData *lbvh_data_tet,
                           XpbdSelfCollision *self_collision_data_tet,
-                          XpbdObstacleCollision *obstacle_collision_data_tet) {
+                          XpbdObstacleCollision *obstacle_collision_data_tet,
+                          VivaceColoringData *vivace_data_tet,
+                          RandomGraphColoringCPU *vivace_cpu_tet,
+                          RandomGraphColoringGPU *vivace_gpu_tet) {
         this->xpbd_data = xpbd_data;
         this->mesh_data = mesh_data;
         this->obstacle_data = obstacle_data;
         this->coloring_data = coloring_data;
         this->lbvh_data_obstacle = lbvh_data_obstacle;
         this->lbvh_data_tet = lbvh_data_tet;
+        this->vivace_data_tet = vivace_data_tet;
         this->self_collision_data_tet = self_collision_data_tet;
         this->obstacle_collision_data_tet = obstacle_collision_data_tet;
+        this->vivace_cpu_tet = vivace_cpu_tet;
+        this->vivace_gpu_tet = vivace_gpu_tet;
     }
 
     void init_xpbd_system();
@@ -657,12 +729,28 @@ public:
     void compute_energy(const Buffer<Float3> &curr_cloth_position);
     void solve_constraints_XPBD();
 
-private:
-    void collision_detection();
+    SharedArray<Float3> &get_detection_position_bg() { return xpbd_data->sa_detection_position_bg; }
+    SharedArray<Float3> &get_detection_position_ed() { return xpbd_data->sa_detection_position_ed; }
+    SharedArray<Float3> &get_detection_position_rest() { return xpbd_data->sa_detection_position_rest; }
+    SharedArray<Float3> &get_detection_position_obstacle() { return obstacle_data->sa_substep_position; }
+
+
+public:
     void predict_position();
     void update_velocity();
     void reset_constrains();
     void reset_collision_constrains();
+    void collision_detection();
+
+public:
+    void self_collision_detection();
+    void obstacle_collision_detection();
+    void prepare_collision_detection_position();
+    void reset_collision_system_template(const bool is_self_collision, const bool use_spatial_hashing);
+    void self_collision_narrow_phase_vv();
+    void self_collision_scan_and_fill_in_vv_pair();
+    void obstacle_collision_narrow_phase_vf();
+    void obstacle_collision_scan_and_fill_in_vf_pair();
 
 private:
     void solve_constraint_tet_stress(Buffer<Float3> &curr_cloth_position, const uint cluster_idx);
@@ -688,18 +776,20 @@ private:
     LbvhFaceEdgeData *lbvh_data_tet;
     XpbdSelfCollision *self_collision_data_tet;
     XpbdObstacleCollision *obstacle_collision_data_tet;
+    VivaceColoringData *vivace_data_tet;
 
     LbvhFaceEdge<LBVHUpdateTypeObstacle> *lbvh_obstacle;
     LbvhFaceEdge<LBVHUpdateTypeCloth> *lbvh_tet;
-
+    RandomGraphColoringCPU *vivace_cpu_tet;
+    RandomGraphColoringGPU *vivace_gpu_tet;
     CpuSolver *cpu_solver;
-
 
 private:
     gpuFunction fn_empty;
     gpuFunction fn_reset_bool;
     gpuFunction fn_reset_uint;
     gpuFunction fn_reset_float;
+    gpuFunction fn_reset_collision_constraint;
     gpuFunction fn_copy_from_A_to_B;
     gpuFunction fn_copy_from_A_to_B_and_C;
     gpuFunction fn_read_and_solve_conflict;
@@ -716,6 +806,70 @@ private:
     gpuFunction fn_compute_energy_collision_vv;
     gpuFunction fn_test_sum;
     gpuFunction fn_test_sum_2;
+
+private:
+    gpuFunction fn_update_obstacle_position_in_substep;
+    gpuFunction fn_update_obstacle_normal_in_substep;
+    gpuFunction fn_prepare_position_for_collision_detection;
+    gpuFunction fn_update_tet_surface_position_for_collision_detection;
+    gpuFunction fn_compute_global_aabb;
+    gpuFunction fn_compute_global_aabb_second_pass;
+
+    gpuFunction fn_reset_collision_system;
+    gpuFunction fn_reset_broad_narrow_count;
+    gpuFunction fn_fill_in_hash_table;
+    gpuFunction fn_set_hash_table_flag;
+    gpuFunction fn_scan_hash_table;
+    gpuFunction fn_insert_vert_into_hash_table;
+    gpuFunction fn_spatial_hashing_query_vv;
+
+    gpuFunction fn_narrow_phase_vv_with_tet;
+    gpuFunction fn_narrow_phase_vv_cloth;
+    gpuFunction fn_narrow_phase_vv_tet;
+    gpuFunction fn_narrow_phase_vv_cross;
+    gpuFunction fn_narrow_phase_vv_self_collision_from_collision_pair;
+    gpuFunction fn_narrow_phase_vv_self_collision_codim_from_collision_pair;
+    gpuFunction fn_narrow_phase_vv;
+    gpuFunction fn_narrow_phase_vv_obstacle_with_tet;
+    gpuFunction fn_narrow_phase_vv_obstacle;
+    gpuFunction fn_narrow_phase_vf;
+    gpuFunction fn_narrow_phase_vf_obstacle;
+    gpuFunction fn_narrow_phase_vf_obstacle_with_tet;
+    gpuFunction fn_narrow_phase_vf_obstacle_collision_from_collision_pair;
+    gpuFunction fn_narrow_phase_scan_collision_pair_and_make_cmd_buffer;
+    gpuFunction fn_self_collision_fill_in_vf;
+    gpuFunction fn_self_collision_fill_in_vv;
+    gpuFunction fn_obstacle_collision_fill_in_vf;
+    gpuFunction fn_obstacle_collision_fill_in_vv;
+
+    gpuFunction fn_constraint_self_collision_vv_with_tet;
+    gpuFunction fn_constraint_self_collision_vv_cloth;
+    gpuFunction fn_constraint_self_collision_vv_tet;
+    gpuFunction fn_constraint_self_collision_vv_cross;
+    gpuFunction fn_constraint_self_collision_vv;
+    gpuFunction fn_constraint_self_collision_vf;
+    gpuFunction fn_constraint_obstacle_collision_vv_with_tet;
+    gpuFunction fn_constraint_obstacle_collision_vv_cloth;
+    gpuFunction fn_constraint_obstacle_collision_vf_cloth;
+    gpuFunction fn_constraint_obstacle_collision_vv_tet;
+    gpuFunction fn_constraint_obstacle_collision_vf_tet;
+    gpuFunction fn_constraint_obstacle_collision_vv;
+    gpuFunction fn_constraint_obstacle_collision_vf;
+
+    gpuFunction fn_evaluate_inertia;
+    gpuFunction fn_evaluate_stretch_mass_spring;
+    gpuFunction fn_evaluate_stretch_fem;
+    gpuFunction fn_evaluate_bending;
+    gpuFunction fn_evaluate_ground_collision;
+    gpuFunction fn_evaluate_obstacle_collision;
+    gpuFunction fn_evaluate_self_collision;
+    gpuFunction fn_vbd_step;
+
+    gpuFunction fn_sod_init;
+    gpuFunction fn_sod_step;
+    gpuFunction fn_sod_stretch_stencil_gauss_seidel;
+    gpuFunction fn_sod_stretch_stencil;
+    gpuFunction fn_sod_collision_stencil;
 };
 static uint energy_idx = 0;
 
@@ -899,6 +1053,7 @@ void CpuSolver::reset_constrains() {
 
     fn_reset_template(xpbd_data->lambda_tet_stress_deviatoric_term);
     fn_reset_template(xpbd_data->lambda_tet_stress_hydrostatic_term);
+    fn_reset_template(xpbd_data->lambda_ground_collision_tet);
 }
 void GpuSolver::reset_constrains() {
     auto fn_reset_template = [&](Buffer<float> &buffer) {
@@ -909,10 +1064,33 @@ void GpuSolver::reset_constrains() {
 
     fn_reset_template(xpbd_data->lambda_tet_stress_deviatoric_term);
     fn_reset_template(xpbd_data->lambda_tet_stress_hydrostatic_term);
+    fn_reset_template(xpbd_data->lambda_ground_collision_tet);
 }
 
-void CpuSolver::reset_collision_constrains() {}
-void GpuSolver::reset_collision_constrains() {}
+void CpuSolver::reset_collision_constrains() {
+
+    parallel_for(0, self_collision_data_tet->collision_count[0], [&](const uint element_id) {
+        xpbd_data->lambda_self_collision_tet[element_id] = 0.0f;
+        xpbd_data->lambda_self_collision_friction_tet[element_id] = 0.0f;
+    });
+    parallel_for(0, obstacle_collision_data_tet->collision_count[0], [&](const uint element_id) {
+        xpbd_data->lambda_sdf_collision_tet[element_id] = 0.0f;
+        xpbd_data->lambda_sdf_collision_tet_friction[element_id] = 0.0f;
+    });
+}
+void GpuSolver::reset_collision_constrains() {
+    get_command_list().add_task(fn_reset_collision_constraint);
+    fn_reset_collision_constraint.bind_ptr(xpbd_data->lambda_self_collision_tet);
+    fn_reset_collision_constraint.bind_ptr(xpbd_data->lambda_self_collision_friction_tet);
+    fn_reset_collision_constraint.bind_ptr(self_collision_data_tet->collision_count);
+    fn_reset_collision_constraint.launch_async(self_collision_data_tet->self_collision_indirect_cmd_buffer, 0);
+
+    get_command_list().add_task(fn_reset_collision_constraint);
+    fn_reset_collision_constraint.bind_ptr(xpbd_data->lambda_sdf_collision_tet);
+    fn_reset_collision_constraint.bind_ptr(xpbd_data->lambda_sdf_collision_tet_friction);
+    fn_reset_collision_constraint.bind_ptr(obstacle_collision_data_tet->collision_count);
+    fn_reset_collision_constraint.launch_async(obstacle_collision_data_tet->obstacle_collision_indirect_cmd_buffer, 0);
+}
 
 void CpuSolver::init_simulation_params() {
     get_scene_params().print_cost_detail = true;
@@ -937,11 +1115,445 @@ void CpuSolver::init_simulation_params() {
     get_scene_params().xpbd_stiffness_collision = 1e7;
 }
 
+void CpuSolver::reset_collision_system_template(const bool is_self_collision,
+                                                const bool use_spatial_hashing) {
+    const bool reset_hash_table = use_spatial_hashing;
+
+    if (is_self_collision) {
+
+        parallel_for(0, max_scalar(mesh_data->num_surface_verts_total, 64u), [&](const uint vid) {
+            SpatialHashing::reset_collision_system(vid,
+                                                   self_collision_data_tet->collision_count.data(),
+                                                   self_collision_data_tet->self_collision_indirect_cmd_buffer.data(),
+
+                                                   vivace_data_tet->num_verts_in_cluster.data(),
+                                                   vivace_data_tet->uncolored_verts_indirect_cmd_buffer.data(),
+                                                   vivace_data_tet->uncolored_verts_count.data(),
+
+                                                   self_collision_data_tet->hash_table_count.data(),
+                                                   self_collision_data_tet->hash_table_prefix.data(),
+                                                   self_collision_data_tet->hash_table_belongs.data(),
+                                                   self_collision_data_tet->vert_VV_num_broad_phase.data(),
+                                                   self_collision_data_tet->vert_VV_num_narrow_phase.data(),
+                                                   true, reset_hash_table, true);
+        });
+    } else {
+        parallel_for(0, max_scalar(mesh_data->num_surface_verts_total, 64u), [&](const uint vid) {
+            SpatialHashing::reset_collision_system(vid,
+                                                   obstacle_collision_data_tet->collision_count.data(),
+                                                   obstacle_collision_data_tet->obstacle_collision_indirect_cmd_buffer.data(),
+                                                   nullptr,
+                                                   nullptr,
+                                                   nullptr,
+                                                   obstacle_collision_data_tet->hash_table_count.data(),
+                                                   obstacle_collision_data_tet->hash_table_prefix.data(),
+                                                   obstacle_collision_data_tet->hash_table_belongs.data(),
+                                                   obstacle_collision_data_tet->vert_VV_num_broad_phase.data(),
+                                                   obstacle_collision_data_tet->vert_VV_num_narrow_phase.data(),
+                                                   false, reset_hash_table, true);
+        });
+    }
+}
+void GpuSolver::reset_collision_system_template(const bool is_self_collision,
+                                                const bool use_spatial_hashing) {
+    const bool reset_hash_table = use_spatial_hashing;
+
+    if (is_self_collision) {
+
+        get_command_list().add_task(fn_reset_collision_system);
+        fn_reset_collision_system.bind_ptr(self_collision_data_tet->collision_count);
+        fn_reset_collision_system.bind_ptr(self_collision_data_tet->self_collision_indirect_cmd_buffer);
+
+        fn_reset_collision_system.bind_ptr(vivace_data_tet->num_verts_in_cluster);
+        fn_reset_collision_system.bind_ptr(vivace_data_tet->uncolored_verts_indirect_cmd_buffer);
+        fn_reset_collision_system.bind_ptr(vivace_data_tet->uncolored_verts_count);
+
+        fn_reset_collision_system.bind_ptr(self_collision_data_tet->hash_table_count);
+        fn_reset_collision_system.bind_ptr(self_collision_data_tet->hash_table_prefix);
+        fn_reset_collision_system.bind_ptr(self_collision_data_tet->hash_table_belongs);
+        fn_reset_collision_system.bind_ptr(self_collision_data_tet->vert_VV_num_broad_phase);
+        fn_reset_collision_system.bind_ptr(self_collision_data_tet->vert_VV_num_narrow_phase);
+
+        fn_reset_collision_system.bind_constant(true);
+        fn_reset_collision_system.bind_constant(reset_hash_table);
+        fn_reset_collision_system.bind_constant(true);
+        fn_reset_collision_system.launch_async(max_scalar(mesh_data->num_surface_verts_total, 64u));
+    } else {
+        get_command_list().add_task(fn_reset_collision_system);
+        fn_reset_collision_system.bind_ptr(obstacle_collision_data_tet->collision_count);
+        fn_reset_collision_system.bind_ptr(obstacle_collision_data_tet->obstacle_collision_indirect_cmd_buffer);
+
+        fn_reset_collision_system.bind_ptr(vivace_data_tet->num_verts_in_cluster);
+        fn_reset_collision_system.bind_ptr(vivace_data_tet->uncolored_verts_indirect_cmd_buffer);
+        fn_reset_collision_system.bind_ptr(vivace_data_tet->uncolored_verts_count);
+
+        fn_reset_collision_system.bind_ptr(obstacle_collision_data_tet->hash_table_count);
+        fn_reset_collision_system.bind_ptr(obstacle_collision_data_tet->hash_table_prefix);
+        fn_reset_collision_system.bind_ptr(obstacle_collision_data_tet->hash_table_belongs);
+        fn_reset_collision_system.bind_ptr(obstacle_collision_data_tet->vert_VV_num_broad_phase);
+        fn_reset_collision_system.bind_ptr(obstacle_collision_data_tet->vert_VV_num_narrow_phase);
+        fn_reset_collision_system.bind_constant(false);// reset_coloring_system = is_self_collision
+        fn_reset_collision_system.bind_constant(reset_hash_table);
+        fn_reset_collision_system.bind_constant(true);// reset_broad_narrow_count = is_self_collision;
+        fn_reset_collision_system.launch_async(max_scalar(mesh_data->num_surface_verts_total, 64u));
+    }
+}
+void CpuSolver::prepare_collision_detection_position() {
+
+    auto &detection_position_bg = get_detection_position_bg();
+    auto &detection_position_ed = get_detection_position_ed();
+    auto &detection_position_obstacle = get_detection_position_obstacle();
+
+    parallel_for(0, xpbd_data->num_verts_collision_total, [&](const uint vid) {
+        Constrains::prepare_position_for_collision_detection(vid,
+                                                             nullptr, xpbd_data->sa_x_step_start.data(), mesh_data->sa_surface_verts.data(),
+                                                             detection_position_bg.data(), detection_position_ed.data(),
+                                                             0);
+    });
+
+    // Get Obstacle Position In Substep For Acurate Detection
+    const uint num_substep = get_scene_params().num_substep;
+    const uint curr_substep = get_scene_params().current_substep;
+    const float substep_dt = get_scene_params().get_substep_dt();
+    const float alpha = float(curr_substep + 1) / float(num_substep);
+    parallel_for(0, obstacle_data->num_verts_total, [&](const uint vid) {
+        Constrains::Core::update_obstacle_position_in_substep(vid,
+                                                              obstacle_data->sa_start_position.data(), obstacle_data->sa_next_position.data(),
+                                                              obstacle_data->sa_substep_position.data(), obstacle_data->sa_vert_velocity.data(),
+                                                              alpha, substep_dt);
+    });
+
+    // Update Obstacle Face Normal
+    parallel_for(0, obstacle_data->num_faces_total, [&](uint fid) {
+        Constrains::Core::update_obstacle_normal_in_substep(fid,
+                                                            obstacle_data->sa_faces.data(),
+                                                            obstacle_data->sa_substep_position.data(), obstacle_data->sa_face_normal.data());
+    });
+}
+void GpuSolver::prepare_collision_detection_position() {
+
+    auto &detection_position_bg = get_detection_position_bg();
+    auto &detection_position_ed = get_detection_position_ed();
+    auto &detection_position_obstacle = get_detection_position_obstacle();
+
+    get_command_list().add_task(fn_prepare_position_for_collision_detection);
+    fn_prepare_position_for_collision_detection.bind_ptr(xpbd_data->sa_x_step_start);// nullptr
+    fn_prepare_position_for_collision_detection.bind_ptr(xpbd_data->sa_x_step_start);
+    fn_prepare_position_for_collision_detection.bind_ptr(mesh_data->sa_surface_verts);
+    fn_prepare_position_for_collision_detection.bind_ptr(detection_position_bg);
+    fn_prepare_position_for_collision_detection.bind_ptr(detection_position_ed);
+    fn_prepare_position_for_collision_detection.bind_constant(0u);
+    fn_prepare_position_for_collision_detection.launch_async(xpbd_data->num_verts_collision_total);
+
+    const uint num_substep = get_scene_params().num_substep;
+    const uint curr_substep = get_scene_params().current_substep;
+    const float substep_dt = get_scene_params().get_substep_dt();
+    const float alpha = float(curr_substep + 1) / float(num_substep);
+
+    get_command_list().add_task(fn_update_obstacle_position_in_substep);
+    fn_update_obstacle_position_in_substep.bind_ptr(obstacle_data->sa_start_position);
+    fn_update_obstacle_position_in_substep.bind_ptr(obstacle_data->sa_next_position);
+    fn_update_obstacle_position_in_substep.bind_ptr(obstacle_data->sa_substep_position);
+    fn_update_obstacle_position_in_substep.bind_ptr(obstacle_data->sa_vert_velocity);
+    fn_update_obstacle_position_in_substep.bind_constant(alpha);
+    fn_update_obstacle_position_in_substep.bind_constant(substep_dt);
+    fn_update_obstacle_position_in_substep.launch_async(obstacle_data->num_verts_total);
+
+    get_command_list().add_task(fn_update_obstacle_normal_in_substep);
+    fn_update_obstacle_normal_in_substep.bind_ptr(obstacle_data->sa_faces);
+    fn_update_obstacle_normal_in_substep.bind_ptr(obstacle_data->sa_substep_position);
+    fn_update_obstacle_normal_in_substep.bind_ptr(obstacle_data->sa_face_normal);
+    fn_update_obstacle_normal_in_substep.launch_async(obstacle_data->num_faces_total);
+}
+void CpuSolver::self_collision_narrow_phase_vv() {
+    auto &detection_position_bg = get_detection_position_bg();
+    auto &detection_position_ed = get_detection_position_ed();
+    auto &detection_position_rest = get_detection_position_rest();
+
+    auto &self_collision_data = self_collision_data_tet;
+    parallel_for(0, self_collision_data->self_collision_indirect_cmd_buffer[1][3], [&](const uint index) {
+        NarrowPhase::narrow_phase_vv_self_collision_from_collision_pair(index,
+                                                                        detection_position_bg.data(), detection_position_ed.data(), detection_position_rest.data(),
+                                                                        self_collision_data->vert_VV_num_broad_phase.data(), self_collision_data->broad_phase_list.data(),
+                                                                        self_collision_data->narrow_phase_list_indices_vv.data(), self_collision_data->narrow_phase_list_pair_vv.data(),
+                                                                        self_collision_data->collision_count.data(), self_collision_data->self_collision_indirect_cmd_buffer.data(),
+                                                                        self_collision_data->vert_VV_num_narrow_phase.data(), self_collision_data->vert_VV_prefix_narrow_phase.data(),
+                                                                        self_collision_data->collision_pair_offset_in_vert.data(), self_collision_data->vert_adj_elements.data(),
+                                                                        get_scene_params().thickness_vv_tet, get_scene_params().thickness_vv_tet, get_scene_params().xpbd_stiffness_collision);
+    });
+}
+void GpuSolver::self_collision_narrow_phase_vv() {
+    auto &detection_position_bg = get_detection_position_bg();
+    auto &detection_position_ed = get_detection_position_ed();
+    auto &detection_position_rest = get_detection_position_rest();
+
+    auto &self_collision_data = self_collision_data_tet;
+
+    get_command_list().add_task(fn_narrow_phase_vv_self_collision_from_collision_pair);
+    fn_narrow_phase_vv_self_collision_from_collision_pair.bind_ptr(detection_position_bg);
+    fn_narrow_phase_vv_self_collision_from_collision_pair.bind_ptr(detection_position_ed);
+    fn_narrow_phase_vv_self_collision_from_collision_pair.bind_ptr(detection_position_rest);
+    fn_narrow_phase_vv_self_collision_from_collision_pair.bind_ptr(self_collision_data->vert_VV_num_broad_phase);
+    fn_narrow_phase_vv_self_collision_from_collision_pair.bind_ptr(self_collision_data->broad_phase_list);
+    fn_narrow_phase_vv_self_collision_from_collision_pair.bind_ptr(self_collision_data->narrow_phase_list_indices_vv);
+    fn_narrow_phase_vv_self_collision_from_collision_pair.bind_ptr(self_collision_data->narrow_phase_list_pair_vv);
+    fn_narrow_phase_vv_self_collision_from_collision_pair.bind_ptr(self_collision_data->collision_count);
+    fn_narrow_phase_vv_self_collision_from_collision_pair.bind_ptr(self_collision_data->self_collision_indirect_cmd_buffer);
+    fn_narrow_phase_vv_self_collision_from_collision_pair.bind_ptr(self_collision_data->vert_VV_num_narrow_phase);
+    fn_narrow_phase_vv_self_collision_from_collision_pair.bind_ptr(self_collision_data->vert_VV_prefix_narrow_phase);
+    fn_narrow_phase_vv_self_collision_from_collision_pair.bind_ptr(self_collision_data->collision_pair_offset_in_vert);
+    fn_narrow_phase_vv_self_collision_from_collision_pair.bind_ptr(self_collision_data->vert_adj_elements);
+
+    fn_narrow_phase_vv_self_collision_from_collision_pair.bind_constant(get_scene_params().thickness_vv_tet);
+    fn_narrow_phase_vv_self_collision_from_collision_pair.bind_constant(get_scene_params().thickness_vv_tet);
+    fn_narrow_phase_vv_self_collision_from_collision_pair.bind_constant(get_scene_params().xpbd_stiffness_collision);
+
+    fn_narrow_phase_vv_self_collision_from_collision_pair.launch_async(self_collision_data->self_collision_indirect_cmd_buffer, 1);
+}
+void CpuSolver::obstacle_collision_narrow_phase_vf() {
+    auto &detection_position_obstacle = get_detection_position_obstacle();
+
+    parallel_for(0, obstacle_collision_data_tet->obstacle_collision_indirect_cmd_buffer[1][3], [&](const uint i) {
+        NarrowPhase::narrow_phase_vf_obstacle_collision_from_collision_pair(i,
+                                                                            get_detection_position_bg().data(),
+                                                                            get_detection_position_ed().data(),
+                                                                            detection_position_obstacle.data(),
+                                                                            nullptr,
+
+                                                                            obstacle_data->sa_vert_normal.data(),
+                                                                            obstacle_data->sa_face_normal.data(),
+                                                                            obstacle_data->sa_faces.data(),
+
+                                                                            obstacle_collision_data_tet->vert_VV_num_broad_phase.data(),
+                                                                            obstacle_collision_data_tet->broad_phase_list.data(),
+
+                                                                            obstacle_collision_data_tet->narrow_phase_list_indices_vf.data(),
+                                                                            obstacle_collision_data_tet->narrow_phase_list_pair_vf.data(),
+                                                                            obstacle_collision_data_tet->collision_count.data(),
+                                                                            obstacle_collision_data_tet->obstacle_collision_indirect_cmd_buffer.data(),
+
+                                                                            obstacle_collision_data_tet->vert_VV_num_narrow_phase.data(),
+                                                                            obstacle_collision_data_tet->vert_VV_prefix_narrow_phase.data(),
+                                                                            obstacle_collision_data_tet->collision_pair_offset_in_vert.data(),
+                                                                            obstacle_collision_data_tet->vert_adj_elements.data(),
+
+                                                                            get_scene_params().max_vf_per_vert_broad_obstacle_collision,
+                                                                            get_scene_params().max_vf_per_vert_narrow_obstacle_collision,
+                                                                            0.0f,
+                                                                            get_scene_params().thickness_vv_obstacle,
+                                                                            get_scene_params().xpbd_stiffness_collision);
+    });
+}
+void GpuSolver::obstacle_collision_narrow_phase_vf() {
+    auto &detection_position_obstacle = get_detection_position_obstacle();
+
+    get_command_list().add_task(fn_narrow_phase_vf_obstacle_collision_from_collision_pair);
+    fn_narrow_phase_vf_obstacle_collision_from_collision_pair.bind_ptr(get_detection_position_bg());
+    fn_narrow_phase_vf_obstacle_collision_from_collision_pair.bind_ptr(get_detection_position_ed());
+    fn_narrow_phase_vf_obstacle_collision_from_collision_pair.bind_ptr(detection_position_obstacle);
+
+    fn_narrow_phase_vf_obstacle_collision_from_collision_pair.bind_ptr(mesh_data->sa_vert_area);// nullptr
+    fn_narrow_phase_vf_obstacle_collision_from_collision_pair.bind_ptr(obstacle_data->sa_vert_normal);
+    fn_narrow_phase_vf_obstacle_collision_from_collision_pair.bind_ptr(obstacle_data->sa_face_normal);
+    fn_narrow_phase_vf_obstacle_collision_from_collision_pair.bind_ptr(obstacle_data->sa_faces);
+
+    fn_narrow_phase_vf_obstacle_collision_from_collision_pair.bind_ptr(obstacle_collision_data_tet->vert_VV_num_broad_phase);
+    fn_narrow_phase_vf_obstacle_collision_from_collision_pair.bind_ptr(obstacle_collision_data_tet->broad_phase_list);
+
+    fn_narrow_phase_vf_obstacle_collision_from_collision_pair.bind_ptr(obstacle_collision_data_tet->narrow_phase_list_indices_vf);
+    fn_narrow_phase_vf_obstacle_collision_from_collision_pair.bind_ptr(obstacle_collision_data_tet->narrow_phase_list_pair_vf);
+    fn_narrow_phase_vf_obstacle_collision_from_collision_pair.bind_ptr(obstacle_collision_data_tet->collision_count);
+    fn_narrow_phase_vf_obstacle_collision_from_collision_pair.bind_ptr(obstacle_collision_data_tet->obstacle_collision_indirect_cmd_buffer);
+
+    fn_narrow_phase_vf_obstacle_collision_from_collision_pair.bind_ptr(obstacle_collision_data_tet->vert_VV_num_narrow_phase);
+    fn_narrow_phase_vf_obstacle_collision_from_collision_pair.bind_ptr(obstacle_collision_data_tet->vert_VV_prefix_narrow_phase);
+    fn_narrow_phase_vf_obstacle_collision_from_collision_pair.bind_ptr(obstacle_collision_data_tet->collision_pair_offset_in_vert);
+    fn_narrow_phase_vf_obstacle_collision_from_collision_pair.bind_ptr(obstacle_collision_data_tet->vert_adj_elements);
+
+    fn_narrow_phase_vf_obstacle_collision_from_collision_pair.bind_constant(get_scene_params().max_vf_per_vert_broad_obstacle_collision);
+    fn_narrow_phase_vf_obstacle_collision_from_collision_pair.bind_constant(get_scene_params().max_vf_per_vert_narrow_obstacle_collision);
+    fn_narrow_phase_vf_obstacle_collision_from_collision_pair.bind_constant(0.0f);
+    fn_narrow_phase_vf_obstacle_collision_from_collision_pair.bind_constant(get_scene_params().thickness_vv_obstacle);
+    fn_narrow_phase_vf_obstacle_collision_from_collision_pair.bind_constant(get_scene_params().xpbd_stiffness_collision);
+
+    fn_narrow_phase_vf_obstacle_collision_from_collision_pair.launch_async(obstacle_collision_data_tet->obstacle_collision_indirect_cmd_buffer, 1);
+}
+void CpuSolver::self_collision_scan_and_fill_in_vv_pair() {
+    const uint total_vv = VivaceGraphCloring::fn_get_num_collision(self_collision_data_tet->collision_count.data());
+    self_collision_data_tet->self_collision_indirect_cmd_buffer[0] = make_indirect_command_buffer(total_vv, 256);
+
+    // Scan
+    parallel_for_and_scan<uint>(
+        0, self_collision_data_tet->vert_VV_num_narrow_phase.size(),
+        [&](const uint vid) {
+            return NarrowPhase::narrow_phase_scan_get_num(vid, self_collision_data_tet->vert_VV_num_narrow_phase.data());
+        },
+        [&](const uint vid, const uint &scan_result, const uint &self_result) {
+            NarrowPhase::narrow_phase_scan_write_prefix(vid, scan_result, self_result, self_collision_data_tet->vert_VV_prefix_narrow_phase.data());
+        },
+        0);
+
+    // Fill-In
+    parallel_for(0, self_collision_data_tet->collision_count[0], [&](const uint pair_idx) {
+        NarrowPhase::self_collision_fill_in(pair_idx,
+                                            self_collision_data_tet->collision_pair_offset_in_vert.data(),
+                                            self_collision_data_tet->narrow_phase_list_indices_vv.data(),
+                                            self_collision_data_tet->vert_VV_prefix_narrow_phase.data(),
+                                            self_collision_data_tet->vert_adj_elements.data());
+    });
+}
+void GpuSolver::self_collision_scan_and_fill_in_vv_pair() {
+    get_command_list().add_task(fn_narrow_phase_scan_collision_pair_and_make_cmd_buffer);
+    fn_narrow_phase_scan_collision_pair_and_make_cmd_buffer.bind_ptr(self_collision_data_tet->vert_VV_num_narrow_phase);
+    fn_narrow_phase_scan_collision_pair_and_make_cmd_buffer.bind_ptr(self_collision_data_tet->vert_VV_prefix_narrow_phase);
+    fn_narrow_phase_scan_collision_pair_and_make_cmd_buffer.bind_ptr(self_collision_data_tet->collision_count);
+    fn_narrow_phase_scan_collision_pair_and_make_cmd_buffer.bind_ptr(self_collision_data_tet->self_collision_indirect_cmd_buffer);
+    fn_narrow_phase_scan_collision_pair_and_make_cmd_buffer.bind_constant(mesh_data->num_surface_verts_total);
+    fn_narrow_phase_scan_collision_pair_and_make_cmd_buffer.launch_async(get_excution_threads_256(mesh_data->num_surface_verts_total));
+
+    get_command_list().add_task(fn_self_collision_fill_in_vv);
+    fn_self_collision_fill_in_vv.bind_ptr(self_collision_data_tet->collision_pair_offset_in_vert);
+    fn_self_collision_fill_in_vv.bind_ptr(self_collision_data_tet->narrow_phase_list_indices_vv);
+    fn_self_collision_fill_in_vv.bind_ptr(self_collision_data_tet->vert_VV_prefix_narrow_phase);
+    fn_self_collision_fill_in_vv.bind_ptr(self_collision_data_tet->vert_adj_elements);
+    fn_self_collision_fill_in_vv.bind_ptr(self_collision_data_tet->collision_count);
+    fn_self_collision_fill_in_vv.launch_async(self_collision_data_tet->self_collision_indirect_cmd_buffer, 0);
+}
+void CpuSolver::obstacle_collision_scan_and_fill_in_vf_pair() {
+    parallel_for_and_scan<uint>(
+        0, obstacle_collision_data_tet->vert_VV_num_narrow_phase.size(),
+        [&](const uint vid) {
+            return NarrowPhase::narrow_phase_scan_get_num(vid, obstacle_collision_data_tet->vert_VV_num_narrow_phase.data());
+        },
+        [&](const uint vid, const uint &scan_result, const uint &self_result) {
+            NarrowPhase::narrow_phase_scan_write_prefix(vid, scan_result, self_result, obstacle_collision_data_tet->vert_VV_prefix_narrow_phase.data());
+        },
+        0);
+
+    parallel_for(0, obstacle_collision_data_tet->collision_count[0], [&](const uint pair_idx) {
+        NarrowPhase::obstacle_collision_fill_in(pair_idx,
+                                                obstacle_collision_data_tet->collision_pair_offset_in_vert.data(),
+                                                obstacle_collision_data_tet->narrow_phase_list_indices_vf.data(),
+                                                obstacle_collision_data_tet->vert_VV_prefix_narrow_phase.data(),
+                                                obstacle_collision_data_tet->vert_adj_elements.data());
+    });
+}
+void GpuSolver::obstacle_collision_scan_and_fill_in_vf_pair() {
+    get_command_list().add_task(fn_narrow_phase_scan_collision_pair_and_make_cmd_buffer);
+    fn_narrow_phase_scan_collision_pair_and_make_cmd_buffer.bind_ptr(obstacle_collision_data_tet->vert_VV_num_narrow_phase);
+    fn_narrow_phase_scan_collision_pair_and_make_cmd_buffer.bind_ptr(obstacle_collision_data_tet->vert_VV_prefix_narrow_phase);
+    fn_narrow_phase_scan_collision_pair_and_make_cmd_buffer.bind_ptr(obstacle_collision_data_tet->collision_count);
+    fn_narrow_phase_scan_collision_pair_and_make_cmd_buffer.bind_ptr(obstacle_collision_data_tet->obstacle_collision_indirect_cmd_buffer);
+    fn_narrow_phase_scan_collision_pair_and_make_cmd_buffer.bind_constant(mesh_data->num_surface_verts_total);
+    fn_narrow_phase_scan_collision_pair_and_make_cmd_buffer.launch_async(get_excution_threads_256(mesh_data->num_surface_verts_total));
+
+    get_command_list().add_task(fn_obstacle_collision_fill_in_vf);
+    fn_obstacle_collision_fill_in_vf.bind_ptr(obstacle_collision_data_tet->collision_pair_offset_in_vert);
+    fn_obstacle_collision_fill_in_vf.bind_ptr(obstacle_collision_data_tet->narrow_phase_list_indices_vf);
+    fn_obstacle_collision_fill_in_vf.bind_ptr(obstacle_collision_data_tet->vert_VV_prefix_narrow_phase);
+    fn_obstacle_collision_fill_in_vf.bind_ptr(obstacle_collision_data_tet->vert_adj_elements);
+    fn_obstacle_collision_fill_in_vf.bind_ptr(obstacle_collision_data_tet->obstacle_collision_indirect_cmd_buffer);
+    fn_obstacle_collision_fill_in_vf.launch_async(obstacle_collision_data_tet->obstacle_collision_indirect_cmd_buffer, 0);
+}
+void CpuSolver::self_collision_detection() {
+
+    reset_collision_system_template(true, false);
+
+    if (get_scene_params().current_substep == 0) {
+        lbvh_tet->vert_cpu.compute_vert_aabb_and_center(get_detection_position_bg());
+        lbvh_tet->vert_cpu.construct_tree();
+    }
+
+    lbvh_tet->vert_cpu.update_vert_aabb(get_detection_position_bg(), get_scene_params().thickness_vv_tet);
+    lbvh_tet->vert_cpu.apply_leaves_aabb();
+    lbvh_tet->vert_cpu.query_from_vert_atomic(get_detection_position_bg(), self_collision_data_tet->broad_phase_list,
+                                              self_collision_data_tet->self_collision_indirect_cmd_buffer, 1,
+                                              0.0f);
+
+    self_collision_narrow_phase_vv();
+
+    self_collision_scan_and_fill_in_vv_pair();
+
+    vivace_cpu_tet->graph_coloring_vivace();
+}
+void GpuSolver::self_collision_detection() {
+
+    reset_collision_system_template(true, false);
+
+    if (get_scene_params().current_substep == 0) {
+        lbvh_tet->vert_gpu.compute_vert_aabb_and_center(get_detection_position_bg());
+        lbvh_tet->vert_gpu.construct_tree();
+    }
+
+    lbvh_tet->vert_gpu.update_vert_aabb(get_detection_position_bg(), get_scene_params().thickness_vv_tet);
+    lbvh_tet->vert_gpu.apply_leaves_aabb();
+    lbvh_tet->vert_gpu.query_from_vert_atomic(get_detection_position_bg(), self_collision_data_tet->broad_phase_list,
+                                              self_collision_data_tet->self_collision_indirect_cmd_buffer, 1,
+                                              0.0f);
+
+    self_collision_narrow_phase_vv();
+
+    self_collision_scan_and_fill_in_vv_pair();
+
+    vivace_cpu_tet->graph_coloring_vivace();
+}
+void CpuSolver::obstacle_collision_detection() {
+
+    reset_collision_system_template(false, false);
+
+    if (get_scene_params().current_substep == 0) {
+        lbvh_obstacle->face_cpu.compute_face_aabb_and_center(obstacle_data->sa_faces, get_detection_position_obstacle());
+        lbvh_obstacle->face_cpu.construct_tree();
+    }
+
+    lbvh_obstacle->face_cpu.update_face_aabb(obstacle_data->sa_faces, get_detection_position_obstacle(), get_scene_params().thickness_vv_obstacle);
+    lbvh_obstacle->face_cpu.apply_leaves_aabb();
+
+    lbvh_obstacle->face_cpu.query_from_vert_atomic(get_detection_position_bg(),
+                                                   obstacle_collision_data_tet->broad_phase_list,
+                                                   obstacle_collision_data_tet->obstacle_collision_indirect_cmd_buffer,
+                                                   1, 0.0f);
+
+    obstacle_collision_narrow_phase_vf();
+
+    obstacle_collision_scan_and_fill_in_vf_pair();
+}
+void GpuSolver::obstacle_collision_detection() {
+
+    reset_collision_system_template(false, false);
+
+    if (get_scene_params().current_substep == 0) {
+        lbvh_obstacle->face_gpu.compute_face_aabb_and_center(obstacle_data->sa_faces, get_detection_position_obstacle());
+        lbvh_obstacle->face_gpu.construct_tree();
+    }
+
+    lbvh_obstacle->face_gpu.update_face_aabb(obstacle_data->sa_faces, get_detection_position_obstacle(), get_scene_params().thickness_vv_obstacle);
+    lbvh_obstacle->face_gpu.apply_leaves_aabb();
+
+    lbvh_obstacle->face_gpu.query_from_vert_atomic(get_detection_position_bg(),
+                                                   obstacle_collision_data_tet->broad_phase_list,
+                                                   obstacle_collision_data_tet->obstacle_collision_indirect_cmd_buffer,
+                                                   1, 0.0f);
+
+    obstacle_collision_narrow_phase_vf();
+
+    obstacle_collision_scan_and_fill_in_vf_pair();
+}
+
 void CpuSolver::collision_detection() {
-    // TODO
+
+    prepare_collision_detection_position();
+
+    self_collision_detection();
+
+    obstacle_collision_detection();
 }
 void GpuSolver::collision_detection() {
-    // TODO
+    prepare_collision_detection_position();
+
+    self_collision_detection();
+
+    obstacle_collision_detection();
 }
 
 void CpuSolver::predict_position() {
@@ -1243,6 +1855,7 @@ void GpuSolver::solve_constraint_obstacle_collision(Buffer<Float3> &sa_iter_posi
 }
 void CpuSolver::solve_constraint_self_collision(Buffer<Float3> &sa_iter_position, const uint cluster_idx) {
 
+    Float3 *iter_position_cloth = nullptr;
     const float thickness = get_scene_params().thickness_vv_tet;
 
     auto fn_self_collision_solver_per_element_vv_template = [&](const uint pair_idx) {
@@ -1262,56 +1875,58 @@ void CpuSolver::solve_constraint_self_collision(Buffer<Float3> &sa_iter_position
                                                                             get_scene_params().xpbd_stiffness_collision, get_scene_params().friction_tet, 0);
     };
 
-    // {
-    //     const uint curr_prefix = vivace_data_tet->cluster_prefix[cluster_idx];
-    //     const uint num_elements_clustered = vivace_data_tet->num_verts_in_cluster[cluster_idx];
-    //     const uint *cluster = vivace_data_tet->clusterd_constraint_self_collision.data() + curr_prefix;
+    {
+        const uint curr_prefix = vivace_data_tet->cluster_prefix[cluster_idx];
+        const uint num_elements_clustered = vivace_data_tet->num_verts_in_cluster[cluster_idx];
+        const uint *cluster = vivace_data_tet->clusterd_constraint_self_collision.data() + curr_prefix;
 
-    //     if (num_elements_clustered == 0) return;
+        if (num_elements_clustered == 0) return;
 
-    //     parallel_for(
-    //         0, num_elements_clustered, [&](const uint i) {
-    //             const uint pair_idx = curr_prefix + i;
-    //             fn_self_collision_solver_per_element_vv_template(pair_idx);
-    //         },
-    //         32);
-    // }
+        parallel_for(
+            0, num_elements_clustered, [&](const uint i) {
+                const uint pair_idx = curr_prefix + i;
+                fn_self_collision_solver_per_element_vv_template(pair_idx);
+            },
+            32);
+    }
 }
 void GpuSolver::solve_constraint_self_collision(Buffer<Float3> &sa_iter_position, const uint cluster_idx) {
+    auto &iter_position_cloth = sa_iter_position;
+    auto &start_position_cloth = sa_iter_position;
 
-    const float thickness = get_scene_params().thickness_vv_tet;
+    {
+        get_command_list().add_task(fn_constraint_self_collision_vv_tet);
 
-    auto fn_self_collision_solver_per_element_vv_template = [&](const uint pair_idx) {
-        Constrains::solve_self_collision_vv_per_collision_pair_template_tet(pair_idx,
-                                                                            nullptr, xpbd_data->sa_x_step_start.data(),
-                                                                            nullptr, sa_iter_position.data(),
-                                                                            nullptr, sa_iter_position.data(),
+        fn_constraint_self_collision_vv_tet.bind_ptr(start_position_cloth);// Empty
+        fn_constraint_self_collision_vv_tet.bind_ptr(xpbd_data->sa_x_step_start);
+        fn_constraint_self_collision_vv_tet.bind_ptr(iter_position_cloth);// Empty
+        fn_constraint_self_collision_vv_tet.bind_ptr(sa_iter_position);
+        fn_constraint_self_collision_vv_tet.bind_ptr(iter_position_cloth);// Empty
+        fn_constraint_self_collision_vv_tet.bind_ptr(sa_iter_position);
 
-                                                                            mesh_data->sa_surface_verts.data(),
-                                                                            nullptr, mesh_data->sa_vert_mass_inv.data(),
-                                                                            nullptr, mesh_data->sa_vert_mutex.data(),
+        fn_constraint_self_collision_vv_tet.bind_ptr(mesh_data->sa_surface_verts);
+        fn_constraint_self_collision_vv_tet.bind_ptr(mesh_data->sa_vert_mass_inv);// Empty
+        fn_constraint_self_collision_vv_tet.bind_ptr(mesh_data->sa_vert_mass_inv);
+        fn_constraint_self_collision_vv_tet.bind_ptr(mesh_data->sa_vert_mutex);// Empty
+        fn_constraint_self_collision_vv_tet.bind_ptr(mesh_data->sa_vert_mutex);
 
-                                                                            self_collision_data_tet->narrow_phase_list_pair_vv_merged.data(),
-                                                                            xpbd_data->lambda_self_collision_tet.data(), xpbd_data->lambda_self_collision_friction_tet.data(),
+        fn_constraint_self_collision_vv_tet.bind_ptr(self_collision_data_tet->narrow_phase_list_pair_vv_merged);
+        fn_constraint_self_collision_vv_tet.bind_ptr(xpbd_data->lambda_self_collision_tet);
+        fn_constraint_self_collision_vv_tet.bind_ptr(xpbd_data->lambda_self_collision_friction_tet);
 
-                                                                            get_scene_params().get_substep_dt(), false, thickness,
-                                                                            get_scene_params().xpbd_stiffness_collision, get_scene_params().friction_tet, 0);
-    };
+        fn_constraint_self_collision_vv_tet.bind_constant(get_scene_params().get_substep_dt());
+        fn_constraint_self_collision_vv_tet.bind_constant(false);
+        fn_constraint_self_collision_vv_tet.bind_constant(get_scene_params().thickness_vv_tet);
+        fn_constraint_self_collision_vv_tet.bind_constant(get_scene_params().xpbd_stiffness_collision);
+        fn_constraint_self_collision_vv_tet.bind_constant(get_scene_params().friction_tet);
+        fn_constraint_self_collision_vv_tet.bind_constant(0u);
 
-    // {
-    //     const uint curr_prefix = vivace_data_tet->cluster_prefix[cluster_idx];
-    //     const uint num_elements_clustered = vivace_data_tet->num_verts_in_cluster[cluster_idx];
-    //     const uint *cluster = vivace_data_tet->clusterd_constraint_self_collision.data() + curr_prefix;
-
-    //     if (num_elements_clustered == 0) return;
-
-    //     parallel_for(
-    //         0, num_elements_clustered, [&](const uint i) {
-    //             const uint pair_idx = curr_prefix + i;
-    //             fn_self_collision_solver_per_element_vv_template(pair_idx);
-    //         },
-    //         32);
-    // }
+        fn_constraint_self_collision_vv_tet.bind_ptr(vivace_data_tet->clusterd_constraint_self_collision);
+        fn_constraint_self_collision_vv_tet.bind_ptr(vivace_data_tet->cluster_prefix);
+        fn_constraint_self_collision_vv_tet.bind_ptr(vivace_data_tet->num_verts_in_cluster);
+        fn_constraint_self_collision_vv_tet.bind_constant(cluster_idx);
+        fn_constraint_self_collision_vv_tet.launch_async(vivace_data_tet->clusterd_constraint_self_collision_indirect_cmd_buffer, cluster_idx);
+    }
 }
 
 void CpuSolver::physics_step_xpbd() {
@@ -2532,11 +3147,11 @@ void CpuSolver::solve_constraints_XPBD() {
         for (uint i = 0; i < xpbd_data->num_clusters_tet_stress; i++) {
             solve_constraint_tet_stress(iter_position, i);
         }
-        // solve_constraint_ground_collision(iter_position);
-        // solve_constraint_obstacle_collision(iter_position);
-        // for (uint i = 0; i < xpbd_data->num_combined_clusters_self_collision; i++) {
-        //     solve_constraint_self_collision(iter_position, i);
-        // }
+        solve_constraint_ground_collision(iter_position);
+        solve_constraint_obstacle_collision(iter_position);
+        for (uint i = 0; i < xpbd_data->num_combined_clusters_self_collision; i++) {
+            solve_constraint_self_collision(iter_position, i);
+        }
     }
 
     if (get_scene_params().print_xpbd_convergence) {
@@ -2615,11 +3230,13 @@ public:
             cpu_solver->get_data_pointer(xpbd_data, mesh_data, obstacle_data, coloring_data,
                                          lbvh_data_obstacle, lbvh_data_tet,
                                          self_collision_data_tet,
-                                         obstacle_collision_data_tet);
+                                         obstacle_collision_data_tet, coloring_data_tet,
+                                         vivace_cpu);
             gpu_solver->get_data_pointer(xpbd_data, mesh_data, obstacle_data, coloring_data,
                                          lbvh_data_obstacle, lbvh_data_tet,
                                          self_collision_data_tet,
-                                         obstacle_collision_data_tet);
+                                         obstacle_collision_data_tet, coloring_data_tet,
+                                         vivace_cpu, vivace_gpu);
             cpu_solver->init_xpbd_system();
             gpu_solver->init_xpbd_system();
 
@@ -2831,7 +3448,7 @@ int main() {
             get_scene_params().current_frame = frame;
 
             // solver.physics_step(SolverType::XPBD_CPU);
-            solver.physics_step(SolverType::XPBD_CPU);
+            solver.physics_step(SolverType::XPBD_GPU);
         }
     }
     {
