@@ -262,31 +262,39 @@ void AppendTriangleObstacleModel(std::string model_name,
 void init_tet_mesh(TetData *mesh_data) {
 
     InputTetrahedralMesh input_mesh;
-    AppendTetrahedralModel(
-        "SIGGRAPH.vtk", [](const std::vector<Float3> &local_position, std::vector<bool> &is_fixed) {}, makeFloat3(0.0f), makeFloat3(0.0f), makeFloat3(1.0f), true, input_mesh);
-
+    {
+        AppendTetrahedralModel(
+            "SIGGRAPH.vtk", [](const std::vector<Float3> &local_position, std::vector<bool> &is_fixed) {}, makeFloat3(0.0f), makeFloat3(0.0f), makeFloat3(1.0f), true, input_mesh);
+    }
     const uint num_verts = input_mesh.positions.size();
-    const uint num_faces = input_mesh.surface_faces.size();
-    const uint num_edges = input_mesh.surface_edges.size();
     const uint num_tets = input_mesh.tets.size();
+    const uint num_surface_verts = input_mesh.surface_verts.size();
+    const uint num_surface_faces = input_mesh.surface_faces.size();
+    const uint num_surface_edges = input_mesh.surface_edges.size();
 
-    fast_format("Tetrahedron : (numVerts : {}) (numFaces : {})  (numEdges : {}) "
+    fast_format("Tetrahedron : (numVerts : {}) (numSurfaceVerts : {}) (numSurfaceFaces : {}) (numSurfaceEdges : {}) "
                 "(numTets : {})",
-                num_verts, num_faces, num_edges, num_tets);
+                num_verts, num_surface_verts, num_surface_edges, num_surface_edges, num_tets);
 
     // Constant scalar
     {
         mesh_data->num_verts_total = num_verts;
-        mesh_data->num_surface_faces_total = num_faces;
-        mesh_data->num_surface_edges_total = num_edges;
         mesh_data->num_tets_total = num_tets;
+        mesh_data->num_surface_verts_total = num_surface_verts;
+        mesh_data->num_surface_faces_total = num_surface_faces;
+        mesh_data->num_surface_edges_total = num_surface_edges;
     }
 
     upload_from(mesh_data->sa_rest_position, input_mesh.positions);
     upload_from(mesh_data->sa_surface_faces, input_mesh.surface_faces);
     upload_from(mesh_data->sa_surface_edges, input_mesh.surface_edges);
     upload_from(mesh_data->sa_tets, input_mesh.tets);
+    upload_from(mesh_data->sa_surface_verts, input_mesh.surface_verts);
+    upload_from(mesh_data->sa_surface_faces, input_mesh.surface_faces);
+    upload_from(mesh_data->sa_surface_edges, input_mesh.surface_edges);
     mesh_data->sa_rest_velocity.resize(num_verts);
+
+    // exit(0);
 
     // Init vert info
     {
@@ -338,35 +346,14 @@ void init_tet_mesh(TetData *mesh_data) {
         }
         upload_2d_csr_from(mesh_data->sa_vert_adj_tets_csr,
                            mesh_data->vert_adj_tets);
-
-        // Vert adj verts based on 1-order connection
-        mesh_data->vert_adj_verts.resize(num_verts);
-        auto insert_adj_vert = [&](const uint vid, const uint adj_vid) {
-            auto &list = mesh_data->vert_adj_verts[vid];
-            if (std::find(list.begin(), list.end(), adj_vid) == list.end()) {
-                list.push_back(adj_vid);
-            }
-        };
-        for (uint tid = 0; tid < num_tets; tid++) {
-            auto tet = mesh_data->sa_tets[tid];
-            for (uint ii = 0; ii < 4; ii++) {
-                const uint vid = tet[ii];
-                for (uint jj = ii + 1; jj < 4; jj++) {
-                    const uint adj_vid = tet[jj];
-                    insert_adj_vert(vid, adj_vid);
-                    insert_adj_vert(adj_vid, vid);
-                }
-            }
-        }
-        upload_2d_csr_from(mesh_data->sa_vert_adj_verts_csr, mesh_data->vert_adj_verts);
     }
 
     // Init energy
     {
         // Rest spring length
-        mesh_data->sa_Dm.resize(num_edges);
-        mesh_data->sa_Dm_inv.resize(num_edges);
-        mesh_data->sa_tet_volumn.resize(num_edges);
+        mesh_data->sa_Dm.resize(num_tets);
+        mesh_data->sa_Dm_inv.resize(num_tets);
+        mesh_data->sa_tet_volumn.resize(num_tets);
         parallel_for(0, num_tets, [&](const uint tid) {
             Int4 tet = mesh_data->sa_tets[tid];
             Float3 vert_pos[4] = {
@@ -392,8 +379,10 @@ void init_tet_mesh(TetData *mesh_data) {
 }
 void init_obstacle_mesh(ObstacleData *mesh_data) {
     InputTriangleMesh input_mesh;
-    AppendTriangleObstacleModel(
-        "bowl.obj", makeFloat3(0.0f, 0.0f, 0.0f), makeFloat3(0.0f), makeFloat3(0.0f, 1.0f, 0.0f), true, {}, input_mesh);
+    {
+        AppendTriangleObstacleModel(
+            "bowl.obj", makeFloat3(0.0f, 0.0f, 0.0f), makeFloat3(0.0f), makeFloat3(0.0f, 1.0f, 0.0f), true, {}, input_mesh);
+    }
     const uint num_verts = input_mesh.mesh.model_positions.size();
     const uint num_faces = input_mesh.mesh.faces.size();
     const uint num_edges = input_mesh.mesh.edges.size();
@@ -407,7 +396,6 @@ void init_obstacle_mesh(ObstacleData *mesh_data) {
         mesh_data->num_edges_total = num_edges;
     }
 
-    upload_from(mesh_data->sa_rest_position, input_mesh.mesh.model_positions);
     upload_from(mesh_data->sa_rest_position, input_mesh.mesh.model_positions);
     upload_from(mesh_data->sa_faces, input_mesh.mesh.faces);
     upload_from(mesh_data->sa_edges, input_mesh.mesh.edges);
@@ -424,6 +412,141 @@ void init_obstacle_mesh(ObstacleData *mesh_data) {
         });
     }
 }
+
+void XpbdData::resize(TetData *tetrahedral, ObstacleData *obstacle) {
+    const uint num_verts_tet = tetrahedral->num_verts_total;
+    const uint num_surface_verts_tet = tetrahedral->num_surface_verts_total;
+    const uint num_surface_faces_tet = tetrahedral->num_surface_faces_total;
+    const uint num_tets_total = tetrahedral->num_tets_total;
+
+    num_verts_collision_total = num_surface_verts_tet;
+    num_faces_collision_total = num_surface_faces_tet;
+
+    // Resize
+    debug_buffer.resize(1024);
+
+    sa_x_frame.resize(num_verts_tet);
+    sa_v_frame.resize(num_verts_tet);
+
+    sa_x.resize(num_verts_tet);
+    sa_v.resize(num_verts_tet);
+    sa_x_tilde.resize(num_verts_tet);
+    sa_x_step_start.resize(num_verts_tet);
+    sa_x_iter_start.resize(num_verts_tet);
+
+    for (auto &buffer : sa_async_iter_positions_tet) { buffer.resize(num_verts_tet); }
+    for (auto &buffer : sa_async_begin_positions_tet) { buffer.resize(num_verts_tet); }
+
+    sa_detection_position_bg.resize(num_verts_collision_total);
+    sa_detection_position_ed.resize(num_verts_collision_total);
+    sa_detection_faces.resize(num_surface_faces_tet);
+    sa_surface_verts.resize(num_verts_collision_total);
+    sa_surface_faces.resize(num_faces_collision_total);
+
+    sa_block_aabb.resize(get_dispatch_num(num_verts_tet, 256));
+
+    const uint B_selfcollision = 32;
+    const uint N_selfcollision = 8;
+    const uint B_obscollision = 12;
+    const uint N_obscollision = 4;
+    const uint vert_num_each_collision_pair_self_collision = 2;// VV
+    const uint vert_num_each_collision_pair_obs_collision = 1; // V in VF
+
+    // Init XPBD Multiplier Variables
+    {
+        lambda_tet_stress_hydrostatic_term.resize(num_tets_total);
+        lambda_tet_stress_deviatoric_term.resize(num_tets_total);
+        lambda_ground_collision_tet.resize(num_verts_tet);
+
+        lambda_self_collision_tet.resize(num_surface_verts_tet * N_selfcollision);
+        lambda_self_collision_friction_tet.resize(num_surface_verts_tet * N_selfcollision);
+
+        lambda_sdf_collision_tet.resize(num_surface_verts_tet * (N_obscollision + 1));
+        lambda_sdf_collision_tet_friction.resize(num_surface_verts_tet * (N_obscollision + 1));
+    }
+
+    // Init LBVH
+    {
+        lbvh_data_tet.vert_tree.tree_type = LBVHTreeTypeVert;
+        lbvh_data_tet.face_tree.tree_type = LBVHTreeTypeFace;
+        lbvh_data_tet.edge_tree.tree_type = LBVHTreeTypeEdge;
+        lbvh_data_tet.vert_tree.update_type = LBVHUpdateTypeCloth;
+        lbvh_data_tet.face_tree.update_type = LBVHUpdateTypeCloth;
+        lbvh_data_tet.edge_tree.update_type = LBVHUpdateTypeCloth;
+        lbvh_data_tet.vert_tree.allocate(num_surface_verts_tet);
+        lbvh_data_tet.edge_tree.allocate(1);
+        lbvh_data_tet.face_tree.allocate(1);
+
+        lbvh_data_obstacle.vert_tree.tree_type = LBVHTreeTypeVert;
+        lbvh_data_obstacle.face_tree.tree_type = LBVHTreeTypeFace;
+        lbvh_data_obstacle.edge_tree.tree_type = LBVHTreeTypeEdge;
+        lbvh_data_obstacle.vert_tree.update_type = LBVHUpdateTypeObstacle;
+        lbvh_data_obstacle.face_tree.update_type = LBVHUpdateTypeObstacle;
+        lbvh_data_obstacle.edge_tree.update_type = LBVHUpdateTypeObstacle;
+        lbvh_data_obstacle.vert_tree.allocate(1);
+        lbvh_data_obstacle.edge_tree.allocate(1);
+        lbvh_data_obstacle.face_tree.allocate(num_surface_faces_tet);
+    }
+
+    // Init Self Collision Data
+    {
+        const uint table_size = 1;
+        tet_collision.table_size = table_size;
+        tet_collision.hash_table.resize(table_size);
+        tet_collision.hash_table_count.resize(table_size);
+        tet_collision.hash_table_prefix.resize(table_size + 1);
+        tet_collision.hash_table_belongs.resize(table_size);
+        tet_collision.hash_table_flag.resize(table_size);
+        tet_collision.hash_table_prefix[0] = 0;
+        tet_collision.hash_table_vert_offset.resize(1);// num_surface_verts_tet
+
+        tet_collision.vert_VV_num_broad_phase.resize(num_surface_verts_tet);
+        tet_collision.broad_phase_list.resize(num_surface_verts_tet * B_selfcollision * 2);
+
+        tet_collision.collision_count.resize(256);
+        tet_collision.vert_VV_num_narrow_phase.resize(num_surface_verts_tet);
+        tet_collision.vert_VV_prefix_narrow_phase.resize(num_surface_verts_tet + 1);
+        tet_collision.narrow_phase_list_indices_vv.resize(num_surface_verts_tet * N_selfcollision);
+        tet_collision.narrow_phase_list_pair_vv.resize(num_surface_verts_tet * N_selfcollision);
+        tet_collision.narrow_phase_list_pair_vv_merged.resize(num_surface_verts_tet * N_selfcollision);
+        tet_collision.narrow_phase_list_indices_vf.resize(1);
+        tet_collision.narrow_phase_list_pair_vf.resize(1);
+
+        tet_collision.max_vert_rest_distance.resize(num_surface_verts_tet);
+        tet_collision.vert_adj_elements.resize(num_surface_verts_tet * (N_selfcollision + 1));
+        tet_collision.collision_pair_offset_in_vert.resize(num_surface_verts_tet * N_selfcollision * vert_num_each_collision_pair_self_collision);// 1 for vv , 4 for vf
+        tet_collision.self_collision_indirect_cmd_buffer.resize(4);
+    }
+
+    // Init Obstacle Collision Data
+    {
+        const uint table_size = 1;
+        obs_collision_tet.table_size = table_size;
+        obs_collision_tet.hash_table.resize(table_size);
+        obs_collision_tet.hash_table_count.resize(table_size);
+        obs_collision_tet.hash_table_prefix.resize(table_size + 1);
+        obs_collision_tet.hash_table_prefix[0] = 0;
+        obs_collision_tet.hash_table_belongs.resize(table_size);
+        obs_collision_tet.hash_table_flag.resize(table_size);
+        obs_collision_tet.hash_table_vert_offset.resize(1);// num_verts_obstacle
+
+        obs_collision_tet.broad_phase_list.resize(num_surface_verts_tet * B_obscollision * 2);
+
+        obs_collision_tet.collision_count.resize(256);
+        obs_collision_tet.narrow_phase_list_indices_vv.resize(1);
+        obs_collision_tet.narrow_phase_list_pair_vv.resize(1);
+        obs_collision_tet.narrow_phase_list_indices_vf.resize(num_surface_verts_tet * N_obscollision);
+        obs_collision_tet.narrow_phase_list_pair_vf.resize(num_surface_verts_tet * N_obscollision);
+        obs_collision_tet.vert_adj_elements.resize(num_surface_verts_tet * (N_obscollision + 1));
+        obs_collision_tet.collision_pair_offset_in_vert.resize(num_surface_verts_tet * N_obscollision * vert_num_each_collision_pair_obs_collision);
+        obs_collision_tet.obstacle_collision_indirect_cmd_buffer.resize(4);
+
+        obs_collision_tet.vert_VV_num_broad_phase.resize(num_surface_verts_tet);
+        obs_collision_tet.vert_VV_num_narrow_phase.resize(num_surface_verts_tet);
+        obs_collision_tet.vert_VV_prefix_narrow_phase.resize(num_surface_verts_tet + 1);
+    }
+}
+
 void init_xpbd_data(TetData *mesh_data, ObstacleData *obstacle_data, XpbdData *xpbd_data) {
     // To Be Done
     xpbd_data->resize(mesh_data, obstacle_data);
@@ -591,26 +714,6 @@ void CpuSolver::init_xpbd_system() {
     xpbd_data->sa_system_energy.resize(10240);
 
     const uint num_verts = mesh_data->num_verts_total;
-    xpbd_data->sa_x_tilde.resize(num_verts);
-    xpbd_data->sa_x.resize(num_verts);
-    xpbd_data->sa_v.resize(num_verts);
-    xpbd_data->sa_x_iter_start.resize(num_verts);
-    xpbd_data->sa_x_step_start.resize(num_verts);
-
-    xpbd_data->sa_v.set_zero();
-
-    for (auto &buffer : xpbd_data->sa_async_iter_positions_tet)
-        buffer.resize(mesh_data->num_verts_total);
-    for (auto &buffer : xpbd_data->sa_async_begin_positions_tet)
-        buffer.resize(mesh_data->num_verts_total);
-
-    // Init Constraints
-    {
-        xpbd_data->lambda_tet_stress_deviatoric_term.resize(
-            mesh_data->num_tets_total);
-        xpbd_data->lambda_tet_stress_hydrostatic_term.resize(
-            mesh_data->num_tets_total);
-    }
 
     // Graph Coloring
     std::vector<std::vector<uint>> tmp_clusterd_constraint_tet_stress;
@@ -776,10 +879,6 @@ void GpuSolver::init_xpbd_system() {
         fn_compute_energy_collision_vf.load(library_xpbd, "compute_energy_collision_vf");
         fn_test_sum.load(library_xpbd, "test_sum");
         fn_test_sum_2.load(library_xpbd, "test_sum_2");
-    }
-
-    // Init LBVH and Vivace
-    {
     }
 }
 
@@ -2707,7 +2806,7 @@ int main() {
         }
     }
     {
-        // solver.save_mesh_to_obj("_sync_CPU");
+        solver.save_mesh_to_obj("_sync_CPU");
     }
 
     return 0;

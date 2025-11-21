@@ -29,6 +29,7 @@ struct TetData {
         sa_tet_id;
     Array(uchar)
         sa_vert_is_boundary;// vert is boundary
+
     Array(uint)
         sa_surface_verts;
     Array(uint)
@@ -39,10 +40,6 @@ struct TetData {
         sa_surface_faces;
     Array(Int4)
         sa_tets;
-    Array(Float4)
-        sa_vert_color;
-    Array(Float4)
-        sa_default_color;
 
 #if !defined(METAL_CODE)
     std::vector<std::vector<uint>> vert_adj_faces;
@@ -50,10 +47,6 @@ struct TetData {
     std::vector<std::vector<uint>> vert_adj_verts;
 #endif
 
-    Array(uint)
-        sa_vert_adj_faces;
-    Array(uint)
-        sa_vert_adj_verts_csr;
     Array(uint)
         sa_vert_adj_tets_csr;
 
@@ -68,13 +61,7 @@ struct TetData {
     Array(float)
         sa_vert_area;
     Array(float)
-        sa_vert_volumn;
-    Array(float)
         sa_tet_volumn;
-    Array(Float3)
-        sa_face_normal;
-    Array(Float3)
-        sa_vert_normal;
 
     Array(Float3)
         sa_model_position;
