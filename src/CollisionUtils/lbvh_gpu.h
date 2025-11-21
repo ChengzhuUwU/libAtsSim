@@ -45,8 +45,7 @@ private:
     gpuFunction fn_apply_sorted_morton;
     gpuFunction fn_construct_tree;
     gpuFunction fn_check_healthy;
-    gpuFunction fn_compute_escape_index;
-    gpuFunction fn_compute_left_index;
+
     //
     // Refit
     //

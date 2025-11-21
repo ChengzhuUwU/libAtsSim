@@ -291,6 +291,7 @@ void init_tet_mesh(TetData *mesh_data) {
     upload_from(mesh_data->sa_surface_faces, input_mesh.surface_faces);
     upload_from(mesh_data->sa_surface_edges, input_mesh.surface_edges);
     mesh_data->sa_rest_velocity.resize(num_verts);
+    mesh_data->sa_vert_mutex.resize(num_verts);
 
     // exit(0);
 
@@ -402,14 +403,15 @@ void init_tet_mesh(TetData *mesh_data) {
             };
             mesh_data->sa_face_area[surface_fid] = compute_face_area(vert_post[0], vert_post[1], vert_post[2]);
         });
-        parallel_for(0, num_verts, [&](const uint vid) {
+        parallel_for(0, num_surface_verts, [&](const uint surface_vid) {
+            const uint vid = mesh_data->sa_surface_verts[surface_vid];
             float curr_area = 0.0f;
             const auto &adj_faces = mesh_data->vert_adj_surface_faces[vid];
             for (auto fid : adj_faces) {
                 curr_area += mesh_data->sa_face_area[fid];
             }
             curr_area /= 3.0f;
-            mesh_data->sa_vert_area[vid] = curr_area;
+            mesh_data->sa_vert_area[surface_vid] = curr_area;
         });
     }
 
@@ -421,7 +423,7 @@ void init_obstacle_mesh(ObstacleData *mesh_data) {
     InputTriangleMesh input_mesh;
     {
         AppendTriangleObstacleModel(
-            "bowl.obj", makeFloat3(0.0f, 0.0f, 0.0f), makeFloat3(0.0f), makeFloat3(0.0f, 1.0f, 0.0f), true, {}, input_mesh);
+            "bowl.obj", makeFloat3(0.0f, 0.0f, 0.0f), makeFloat3(0.0f), makeFloat3(1.0f, 1.0f, 1.0f), true, {}, input_mesh);
     }
     const uint num_verts = input_mesh.mesh.model_positions.size();
     const uint num_faces = input_mesh.mesh.faces.size();
@@ -442,8 +444,11 @@ void init_obstacle_mesh(ObstacleData *mesh_data) {
     upload_from(mesh_data->sa_substep_position, input_mesh.mesh.model_positions);
     upload_from(mesh_data->sa_faces, input_mesh.mesh.faces);
     upload_from(mesh_data->sa_edges, input_mesh.mesh.edges);
+
     mesh_data->sa_rest_velocity.resize(num_verts);
     mesh_data->sa_vert_velocity.resize(num_verts);
+    mesh_data->sa_vert_normal.resize(num_verts);
+    mesh_data->sa_face_normal.resize(num_faces);
 
     // Set rest position & velocity
     {
@@ -486,9 +491,6 @@ void XpbdData::resize(TetData *tetrahedral, ObstacleData *obstacle) {
     sa_detection_position_bg.resize(num_verts_collision_total);
     sa_detection_position_ed.resize(num_verts_collision_total);
     sa_detection_position_rest.resize(num_verts_collision_total);
-    sa_detection_faces.resize(num_surface_faces_tet);
-    sa_surface_verts.resize(num_verts_collision_total);
-    sa_surface_faces.resize(num_faces_collision_total);
 
     sa_block_aabb.resize(get_dispatch_num(num_verts_tet, 256));
 
@@ -617,22 +619,24 @@ public:
     void get_data_pointer(XpbdData *xpbd_data,
                           TetData *mesh_data,
                           ObstacleData *obstacle_data,
-                          VivaceColoringData *coloring_data,
+                          VivaceColoringData *vivace_data_tet,
                           LbvhFaceEdgeData *lbvh_data_obstacle,
                           LbvhFaceEdgeData *lbvh_data_tet,
                           XpbdSelfCollision *self_collision_data_tet,
                           XpbdObstacleCollision *obstacle_collision_data_tet,
-                          VivaceColoringData *vivace_data_tet,
+                          LbvhFaceEdge<LBVHUpdateTypeObstacle> *lbvh_obstacle,
+                          LbvhFaceEdge<LBVHUpdateTypeCloth> *lbvh_tet,
                           RandomGraphColoringCPU *vivace_cpu_tet) {
         this->xpbd_data = xpbd_data;
         this->mesh_data = mesh_data;
         this->obstacle_data = obstacle_data;
-        this->coloring_data = coloring_data;
+        this->vivace_data_tet = vivace_data_tet;
         this->lbvh_data_obstacle = lbvh_data_obstacle;
         this->lbvh_data_tet = lbvh_data_tet;
-        this->vivace_data_tet = vivace_data_tet;
         this->self_collision_data_tet = self_collision_data_tet;
         this->obstacle_collision_data_tet = obstacle_collision_data_tet;
+        this->lbvh_obstacle = lbvh_obstacle;
+        this->lbvh_tet = lbvh_tet;
         this->vivace_cpu_tet = vivace_cpu_tet;
     }
     void init_xpbd_system();
@@ -696,25 +700,29 @@ public:
     void get_data_pointer(XpbdData *xpbd_data,
                           TetData *mesh_data,
                           ObstacleData *obstacle_data,
-                          VivaceColoringData *coloring_data,
+                          VivaceColoringData *vivace_data_tet,
                           LbvhFaceEdgeData *lbvh_data_obstacle,
                           LbvhFaceEdgeData *lbvh_data_tet,
                           XpbdSelfCollision *self_collision_data_tet,
                           XpbdObstacleCollision *obstacle_collision_data_tet,
-                          VivaceColoringData *vivace_data_tet,
+                          LbvhFaceEdge<LBVHUpdateTypeObstacle> *lbvh_obstacle,
+                          LbvhFaceEdge<LBVHUpdateTypeCloth> *lbvh_tet,
                           RandomGraphColoringCPU *vivace_cpu_tet,
-                          RandomGraphColoringGPU *vivace_gpu_tet) {
+                          RandomGraphColoringGPU *vivace_gpu_tet,
+                          CpuSolver *cpu_solver) {
         this->xpbd_data = xpbd_data;
         this->mesh_data = mesh_data;
         this->obstacle_data = obstacle_data;
-        this->coloring_data = coloring_data;
+        this->vivace_data_tet = vivace_data_tet;
         this->lbvh_data_obstacle = lbvh_data_obstacle;
         this->lbvh_data_tet = lbvh_data_tet;
-        this->vivace_data_tet = vivace_data_tet;
         this->self_collision_data_tet = self_collision_data_tet;
         this->obstacle_collision_data_tet = obstacle_collision_data_tet;
+        this->lbvh_obstacle = lbvh_obstacle;
+        this->lbvh_tet = lbvh_tet;
         this->vivace_cpu_tet = vivace_cpu_tet;
         this->vivace_gpu_tet = vivace_gpu_tet;
+        this->cpu_solver = cpu_solver;
     }
 
     void init_xpbd_system();
@@ -797,8 +805,8 @@ private:
     gpuFunction fn_predict_position;
     gpuFunction fn_update_velocity;
 
-    gpuFunction fn_xpbd_constraint_neohookean;
-    gpuFunction fn_xpbd_constraint_ground_collision;
+    gpuFunction fn_constraint_ground_collision;
+    gpuFunction fn_constraint_neohookean;
 
     gpuFunction fn_compute_energy_inertia;
     gpuFunction fn_compute_energy_stress;
@@ -811,65 +819,16 @@ private:
     gpuFunction fn_update_obstacle_position_in_substep;
     gpuFunction fn_update_obstacle_normal_in_substep;
     gpuFunction fn_prepare_position_for_collision_detection;
-    gpuFunction fn_update_tet_surface_position_for_collision_detection;
-    gpuFunction fn_compute_global_aabb;
-    gpuFunction fn_compute_global_aabb_second_pass;
 
     gpuFunction fn_reset_collision_system;
-    gpuFunction fn_reset_broad_narrow_count;
-    gpuFunction fn_fill_in_hash_table;
-    gpuFunction fn_set_hash_table_flag;
-    gpuFunction fn_scan_hash_table;
-    gpuFunction fn_insert_vert_into_hash_table;
-    gpuFunction fn_spatial_hashing_query_vv;
-
-    gpuFunction fn_narrow_phase_vv_with_tet;
-    gpuFunction fn_narrow_phase_vv_cloth;
-    gpuFunction fn_narrow_phase_vv_tet;
-    gpuFunction fn_narrow_phase_vv_cross;
     gpuFunction fn_narrow_phase_vv_self_collision_from_collision_pair;
-    gpuFunction fn_narrow_phase_vv_self_collision_codim_from_collision_pair;
-    gpuFunction fn_narrow_phase_vv;
-    gpuFunction fn_narrow_phase_vv_obstacle_with_tet;
-    gpuFunction fn_narrow_phase_vv_obstacle;
-    gpuFunction fn_narrow_phase_vf;
-    gpuFunction fn_narrow_phase_vf_obstacle;
-    gpuFunction fn_narrow_phase_vf_obstacle_with_tet;
     gpuFunction fn_narrow_phase_vf_obstacle_collision_from_collision_pair;
     gpuFunction fn_narrow_phase_scan_collision_pair_and_make_cmd_buffer;
-    gpuFunction fn_self_collision_fill_in_vf;
     gpuFunction fn_self_collision_fill_in_vv;
     gpuFunction fn_obstacle_collision_fill_in_vf;
-    gpuFunction fn_obstacle_collision_fill_in_vv;
 
-    gpuFunction fn_constraint_self_collision_vv_with_tet;
-    gpuFunction fn_constraint_self_collision_vv_cloth;
     gpuFunction fn_constraint_self_collision_vv_tet;
-    gpuFunction fn_constraint_self_collision_vv_cross;
-    gpuFunction fn_constraint_self_collision_vv;
-    gpuFunction fn_constraint_self_collision_vf;
-    gpuFunction fn_constraint_obstacle_collision_vv_with_tet;
-    gpuFunction fn_constraint_obstacle_collision_vv_cloth;
-    gpuFunction fn_constraint_obstacle_collision_vf_cloth;
-    gpuFunction fn_constraint_obstacle_collision_vv_tet;
     gpuFunction fn_constraint_obstacle_collision_vf_tet;
-    gpuFunction fn_constraint_obstacle_collision_vv;
-    gpuFunction fn_constraint_obstacle_collision_vf;
-
-    gpuFunction fn_evaluate_inertia;
-    gpuFunction fn_evaluate_stretch_mass_spring;
-    gpuFunction fn_evaluate_stretch_fem;
-    gpuFunction fn_evaluate_bending;
-    gpuFunction fn_evaluate_ground_collision;
-    gpuFunction fn_evaluate_obstacle_collision;
-    gpuFunction fn_evaluate_self_collision;
-    gpuFunction fn_vbd_step;
-
-    gpuFunction fn_sod_init;
-    gpuFunction fn_sod_step;
-    gpuFunction fn_sod_stretch_stencil_gauss_seidel;
-    gpuFunction fn_sod_stretch_stencil;
-    gpuFunction fn_sod_collision_stencil;
 };
 static uint energy_idx = 0;
 
@@ -1017,9 +976,15 @@ void GpuSolver::init_xpbd_system() {
         std::string full_path_xpbd = std::string(SELF_RESOURCES_PATH) +
                                      std::string("/metal_libs/") +
                                      std::string("example3.metallib");
+        std::string full_path_xpbd_collision = std::string(SELF_RESOURCES_PATH) +
+                                               std::string("/metal_libs/") +
+                                               std::string("xpbd_collision.metallib");
         MTL::Library *library_xpbd =
             get_device()->newLibrary(std_string_to_ns_string(full_path_xpbd), &err);
+        MTL::Library *library_xpbd_collision =
+            get_device()->newLibrary(std_string_to_ns_string(full_path_xpbd_collision), &err);
         check_err(library_xpbd, err);
+        check_err(library_xpbd_collision, err);
 
         fn_empty.load(library_xpbd, "empty");
         fn_reset_bool.load(library_xpbd, "reset_bool");
@@ -1033,16 +998,33 @@ void GpuSolver::init_xpbd_system() {
         fn_predict_position.load(library_xpbd, "predict_position");
         fn_update_velocity.load(library_xpbd, "update_velocity");
 
-        fn_xpbd_constraint_neohookean.load(library_xpbd, "constraint_neohookean");
-        fn_xpbd_constraint_ground_collision.load(library_xpbd, "constraint_ground_collision");
+        fn_constraint_neohookean.load(library_xpbd, "constraint_neohookean");
+        fn_constraint_ground_collision.load(library_xpbd, "constraint_ground_collision");
 
         fn_compute_energy_inertia.load(library_xpbd, "compute_energy_inertia");
-        fn_compute_energy_stress.load(
-            library_xpbd, "compute_energy_stress_neohookean");
+        fn_compute_energy_stress.load(library_xpbd, "compute_energy_stress_neohookean");
         fn_compute_energy_collision_vv.load(library_xpbd, "compute_energy_collision_vv");
         fn_compute_energy_collision_vf.load(library_xpbd, "compute_energy_collision_vf");
         fn_test_sum.load(library_xpbd, "test_sum");
         fn_test_sum_2.load(library_xpbd, "test_sum_2");
+
+        fn_compute_energy_inertia.load(library_xpbd, "compute_energy_inertia");
+        fn_compute_energy_collision_vv.load(library_xpbd, "compute_energy_collision_vv");
+        fn_compute_energy_collision_vf.load(library_xpbd, "compute_energy_collision_vf");
+
+        // Collision Part
+        fn_reset_collision_constraint.load(library_xpbd_collision, "reset_collision_constraint");
+        fn_prepare_position_for_collision_detection.load(library_xpbd_collision, "prepare_position_for_collision_detection");
+        fn_update_obstacle_position_in_substep.load(library_xpbd_collision, "update_obstacle_position_in_substep");
+        fn_update_obstacle_normal_in_substep.load(library_xpbd_collision, "update_obstacle_normal_in_substep");
+        fn_reset_collision_system.load(library_xpbd_collision, "reset_collision_system");
+        fn_narrow_phase_vv_self_collision_from_collision_pair.load(library_xpbd_collision, "narrow_phase_vv_self_collision_from_collision_pair");
+        fn_narrow_phase_vf_obstacle_collision_from_collision_pair.load(library_xpbd_collision, "narrow_phase_vf_obstacle_collision_from_collision_pair");
+        fn_narrow_phase_scan_collision_pair_and_make_cmd_buffer.load(library_xpbd_collision, "narrow_phase_scan_collision_pair");
+        fn_self_collision_fill_in_vv.load(library_xpbd_collision, "self_collision_fill_in_vv");
+        fn_obstacle_collision_fill_in_vf.load(library_xpbd_collision, "obstacle_collision_fill_in_vf");
+        fn_constraint_self_collision_vv_tet.load(library_xpbd_collision, "constraint_self_collision_vv_tet");
+        fn_constraint_obstacle_collision_vf_tet.load(library_xpbd_collision, "constraint_obstacle_collision_vf_tet");
     }
 }
 
@@ -1206,8 +1188,11 @@ void CpuSolver::prepare_collision_detection_position() {
 
     parallel_for(0, xpbd_data->num_verts_collision_total, [&](const uint vid) {
         Constrains::prepare_position_for_collision_detection(vid,
-                                                             nullptr, xpbd_data->sa_x_step_start.data(), mesh_data->sa_surface_verts.data(),
-                                                             detection_position_bg.data(), detection_position_ed.data(),
+                                                             nullptr,
+                                                             xpbd_data->sa_x_step_start.data(),
+                                                             mesh_data->sa_surface_verts.data(),
+                                                             detection_position_bg.data(),
+                                                             detection_position_ed.data(),
                                                              0);
     });
 
@@ -1218,8 +1203,10 @@ void CpuSolver::prepare_collision_detection_position() {
     const float alpha = float(curr_substep + 1) / float(num_substep);
     parallel_for(0, obstacle_data->num_verts_total, [&](const uint vid) {
         Constrains::Core::update_obstacle_position_in_substep(vid,
-                                                              obstacle_data->sa_start_position.data(), obstacle_data->sa_next_position.data(),
-                                                              obstacle_data->sa_substep_position.data(), obstacle_data->sa_vert_velocity.data(),
+                                                              obstacle_data->sa_start_position.data(),
+                                                              obstacle_data->sa_next_position.data(),
+                                                              obstacle_data->sa_substep_position.data(),
+                                                              obstacle_data->sa_vert_velocity.data(),
                                                               alpha, substep_dt);
     });
 
@@ -1227,7 +1214,8 @@ void CpuSolver::prepare_collision_detection_position() {
     parallel_for(0, obstacle_data->num_faces_total, [&](uint fid) {
         Constrains::Core::update_obstacle_normal_in_substep(fid,
                                                             obstacle_data->sa_faces.data(),
-                                                            obstacle_data->sa_substep_position.data(), obstacle_data->sa_face_normal.data());
+                                                            obstacle_data->sa_substep_position.data(),
+                                                            obstacle_data->sa_face_normal.data());
     });
 }
 void GpuSolver::prepare_collision_detection_position() {
@@ -1496,6 +1484,8 @@ void GpuSolver::self_collision_detection() {
     self_collision_scan_and_fill_in_vv_pair();
 
     vivace_cpu_tet->graph_coloring_vivace();
+
+    get_command_list().send_and_wait();
 }
 void CpuSolver::obstacle_collision_detection() {
 
@@ -1547,6 +1537,18 @@ void CpuSolver::collision_detection() {
     self_collision_detection();
 
     obstacle_collision_detection();
+
+    {
+        get_command_list().send_and_wait();
+        fast_format("In Substep {:2} Tet   Obstacle : {:8} -> {} ", get_scene_params().current_substep,
+                    obstacle_collision_data_tet
+                        ->obstacle_collision_indirect_cmd_buffer[1][3],
+                    obstacle_collision_data_tet->collision_count[0]);
+        fast_format(
+            "In Substep {:2} Tet   Tet      : {:8} -> {} ", get_scene_params().current_substep,
+            self_collision_data_tet->self_collision_indirect_cmd_buffer[1][3],
+            self_collision_data_tet->collision_count[0]);
+    }
 }
 void GpuSolver::collision_detection() {
     prepare_collision_detection_position();
@@ -1554,6 +1556,18 @@ void GpuSolver::collision_detection() {
     self_collision_detection();
 
     obstacle_collision_detection();
+
+    {
+        get_command_list().send_and_wait();
+        fast_format("In Substep {:2} Tet   Obstacle : {:8} -> {} ", get_scene_params().current_substep,
+                    obstacle_collision_data_tet
+                        ->obstacle_collision_indirect_cmd_buffer[1][3],
+                    obstacle_collision_data_tet->collision_count[0]);
+        fast_format(
+            "In Substep {:2} Tet   Tet      : {:8} -> {} ", get_scene_params().current_substep,
+            self_collision_data_tet->self_collision_indirect_cmd_buffer[1][3],
+            self_collision_data_tet->collision_count[0]);
+    }
 }
 
 void CpuSolver::predict_position() {
@@ -1794,26 +1808,26 @@ void GpuSolver::solve_constraint_tet_stress(Buffer<Float3> &sa_iter_position, co
     const uint next_prefix = xpbd_data->prefix_tet_stress[cluster_idx + 1];
     const uint num_elements_clustered = next_prefix - curr_prefix;
 
-    get_command_list().add_task(fn_xpbd_constraint_neohookean);
-    fn_xpbd_constraint_neohookean.bind_ptr(sa_iter_position);
-    fn_xpbd_constraint_neohookean.bind_ptr(sa_iter_position);
-    fn_xpbd_constraint_neohookean.bind_ptr(xpbd_data->sa_x_step_start);
-    fn_xpbd_constraint_neohookean.bind_ptr(xpbd_data->sa_vert_mutex);
-    fn_xpbd_constraint_neohookean.bind_ptr(xpbd_data->lambda_tet_stress_hydrostatic_term);
-    fn_xpbd_constraint_neohookean.bind_ptr(xpbd_data->lambda_tet_stress_deviatoric_term);
-    fn_xpbd_constraint_neohookean.bind_ptr(mesh_data->sa_vert_mass_inv);
-    fn_xpbd_constraint_neohookean.bind_ptr(xpbd_data->sa_merged_tets);
-    fn_xpbd_constraint_neohookean.bind_ptr(xpbd_data->sa_merged_tet_volumn);
-    fn_xpbd_constraint_neohookean.bind_ptr(xpbd_data->sa_merged_Dm_inv);
+    get_command_list().add_task(fn_constraint_neohookean);
+    fn_constraint_neohookean.bind_ptr(sa_iter_position);
+    fn_constraint_neohookean.bind_ptr(sa_iter_position);
+    fn_constraint_neohookean.bind_ptr(xpbd_data->sa_x_step_start);
+    fn_constraint_neohookean.bind_ptr(xpbd_data->sa_vert_mutex);
+    fn_constraint_neohookean.bind_ptr(xpbd_data->lambda_tet_stress_hydrostatic_term);
+    fn_constraint_neohookean.bind_ptr(xpbd_data->lambda_tet_stress_deviatoric_term);
+    fn_constraint_neohookean.bind_ptr(mesh_data->sa_vert_mass_inv);
+    fn_constraint_neohookean.bind_ptr(xpbd_data->sa_merged_tets);
+    fn_constraint_neohookean.bind_ptr(xpbd_data->sa_merged_tet_volumn);
+    fn_constraint_neohookean.bind_ptr(xpbd_data->sa_merged_Dm_inv);
 
-    fn_xpbd_constraint_neohookean.bind_ptr(xpbd_data->prefix_tet_stress);
-    fn_xpbd_constraint_neohookean.bind_constant(true);
-    fn_xpbd_constraint_neohookean.bind_constant(cluster_idx);
-    fn_xpbd_constraint_neohookean.bind_constant(m_first_lame);
-    fn_xpbd_constraint_neohookean.bind_constant(m_second_lame);
-    fn_xpbd_constraint_neohookean.bind_constant(get_scene_params().get_substep_dt());
-    fn_xpbd_constraint_neohookean.bind_constant(false);
-    fn_xpbd_constraint_neohookean.launch_async(num_elements_clustered);
+    fn_constraint_neohookean.bind_ptr(xpbd_data->prefix_tet_stress);
+    fn_constraint_neohookean.bind_constant(true);
+    fn_constraint_neohookean.bind_constant(cluster_idx);
+    fn_constraint_neohookean.bind_constant(m_first_lame);
+    fn_constraint_neohookean.bind_constant(m_second_lame);
+    fn_constraint_neohookean.bind_constant(get_scene_params().get_substep_dt());
+    fn_constraint_neohookean.bind_constant(false);
+    fn_constraint_neohookean.launch_async(num_elements_clustered);
 }
 void CpuSolver::solve_constraint_ground_collision(Buffer<Float3> &sa_iter_position) {
     parallel_for(
@@ -1827,13 +1841,21 @@ void CpuSolver::solve_constraint_ground_collision(Buffer<Float3> &sa_iter_positi
         32);
 }
 void GpuSolver::solve_constraint_ground_collision(Buffer<Float3> &sa_iter_position) {
+    get_command_list().add_task(fn_constraint_ground_collision);
+    fn_constraint_ground_collision.bind_ptr(get_scene_params_array());
+    fn_constraint_ground_collision.bind_ptr(sa_iter_position);
+    fn_constraint_ground_collision.bind_ptr(xpbd_data->sa_x_step_start);
+    fn_constraint_ground_collision.bind_ptr(xpbd_data->lambda_ground_collision_tet);
+    fn_constraint_ground_collision.bind_ptr(mesh_data->sa_vert_mass_inv);
+    fn_constraint_ground_collision.launch_async(mesh_data->num_verts_total);
 }
 void CpuSolver::solve_constraint_obstacle_collision(Buffer<Float3> &sa_iter_position) {
     parallel_for(
         0, mesh_data->num_surface_verts_total, [&](const uint surface_id) {
             Constrains::solve_obstacle_collision_vf_template_tet(surface_id,
                                                                  nullptr, sa_iter_position.data(),
-                                                                 obstacle_data->sa_substep_position.data(), obstacle_data->sa_vert_velocity.data(),
+                                                                 obstacle_data->sa_substep_position.data(),
+                                                                 obstacle_data->sa_vert_velocity.data(),
                                                                  nullptr, sa_iter_position.data(),
                                                                  nullptr, xpbd_data->sa_x_step_start.data(),
 
@@ -1852,6 +1874,40 @@ void CpuSolver::solve_constraint_obstacle_collision(Buffer<Float3> &sa_iter_posi
         32);
 }
 void GpuSolver::solve_constraint_obstacle_collision(Buffer<Float3> &sa_iter_position) {
+    auto &iter_position_cloth = xpbd_data->sa_x;
+    auto &start_position_cloth = xpbd_data->sa_x;
+    auto &iter_position_obstacle = get_detection_position_obstacle();
+
+    get_command_list().add_task(fn_constraint_obstacle_collision_vf_tet);
+
+    fn_constraint_obstacle_collision_vf_tet.bind_ptr(iter_position_cloth);// nullptr
+    fn_constraint_obstacle_collision_vf_tet.bind_ptr(sa_iter_position);
+    fn_constraint_obstacle_collision_vf_tet.bind_ptr(iter_position_obstacle);
+    fn_constraint_obstacle_collision_vf_tet.bind_ptr(obstacle_data->sa_vert_velocity);
+    fn_constraint_obstacle_collision_vf_tet.bind_ptr(iter_position_cloth);// nullptr
+    fn_constraint_obstacle_collision_vf_tet.bind_ptr(sa_iter_position);
+    fn_constraint_obstacle_collision_vf_tet.bind_ptr(start_position_cloth);
+    fn_constraint_obstacle_collision_vf_tet.bind_ptr(xpbd_data->sa_x_step_start);
+    fn_constraint_obstacle_collision_vf_tet.bind_ptr(mesh_data->sa_surface_verts);
+    fn_constraint_obstacle_collision_vf_tet.bind_ptr(mesh_data->sa_vert_mass_inv);// nullptr
+    fn_constraint_obstacle_collision_vf_tet.bind_ptr(mesh_data->sa_vert_mass_inv);
+    fn_constraint_obstacle_collision_vf_tet.bind_ptr(mesh_data->sa_vert_mutex);
+    fn_constraint_obstacle_collision_vf_tet.bind_ptr(mesh_data->sa_vert_mutex);
+    fn_constraint_obstacle_collision_vf_tet.bind_ptr(obstacle_collision_data_tet->vert_VV_num_narrow_phase);
+    fn_constraint_obstacle_collision_vf_tet.bind_ptr(obstacle_collision_data_tet->vert_VV_prefix_narrow_phase);
+    fn_constraint_obstacle_collision_vf_tet.bind_ptr(obstacle_collision_data_tet->vert_adj_elements);
+    fn_constraint_obstacle_collision_vf_tet.bind_ptr(obstacle_collision_data_tet->narrow_phase_list_pair_vf);
+    fn_constraint_obstacle_collision_vf_tet.bind_ptr(xpbd_data->lambda_sdf_collision_tet);
+    fn_constraint_obstacle_collision_vf_tet.bind_ptr(xpbd_data->lambda_sdf_collision_tet_friction);
+
+    fn_constraint_obstacle_collision_vf_tet.bind_constant(get_scene_params().max_vf_per_vert_narrow_obstacle_collision);
+    fn_constraint_obstacle_collision_vf_tet.bind_constant(get_scene_params().thickness_vv_obstacle);
+    fn_constraint_obstacle_collision_vf_tet.bind_constant(get_scene_params().get_substep_dt());
+    fn_constraint_obstacle_collision_vf_tet.bind_constant(get_scene_params().xpbd_stiffness_collision);
+    fn_constraint_obstacle_collision_vf_tet.bind_constant(get_scene_params().friction_obstacle_tet);
+    fn_constraint_obstacle_collision_vf_tet.bind_constant(0u);
+
+    fn_constraint_obstacle_collision_vf_tet.launch_async(mesh_data->num_surface_verts_total);
 }
 void CpuSolver::solve_constraint_self_collision(Buffer<Float3> &sa_iter_position, const uint cluster_idx) {
 
@@ -2005,8 +2061,6 @@ void GpuSolver::physics_step_xpbd() {
 
     SimClock clock;
     clock.start_clock();
-
-    fast_format("Num substep = {}, num Iter  = {}", num_substep, constraint_iter_count);
 
     for (uint substep = 0; substep < num_substep; substep++)// 1 or 50 ?
     {
@@ -3149,7 +3203,7 @@ void CpuSolver::solve_constraints_XPBD() {
         }
         solve_constraint_ground_collision(iter_position);
         solve_constraint_obstacle_collision(iter_position);
-        for (uint i = 0; i < xpbd_data->num_combined_clusters_self_collision; i++) {
+        for (uint i = 0; i < vivace_data_tet->num_colors_self_collision[0]; i++) {
             solve_constraint_self_collision(iter_position, i);
         }
     }
@@ -3172,7 +3226,7 @@ void GpuSolver::solve_constraints_XPBD() {
         }
         solve_constraint_ground_collision(iter_position);
         solve_constraint_obstacle_collision(iter_position);
-        for (uint i = 0; i < xpbd_data->num_combined_clusters_self_collision; i++) {
+        for (uint i = 0; i < vivace_data_tet->num_colors_self_collision[0]; i++) {
             solve_constraint_self_collision(iter_position, i);
         }
     }
@@ -3198,11 +3252,11 @@ public:
         XpbdData *xpbd_data,
         TetData *mesh_data,
         ObstacleData *obstacle_data,
-        VivaceColoringData *coloring_data) {
+        VivaceColoringData *vivace_data_tet) {
         this->xpbd_data = xpbd_data;
         this->mesh_data = mesh_data;
         this->obstacle_data = obstacle_data;
-        this->coloring_data = coloring_data;
+        this->vivace_data_tet = vivace_data_tet;
 
         this->lbvh_data_obstacle = &xpbd_data->lbvh_data_obstacle;
         this->lbvh_data_tet = &xpbd_data->lbvh_data_tet;
@@ -3227,16 +3281,19 @@ public:
         if (type == SolverType::GaussNewton) {
             fast_format_err("Empty NewtonSolver implementation");
         } else {
-            cpu_solver->get_data_pointer(xpbd_data, mesh_data, obstacle_data, coloring_data,
+            cpu_solver->get_data_pointer(xpbd_data, mesh_data, obstacle_data, vivace_data_tet,
                                          lbvh_data_obstacle, lbvh_data_tet,
                                          self_collision_data_tet,
-                                         obstacle_collision_data_tet, coloring_data_tet,
+                                         obstacle_collision_data_tet,
+                                         lbvh_obstacle, lbvh_tet,
                                          vivace_cpu);
-            gpu_solver->get_data_pointer(xpbd_data, mesh_data, obstacle_data, coloring_data,
+            gpu_solver->get_data_pointer(xpbd_data, mesh_data, obstacle_data, vivace_data_tet,
                                          lbvh_data_obstacle, lbvh_data_tet,
                                          self_collision_data_tet,
-                                         obstacle_collision_data_tet, coloring_data_tet,
-                                         vivace_cpu, vivace_gpu);
+                                         obstacle_collision_data_tet,
+                                         lbvh_obstacle, lbvh_tet,
+                                         vivace_cpu, vivace_gpu,
+                                         cpu_solver);
             cpu_solver->init_xpbd_system();
             gpu_solver->init_xpbd_system();
 
@@ -3253,12 +3310,12 @@ private:
     XpbdData *xpbd_data;
     TetData *mesh_data;
     ObstacleData *obstacle_data;
-    VivaceColoringData *coloring_data;
+    VivaceColoringData *vivace_data_tet;
+
     LbvhFaceEdgeData *lbvh_data_obstacle;
     LbvhFaceEdgeData *lbvh_data_tet;
     XpbdSelfCollision *self_collision_data_tet;
     XpbdObstacleCollision *obstacle_collision_data_tet;
-    VivaceColoringData *coloring_data_tet;
 
     LbvhFaceEdge<LBVHUpdateTypeObstacle> *lbvh_obstacle;
     LbvhFaceEdge<LBVHUpdateTypeCloth> *lbvh_tet;
@@ -3332,16 +3389,15 @@ void SolverInterface::save_mesh_to_obj(const std::string &addition_str) {
                 "Environments>"
              << std::endl;
 
-        uint glocal_vert_id_prefix = 0;
-        uint glocal_mesh_id_prefix = 0;
+        uint prefix_vid = 0;
+        uint prefix_mid = 0;
 
         // Cloth Part
         // if (get_scene_params().draw_cloth)
         {
             // for (uint clothIdx = 0; clothIdx < cloth_data.num_cloths; clothIdx++)
-            const uint clothIdx = 0;
             {
-                file << "o mesh_" << (glocal_mesh_id_prefix + clothIdx) << std::endl;
+                file << "o mesh_" << (prefix_mid) << std::endl;
                 for (uint vid = 0; vid < mesh_data->num_verts_total; vid++) {
                     const Float3 vertex = xpbd_data->sa_x_frame[vid];
                     file << "v " << vertex.x << " " << vertex.y << " " << vertex.z
@@ -3350,12 +3406,28 @@ void SolverInterface::save_mesh_to_obj(const std::string &addition_str) {
 
                 for (uint fid = 0; fid < mesh_data->num_surface_faces_total; fid++) {
                     const Int3 f = mesh_data->sa_surface_faces[fid] + makeInt3(1) +
-                                   makeInt3(glocal_vert_id_prefix);
+                                   makeInt3(prefix_vid);
                     file << "f " << f.x << " " << f.y << " " << f.z << std::endl;
                 }
             }
-            glocal_vert_id_prefix += mesh_data->num_verts_total;
-            glocal_mesh_id_prefix += 1;
+            prefix_vid += mesh_data->num_verts_total;
+            prefix_mid += 1;
+            {
+                file << "o mesh_" << (prefix_mid) << std::endl;
+                for (uint vid = 0; vid < obstacle_data->num_verts_total; vid++) {
+                    const Float3 vertex = obstacle_data->sa_rest_position[vid];
+                    file << "v " << vertex.x << " " << vertex.y << " " << vertex.z
+                         << std::endl;
+                }
+
+                for (uint fid = 0; fid < obstacle_data->num_faces_total; fid++) {
+                    const Int3 f = obstacle_data->sa_faces[fid] + makeInt3(1) +
+                                   makeInt3(prefix_vid);
+                    file << "f " << f.x << " " << f.y << " " << f.z << std::endl;
+                }
+            }
+            prefix_vid += obstacle_data->num_verts_total;
+            prefix_mid += 1;
         }
 
         file.close();
@@ -3387,8 +3459,8 @@ int main() {
     XpbdData xpbd_data;
     { init_xpbd_data(&mesh_data, &obstacle_data, &xpbd_data); }
 
-    VivaceColoringData coloring_data;
-    { coloring_data.resize(mesh_data.num_verts_total); }
+    VivaceColoringData vivace_data;
+    { vivace_data.resize(mesh_data.num_surface_verts_total); }
 
     LbvhFaceEdge<LBVHUpdateTypeObstacle> lbvh_obstacle;
     LbvhFaceEdge<LBVHUpdateTypeCloth> lbvh_tet;
@@ -3400,18 +3472,24 @@ int main() {
         lbvh_tet.vert_cpu.init_cloth_lbvh(xpbd_data.lbvh_data_tet.vert_tree);
         lbvh_tet.face_cpu.init_cloth_lbvh(xpbd_data.lbvh_data_tet.face_tree);
         lbvh_tet.edge_cpu.init_cloth_lbvh(xpbd_data.lbvh_data_tet.edge_tree);
+        lbvh_tet.vert_gpu.init_cloth_lbvh(xpbd_data.lbvh_data_tet.vert_tree);
+        lbvh_tet.face_gpu.init_cloth_lbvh(xpbd_data.lbvh_data_tet.face_tree);
+        lbvh_tet.edge_gpu.init_cloth_lbvh(xpbd_data.lbvh_data_tet.edge_tree);
         lbvh_obstacle.vert_cpu.init_cloth_lbvh(xpbd_data.lbvh_data_obstacle.vert_tree);
         lbvh_obstacle.face_cpu.init_cloth_lbvh(xpbd_data.lbvh_data_obstacle.face_tree);
         lbvh_obstacle.edge_cpu.init_cloth_lbvh(xpbd_data.lbvh_data_obstacle.edge_tree);
+        lbvh_obstacle.vert_gpu.init_cloth_lbvh(xpbd_data.lbvh_data_obstacle.vert_tree);
+        lbvh_obstacle.face_gpu.init_cloth_lbvh(xpbd_data.lbvh_data_obstacle.face_tree);
+        lbvh_obstacle.edge_gpu.init_cloth_lbvh(xpbd_data.lbvh_data_obstacle.edge_tree);
 
-        vivace_cpu.init_graph_coloring_system(coloring_data, xpbd_data.tet_collision);
-        vivace_gpu.init_graph_coloring_system(coloring_data, xpbd_data.tet_collision, vivace_cpu);
+        vivace_cpu.init_graph_coloring_system(vivace_data, xpbd_data.tet_collision);
+        vivace_gpu.init_graph_coloring_system(vivace_data, xpbd_data.tet_collision, vivace_cpu);
     }
 
     // Init solver
     SolverInterface solver;
     {
-        solver.set_data_pointer(&xpbd_data, &mesh_data, &obstacle_data, &coloring_data);
+        solver.set_data_pointer(&xpbd_data, &mesh_data, &obstacle_data, &vivace_data);
 
         solver.set_solver_pointer(&lbvh_obstacle, &lbvh_tet, &vivace_cpu, &vivace_gpu, &cpu_solver, &gpu_solver);
 
@@ -3421,18 +3499,21 @@ int main() {
     // Some params
     {
         get_scene_params().use_substep = false;
-        get_scene_params().num_substep = 10;
+        get_scene_params().num_substep = 16;
         get_scene_params().constraint_iter_count =
-            12;// May not be too large, otherwise communcation overload on GPU may
-               // be higher
+            4;// May not be too large, otherwise communcation overload on GPU may
+              // be higher
         get_scene_params().use_bending = true;
         get_scene_params().use_quadratic_bending_model = true;
         get_scene_params().print_xpbd_convergence = false;
         get_scene_params().use_xpbd_solver = false;
         get_scene_params().use_vbd_solver = true;
+
+        get_scene_params().thickness_vv_tet = 0.016;
+        get_scene_params().thickness_vv_obstacle = 0.006;
     }
 
-    const uint max_frame = 15;
+    const uint max_frame = 40;
 
     // Synchronous CPU Implementation
     {

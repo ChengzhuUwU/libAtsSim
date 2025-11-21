@@ -44,8 +44,6 @@ void TEMPLATE_LBVH_GPU_NAME::load_functions() {
     fn_apply_sorted_morton.load_with_multiple_entity(library_lbvh, "apply_sorted_morton", is_first_load);
     fn_construct_tree.load_with_multiple_entity(library_lbvh, "construct_tree", is_first_load);
     fn_check_healthy.load_with_multiple_entity(library_lbvh, "check_healthy", is_first_load);
-    fn_compute_escape_index.load_with_multiple_entity(library_lbvh, "compute_escape_index", is_first_load);
-    fn_compute_left_index.load_with_multiple_entity(library_lbvh, "compute_left_index", is_first_load);
 
     fn_update_vert_aabb.load_with_multiple_entity(library_lbvh, "update_vert_aabb", is_first_load);
     fn_update_face_aabb.load_with_multiple_entity(library_lbvh, "update_face_aabb", is_first_load);
