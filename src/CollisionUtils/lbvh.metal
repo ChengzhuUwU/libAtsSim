@@ -122,23 +122,6 @@ kernel void check_healthy(
     LBVH::Construct::kernel_check_healthy(nid, bvh);
 }
 
-kernel void compute_escape_index(
-    Constant(LbvhArgs) bvh,
-    GPU_PREFIX
-    uint nid [[thread_position_in_grid]]
-){
-    LBVH::Construct::kernel_compute_escape_index(nid, bvh);
-}
-
-kernel void compute_left_index(
-    Constant(LbvhArgs) bvh,
-    GPU_PREFIX
-    uint nid [[thread_position_in_grid]]
-){
-    LBVH::Construct::kernel_compute_left_index(nid, bvh);
-}
-
-
 
 //
 // Refit

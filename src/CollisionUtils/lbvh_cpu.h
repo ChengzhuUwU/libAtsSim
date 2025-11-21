@@ -24,8 +24,8 @@ class LbvhCpu : public LBVHInterface {
     //     uint num_nodes;
 
 public:
-    void init_cloth_lbvh(LbvhData &bvh, CollisionList &list) override;
-    void init_obstacle_lbvh(LbvhData &bvh, CollisionList &list) override;
+    void init_cloth_lbvh(LbvhData &bvh) override;
+    void init_obstacle_lbvh(LbvhData &bvh) override;
 
 public:
     void check_healthy() override;

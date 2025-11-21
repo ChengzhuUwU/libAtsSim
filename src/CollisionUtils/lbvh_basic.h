@@ -15,8 +15,8 @@ protected:
     LbvhArgs lbvh;
 
 public:
-    virtual void init_cloth_lbvh(LbvhData &bvh, CollisionList &list) = 0;
-    virtual void init_obstacle_lbvh(LbvhData &bvh, CollisionList &list) = 0;
+    virtual void init_cloth_lbvh(LbvhData &bvh) = 0;
+    virtual void init_obstacle_lbvh(LbvhData &bvh) = 0;
     // virtual void register_implementation(Launcher::Scheduler& scheduler) = 0;
 
 private:

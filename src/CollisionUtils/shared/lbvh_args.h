@@ -34,11 +34,6 @@ struct LbvhArgs {
     Pointer(FlagType)
         sa_node_mutex;
 
-    Pointer(uint)
-        sa_broad_phase_list_vf;
-    Pointer(uint)
-        sa_broad_phase_list_ee;
-
     uint num_leaves;
     uint num_nodes;
     uint num_inner_nodes;
@@ -47,7 +42,7 @@ struct LbvhArgs {
 
 #ifndef METAL_CODE
     template<PtrType ptr_type>
-    void set(LbvhData &data, CollisionList &list) {
+    void set(LbvhData &data) {
 
         tree_type = data.tree_type;
         update_type = LBVHUpdateTypeCloth;
@@ -69,9 +64,6 @@ struct LbvhArgs {
         sa_node_mutex = get_ptr(data.sa_node_mutex, ptr_type);
 
         sa_is_healthy = get_ptr(data.sa_is_healthy, ptr_type);
-
-        sa_broad_phase_list_vf = get_ptr(list.broad.list_vf, ptr_type);
-        sa_broad_phase_list_ee = get_ptr(list.broad.list_ee, ptr_type);
     }
 #endif
 };

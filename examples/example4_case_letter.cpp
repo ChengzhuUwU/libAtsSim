@@ -1,10 +1,13 @@
 #include "command_list.h"
 #include "fem_energy.h"
+#include "graph_coloring_cpu.h"
+#include "graph_coloring_gpu.h"
 #include "launcher.h"
 #include "lbvh_interface.h"
 #include "mesh_reader.h"
 #include "obstacle_data.h"
 #include "scene_params.h"
+#include "shared/vivace_kernel.h"
 #include "shared_array.h"
 #include "sim_data.h"
 #include "struct_to_string.h"
@@ -127,15 +130,10 @@ upload_2d_csr_from(SharedArray<uint> &dest,
     return dest.upload_2d_csr(input_map);
 }
 
-void add_tet_mesh(std::vector<Float3> &position, std::vector<Int4> &tets,
-                  std::string tet_name, std::function<void(const std::vector<Float3> &, std::vector<bool> &is_fixed)> get_fixed_verts_func,
-                  Float3 t, Float3 r, Float3 s, InputTetrahedralMesh &input_tet) {
+void preprocess_tet_mesh(std::vector<Float3> &position, std::vector<Int4> &tets,
+                         std::string tet_name, std::function<void(const std::vector<Float3> &, std::vector<bool> &is_fixed)> get_fixed_verts_func,
+                         Float3 t, Float3 r, Float3 s, InputTetrahedralMesh &input_tet) {
     get_scene_params().simulate_tet = true;
-    // {
-    //     std::vector<Float3> position_copy(position);
-    //     std::vector<Int4> tets_copy(tets);
-    //     sort_vert_and_element_by_morton(position_copy, tets_copy, position, tets);
-    // }
 
     input_tet.mesh_name = (tet_name);
 
@@ -208,7 +206,7 @@ void add_tet_mesh(std::vector<Float3> &position, std::vector<Int4> &tets,
 
 void AppendTetrahedralModel(std::string model_name,
                             std::function<void(const std::vector<Float3> &local_position, std::vector<bool> &is_fixed)> get_fixed_verts_func,
-                            Float3 position,
+                            Float3 translation,
                             Float3 rotation,
                             Float3 scale, bool use_default_path, InputTetrahedralMesh &input_tet) {
     std::vector<Float3> sa_position;
@@ -231,10 +229,10 @@ void AppendTetrahedralModel(std::string model_name,
     bool read_result;
     if (extension == "t") {
         read_result = SimMesh::read_tet_file_t(model_name, sa_position, sa_tets, true);
-        add_tet_mesh(sa_position, sa_tets, obj_name, get_fixed_verts_func, position, rotation, scale, input_tet);
+        preprocess_tet_mesh(sa_position, sa_tets, obj_name, get_fixed_verts_func, translation, rotation, scale, input_tet);
     } else if (extension == "vtk") {
         read_result = SimMesh::read_tet_file_vtk(model_name, sa_position, sa_tets, true);
-        add_tet_mesh(sa_position, sa_tets, obj_name, get_fixed_verts_func, position, rotation, scale, input_tet);
+        preprocess_tet_mesh(sa_position, sa_tets, obj_name, get_fixed_verts_func, translation, rotation, scale, input_tet);
     } else {
         std::cerr << "Error: Unsupported file format: " << extension << std::endl;
         fast_format_err("Error: Unsupported file format:", extension);
@@ -242,7 +240,7 @@ void AppendTetrahedralModel(std::string model_name,
     }
 }
 void AppendTriangleObstacleModel(std::string model_name,
-                                 Float3 position, Float3 rotation, Float3 scale, bool use_default_path,
+                                 Float3 translation, Float3 rotation, Float3 scale, bool use_default_path,
                                  const std::map<uint, AnimationPerFrameData> &animation_info, InputTriangleMesh &input_mesh) {
     TriangleMeshData curr_mesh;
     bool second_read = SimMesh::read_mesh_file(model_name, curr_mesh, use_default_path);
@@ -253,11 +251,12 @@ void AppendTriangleObstacleModel(std::string model_name,
         obj_name = path.stem().string();
     }
 
-    // {
-    //     cloth_initializer.add_obstacle_mesh(curr_mesh, obj_name, position, rotation, scale);
-    //     list_animation_obstacle.push_back(animation_info);
-    //     list_animation_position_obstacle.push_back({});
-    // }
+    input_mesh.mesh_name = (obj_name);
+    input_mesh.m_translation = (translation);
+    input_mesh.m_rotation = (rotation);
+    input_mesh.m_scale = (scale);
+    input_mesh.m_matrix = (make_model_matrix(translation, rotation, scale));
+    input_mesh.mesh = (curr_mesh);
 }
 
 void init_tet_mesh(TetData *mesh_data) {
@@ -287,6 +286,7 @@ void init_tet_mesh(TetData *mesh_data) {
     upload_from(mesh_data->sa_surface_faces, input_mesh.surface_faces);
     upload_from(mesh_data->sa_surface_edges, input_mesh.surface_edges);
     upload_from(mesh_data->sa_tets, input_mesh.tets);
+    mesh_data->sa_rest_velocity.resize(num_verts);
 
     // Init vert info
     {
@@ -391,7 +391,38 @@ void init_tet_mesh(TetData *mesh_data) {
     }
 }
 void init_obstacle_mesh(ObstacleData *mesh_data) {
-    // To Be Done
+    InputTriangleMesh input_mesh;
+    AppendTriangleObstacleModel(
+        "bowl.obj", makeFloat3(0.0f, 0.0f, 0.0f), makeFloat3(0.0f), makeFloat3(0.0f, 1.0f, 0.0f), true, {}, input_mesh);
+    const uint num_verts = input_mesh.mesh.model_positions.size();
+    const uint num_faces = input_mesh.mesh.faces.size();
+    const uint num_edges = input_mesh.mesh.edges.size();
+    fast_format("Obstacle Mesh : (numVerts : {}) (numFaces : {})  (numEdges : {}) ",
+                num_verts, num_faces, num_edges);
+
+    // Constant scalar
+    {
+        mesh_data->num_verts_total = num_verts;
+        mesh_data->num_faces_total = num_faces;
+        mesh_data->num_edges_total = num_edges;
+    }
+
+    upload_from(mesh_data->sa_rest_position, input_mesh.mesh.model_positions);
+    upload_from(mesh_data->sa_rest_position, input_mesh.mesh.model_positions);
+    upload_from(mesh_data->sa_faces, input_mesh.mesh.faces);
+    upload_from(mesh_data->sa_edges, input_mesh.mesh.edges);
+    mesh_data->sa_rest_velocity.resize(num_verts);
+
+    // Set rest position & velocity
+    {
+        parallel_for(0, num_verts, [&](const uint vid) {
+            Float3 model_position = mesh_data->sa_rest_position[vid];
+            Float4x4 model_matrix = make_model_matrix(input_mesh.m_translation, input_mesh.m_rotation, input_mesh.m_scale);
+            Float3 world_position = affine_position(model_matrix, model_position);
+            mesh_data->sa_rest_position[vid] = world_position;
+            mesh_data->sa_rest_velocity[vid] = makeFloat3(0.0f);
+        });
+    }
 }
 void init_xpbd_data(TetData *mesh_data, ObstacleData *obstacle_data, XpbdData *xpbd_data) {
     // To Be Done
@@ -406,6 +437,7 @@ public:
     void get_data_pointer(XpbdData *xpbd_data,
                           TetData *mesh_data,
                           ObstacleData *obstacle_data,
+                          VivaceColoringData *coloring_data,
                           LbvhFaceEdgeData *lbvh_data_obstacle,
                           LbvhFaceEdgeData *lbvh_data_tet,
                           XpbdSelfCollision *self_collision_data_tet,
@@ -413,6 +445,7 @@ public:
         this->xpbd_data = xpbd_data;
         this->mesh_data = mesh_data;
         this->obstacle_data = obstacle_data;
+        this->coloring_data = coloring_data;
         this->lbvh_data_obstacle = lbvh_data_obstacle;
         this->lbvh_data_tet = lbvh_data_tet;
         this->self_collision_data_tet = self_collision_data_tet;
@@ -446,6 +479,7 @@ private:
     XpbdData *xpbd_data;
     TetData *mesh_data;
     ObstacleData *obstacle_data;
+    VivaceColoringData *coloring_data;
     LbvhFaceEdgeData *lbvh_data_obstacle;
     LbvhFaceEdgeData *lbvh_data_tet;
 
@@ -463,6 +497,7 @@ public:
     void get_data_pointer(XpbdData *xpbd_data,
                           TetData *mesh_data,
                           ObstacleData *obstacle_data,
+                          VivaceColoringData *coloring_data,
                           LbvhFaceEdgeData *lbvh_data_obstacle,
                           LbvhFaceEdgeData *lbvh_data_tet,
                           XpbdSelfCollision *self_collision_data_tet,
@@ -470,6 +505,7 @@ public:
         this->xpbd_data = xpbd_data;
         this->mesh_data = mesh_data;
         this->obstacle_data = obstacle_data;
+        this->coloring_data = coloring_data;
         this->lbvh_data_obstacle = lbvh_data_obstacle;
         this->lbvh_data_tet = lbvh_data_tet;
         this->self_collision_data_tet = self_collision_data_tet;
@@ -514,6 +550,7 @@ private:
     XpbdData *xpbd_data;
     TetData *mesh_data;
     ObstacleData *obstacle_data;
+    VivaceColoringData *coloring_data;
     LbvhFaceEdgeData *lbvh_data_obstacle;
     LbvhFaceEdgeData *lbvh_data_tet;
     XpbdSelfCollision *self_collision_data_tet;
@@ -1042,7 +1079,6 @@ void CpuSolver::solve_constraint_tet_stress(Buffer<Float3> &sa_iter_position, co
         32);
 }
 void GpuSolver::solve_constraint_tet_stress(Buffer<Float3> &sa_iter_position, const uint cluster_idx) {
-    
 }
 void CpuSolver::solve_constraint_ground_collision(Buffer<Float3> &sa_iter_position) {
     parallel_for(
@@ -1056,7 +1092,6 @@ void CpuSolver::solve_constraint_ground_collision(Buffer<Float3> &sa_iter_positi
         32);
 }
 void GpuSolver::solve_constraint_ground_collision(Buffer<Float3> &sa_iter_position) {
-    
 }
 void CpuSolver::solve_constraint_obstacle_collision(Buffer<Float3> &sa_iter_position) {
     parallel_for(
@@ -1082,7 +1117,6 @@ void CpuSolver::solve_constraint_obstacle_collision(Buffer<Float3> &sa_iter_posi
         32);
 }
 void GpuSolver::solve_constraint_obstacle_collision(Buffer<Float3> &sa_iter_position) {
-    
 }
 void CpuSolver::solve_constraint_self_collision(Buffer<Float3> &sa_iter_position, const uint cluster_idx) {
 
@@ -2421,30 +2455,46 @@ public:
     void set_data_pointer(
         XpbdData *xpbd_data,
         TetData *mesh_data,
-        ObstacleData *obstacle_data) {
+        ObstacleData *obstacle_data,
+        VivaceColoringData *coloring_data) {
         this->xpbd_data = xpbd_data;
         this->mesh_data = mesh_data;
         this->obstacle_data = obstacle_data;
+        this->coloring_data = coloring_data;
 
         this->lbvh_data_obstacle = &xpbd_data->lbvh_data_obstacle;
         this->lbvh_data_tet = &xpbd_data->lbvh_data_tet;
         this->self_collision_data_tet = &xpbd_data->tet_collision;
         this->obstacle_collision_data_tet = &xpbd_data->obs_collision_tet;
     }
+    void set_solver_pointer(
+        LbvhFaceEdge<LBVHUpdateTypeObstacle> *lbvh_obstacle,
+        LbvhFaceEdge<LBVHUpdateTypeCloth> *lbvh_tet,
+        RandomGraphColoringCPU *vivace_cpu,
+        RandomGraphColoringGPU *vivace_gpu,
+        CpuSolver *cpu_solver,
+        GpuSolver *gpu_solver) {
+        this->lbvh_obstacle = lbvh_obstacle;
+        this->lbvh_tet = lbvh_tet;
+        this->vivace_cpu = vivace_cpu;
+        this->vivace_gpu = vivace_gpu;
+        this->cpu_solver = cpu_solver;
+        this->gpu_solver = gpu_solver;
+    }
     void register_solver_type(SolverType type) {
         if (type == SolverType::GaussNewton) {
             fast_format_err("Empty NewtonSolver implementation");
         } else {
-            cpu_solver.get_data_pointer(xpbd_data, mesh_data, obstacle_data,
-                                        lbvh_data_obstacle, lbvh_data_tet,
-                                        self_collision_data_tet,
-                                        obstacle_collision_data_tet);
-            gpu_solver.get_data_pointer(xpbd_data, mesh_data, obstacle_data,
-                                        lbvh_data_obstacle, lbvh_data_tet,
-                                        self_collision_data_tet,
-                                        obstacle_collision_data_tet);
-            cpu_solver.init_xpbd_system();
-            gpu_solver.init_xpbd_system();
+            cpu_solver->get_data_pointer(xpbd_data, mesh_data, obstacle_data, coloring_data,
+                                         lbvh_data_obstacle, lbvh_data_tet,
+                                         self_collision_data_tet,
+                                         obstacle_collision_data_tet);
+            gpu_solver->get_data_pointer(xpbd_data, mesh_data, obstacle_data, coloring_data,
+                                         lbvh_data_obstacle, lbvh_data_tet,
+                                         self_collision_data_tet,
+                                         obstacle_collision_data_tet);
+            cpu_solver->init_xpbd_system();
+            gpu_solver->init_xpbd_system();
 
             CpuSolver::init_simulation_params();
         }
@@ -2459,17 +2509,21 @@ private:
     XpbdData *xpbd_data;
     TetData *mesh_data;
     ObstacleData *obstacle_data;
+    VivaceColoringData *coloring_data;
     LbvhFaceEdgeData *lbvh_data_obstacle;
     LbvhFaceEdgeData *lbvh_data_tet;
     XpbdSelfCollision *self_collision_data_tet;
     XpbdObstacleCollision *obstacle_collision_data_tet;
+    VivaceColoringData *coloring_data_tet;
 
     LbvhFaceEdge<LBVHUpdateTypeObstacle> *lbvh_obstacle;
     LbvhFaceEdge<LBVHUpdateTypeCloth> *lbvh_tet;
+    RandomGraphColoringCPU *vivace_cpu;
+    RandomGraphColoringGPU *vivace_gpu;
 
 private:
-    CpuSolver cpu_solver;
-    GpuSolver gpu_solver;
+    CpuSolver *cpu_solver;
+    GpuSolver *gpu_solver;
 };
 
 void SolverInterface::restart_system() {
@@ -2484,15 +2538,15 @@ void SolverInterface::restart_system() {
 void SolverInterface::physics_step(SolverType type) {
     switch (type) {
         case SolverType::XPBD_CPU: {
-            cpu_solver.physics_step_xpbd();/////////////
+            cpu_solver->physics_step_xpbd();/////////////
             break;
         }
         case SolverType::XPBD_GPU: {
-            gpu_solver.physics_step_xpbd();/////////////
+            gpu_solver->physics_step_xpbd();/////////////
             break;
         }
         case SolverType::XPBD_async: {
-            gpu_solver.physics_step_vbd_async();/////////////
+            gpu_solver->physics_step_vbd_async();/////////////
             break;
         }
         default: {
@@ -2589,10 +2643,33 @@ int main() {
     XpbdData xpbd_data;
     { init_xpbd_data(&mesh_data, &obstacle_data, &xpbd_data); }
 
+    VivaceColoringData coloring_data;
+    { coloring_data.resize(mesh_data.num_verts_total); }
+
+    LbvhFaceEdge<LBVHUpdateTypeObstacle> lbvh_obstacle;
+    LbvhFaceEdge<LBVHUpdateTypeCloth> lbvh_tet;
+    RandomGraphColoringCPU vivace_cpu;
+    RandomGraphColoringGPU vivace_gpu;
+    CpuSolver cpu_solver;
+    GpuSolver gpu_solver;
+    {
+        lbvh_tet.vert_cpu.init_cloth_lbvh(xpbd_data.lbvh_data_tet.vert_tree);
+        lbvh_tet.face_cpu.init_cloth_lbvh(xpbd_data.lbvh_data_tet.face_tree);
+        lbvh_tet.edge_cpu.init_cloth_lbvh(xpbd_data.lbvh_data_tet.edge_tree);
+        lbvh_obstacle.vert_cpu.init_cloth_lbvh(xpbd_data.lbvh_data_obstacle.vert_tree);
+        lbvh_obstacle.face_cpu.init_cloth_lbvh(xpbd_data.lbvh_data_obstacle.face_tree);
+        lbvh_obstacle.edge_cpu.init_cloth_lbvh(xpbd_data.lbvh_data_obstacle.edge_tree);
+
+        vivace_cpu.init_graph_coloring_system(coloring_data, xpbd_data.tet_collision);
+        vivace_gpu.init_graph_coloring_system(coloring_data, xpbd_data.tet_collision, vivace_cpu);
+    }
+
     // Init solver
     SolverInterface solver;
     {
-        solver.set_data_pointer(&xpbd_data, &mesh_data, &obstacle_data);
+        solver.set_data_pointer(&xpbd_data, &mesh_data, &obstacle_data, &coloring_data);
+
+        solver.set_solver_pointer(&lbvh_obstacle, &lbvh_tet, &vivace_cpu, &vivace_gpu, &cpu_solver, &gpu_solver);
 
         solver.register_solver_type(SolverType::XPBD_CPU);
     }

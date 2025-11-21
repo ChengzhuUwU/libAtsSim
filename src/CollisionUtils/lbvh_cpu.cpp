@@ -8,15 +8,15 @@
 #define for_nodes for_loop(index, lbvh.num_nodes)
 
 TEMPLATE_LBVH_CPU
-void TEMPLATE_LBVH_CPU_NAME::init_cloth_lbvh(LbvhData &bvh, CollisionList &list) {
+void TEMPLATE_LBVH_CPU_NAME::init_cloth_lbvh(LbvhData &bvh) {
 
-    lbvh.set<PtrTypeCpu>(bvh, list);
+    lbvh.set<PtrTypeCpu>(bvh);
 }
 
 TEMPLATE_LBVH_CPU
-void TEMPLATE_LBVH_CPU_NAME::init_obstacle_lbvh(LbvhData &bvh, CollisionList &list) {
+void TEMPLATE_LBVH_CPU_NAME::init_obstacle_lbvh(LbvhData &bvh) {
 
-    lbvh.set<PtrTypeCpu>(bvh, list);
+    lbvh.set<PtrTypeCpu>(bvh);
 }
 
 TEMPLATE_LBVH_CPU

@@ -62,14 +62,14 @@ void TEMPLATE_LBVH_GPU_NAME::load_functions() {
 }
 
 TEMPLATE_LBVH_GPU
-void TEMPLATE_LBVH_GPU_NAME::init_cloth_lbvh(LbvhData &bvh, CollisionList &list) {
+void TEMPLATE_LBVH_GPU_NAME::init_cloth_lbvh(LbvhData &bvh) {
 
     load_functions();
 
     lbvh_arr.resize(1);
-    lbvh_arr[0].set<PtrTypeGpu>(bvh, list);// GPU T*
-    lbvh_cpu.set<PtrTypeCpu>(bvh, list);   // CPU T*
-    lbvh.set<PtrTypeMtl>(bvh, list);       // MTL::Buffer()
+    lbvh_arr[0].set<PtrTypeGpu>(bvh);// GPU T*
+    lbvh_cpu.set<PtrTypeCpu>(bvh);   // CPU T*
+    lbvh.set<PtrTypeMtl>(bvh);       // MTL::Buffer()
 
     set_sivibal();
 
@@ -78,14 +78,14 @@ void TEMPLATE_LBVH_GPU_NAME::init_cloth_lbvh(LbvhData &bvh, CollisionList &list)
 }
 
 TEMPLATE_LBVH_GPU
-void TEMPLATE_LBVH_GPU_NAME::init_obstacle_lbvh(LbvhData &bvh, CollisionList &list) {
+void TEMPLATE_LBVH_GPU_NAME::init_obstacle_lbvh(LbvhData &bvh) {
 
     load_functions();
 
     lbvh_arr.resize(1);
-    lbvh_arr[0].set<PtrTypeGpu>(bvh, list);// GPU T*
-    lbvh_cpu.set<PtrTypeCpu>(bvh, list);   // CPU T*
-    lbvh.set<PtrTypeMtl>(bvh, list);       // MTL::Buffer()
+    lbvh_arr[0].set<PtrTypeGpu>(bvh);// GPU T*
+    lbvh_cpu.set<PtrTypeCpu>(bvh);   // CPU T*
+    lbvh.set<PtrTypeMtl>(bvh);       // MTL::Buffer()
 
     set_sivibal();
 }
@@ -173,7 +173,6 @@ void TEMPLATE_LBVH_GPU_NAME::set_sivibal() {
         fn_query_from_vert_atomic.set_buffer_visibal(lbvh.sa_is_healthy, AccessTypeRead);
         fn_query_from_vert_atomic.set_buffer_visibal(lbvh.sa_node_aabb, AccessTypeRead);
         fn_query_from_vert_atomic.set_buffer_visibal(lbvh.sa_object_idx, AccessTypeRead);
-        fn_query_from_vert_atomic.set_buffer_visibal(lbvh.sa_broad_phase_list_vf, AccessTypeReadWrite);
     }
 
 #endif

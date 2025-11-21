@@ -27,6 +27,7 @@ struct ObstacleData {
     Array(Float3) sa_next_position;
     Array(Float3) sa_model_position;
     Array(Float3) sa_rest_position;
+    Array(Float3) sa_rest_velocity;
     Array(Float3) sa_rest_model_position;
     Array(Float2) sa_uv_position;
     Array(Int3) sa_faces;
@@ -59,14 +60,6 @@ struct ObstacleData {
     uint num_verts_total;
     uint num_edges_total;
     uint num_faces_total;
-
-    Array(uint) num_verts;
-    Array(uint) num_faces;
-    Array(uint) num_edges;
-
-    Array(uint) prefix_verts;
-    Array(uint) prefix_faces;
-    Array(uint) prefix_edges;
 
     ObstacleData() {
         num_obstacles = 0;
@@ -129,20 +122,6 @@ struct ObstacleArgs {
     uint num_edges_total;
     uint num_faces_total;
 
-    Pointer(uint)
-        num_verts;
-    Pointer(uint)
-        num_faces;
-    Pointer(uint)
-        num_edges;
-
-    Pointer(uint)
-        prefix_verts;
-    Pointer(uint)
-        prefix_faces;
-    Pointer(uint)
-        prefix_edges;
-
 #ifndef METAL_CODE
     template<PtrType ptr_type>
     void set(ObstacleData &obstacle) {
@@ -174,14 +153,6 @@ struct ObstacleArgs {
         num_verts_total = obstacle.num_verts_total;
         num_edges_total = obstacle.num_edges_total;
         num_faces_total = obstacle.num_faces_total;
-
-        num_verts = get_ptr(obstacle.num_verts, ptr_type);
-        num_faces = get_ptr(obstacle.num_faces, ptr_type);
-        num_edges = get_ptr(obstacle.num_edges, ptr_type);
-
-        prefix_verts = get_ptr(obstacle.prefix_verts, ptr_type);
-        prefix_faces = get_ptr(obstacle.prefix_faces, ptr_type);
-        prefix_edges = get_ptr(obstacle.prefix_edges, ptr_type);
     }
 #endif
 };

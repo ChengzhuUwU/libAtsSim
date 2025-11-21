@@ -5,9 +5,12 @@ import subprocess
 script_directory = os.path.dirname(os.path.abspath(__file__))
 metallib_path = script_directory + "/resources/metal_libs"
 solver_dirs = [script_directory + "/examples", 
+                script_directory + "/src/CollisionUtils",
                ]
 utils_dirs = [script_directory + "/src/SharedDefine", 
-              script_directory + "/src/Solver"]
+              script_directory + "/src/Solver",
+              script_directory + "/src/CollisionUtils/shared",
+              ]
 
 
 if not os.path.exists(metallib_path):

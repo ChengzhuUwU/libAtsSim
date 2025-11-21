@@ -113,7 +113,7 @@ inline uint findSplit(ConstRef(BufferType) sa_morton_sorted, ThreadRef(Int2) ran
         split = i;
         do {
             t = (t + 1) >> 1;
-            uint newSplit = split + t;
+            int newSplit = split + t;
             if (newSplit < j) {
                 auto ms = sa_morton_sorted[newSplit];
                 uint cp_split = find_common_prefix(mi, ms);
@@ -162,7 +162,7 @@ inline void traversal_tree_and_find_overlap_atomic(Constant(LbvhArgs) bvh,
                                                    ConstRef(Primitive) pos, ConstRef(uint) index, ConstRef(uint) max_broad_phase_count) {
 
     GLOBAL ATOMIC_UINT &collision_count = *((GLOBAL ATOMIC_UINT *)indirect_command_buffer + 3);
-    const uint STACK_SIZE = 32;
+    const int STACK_SIZE = 32;
     uint stack[STACK_SIZE];
     int stack_ptr = 0;
 
