@@ -382,6 +382,8 @@ void TEMPLATE_LBVH_GPU_NAME::apply_leaves_aabb() {
         LBVH::Refit::kernel_apply_leaves_aabb(lid, lbvh_cpu);
     });
 
+    // fast_format("Root AABB: {}", SimString::AABB_to_string(lbvh_cpu.sa_node_aabb[0]));
+
     // get_command_list().send_and_wait();
     // AABB global1;
     // for (uint vid = 0; vid < lbvh.num_verts_total; vid++) {

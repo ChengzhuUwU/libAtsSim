@@ -139,6 +139,7 @@ inline void kernel_update_vert_aabb(const uint lid, Constant(LbvhArgs) bvh, Poin
     Float3 vert_pos = start_position[vid];
     AABB aabb = AABB(vert_pos) + thickness;
     bvh.sa_node_aabb[bvh.num_inner_nodes + lid] = aabb;
+    bvh.sa_object_idx[bvh.num_inner_nodes + lid] = vid;
 }
 
 inline void kernel_update_face_aabb(const uint lid, Constant(LbvhArgs) bvh, Pointer(Int3) input_face, Pointer(Float3) start_position, const float thickness) {
@@ -147,6 +148,7 @@ inline void kernel_update_face_aabb(const uint lid, Constant(LbvhArgs) bvh, Poin
     Float3 face_pos[3] = {start_position[face[0]], start_position[face[1]], start_position[face[2]]};
     AABB aabb = AABB(face_pos[0], face_pos[1], face_pos[2]) + thickness;
     bvh.sa_node_aabb[bvh.num_inner_nodes + lid] = aabb;
+    bvh.sa_object_idx[bvh.num_inner_nodes + lid] = fid;
 }
 
 inline void kernel_update_edge_aabb(const uint lid, Constant(LbvhArgs) bvh, Pointer(Int2) input_edge, Pointer(Float3) start_position, const float thickness) {
@@ -155,6 +157,7 @@ inline void kernel_update_edge_aabb(const uint lid, Constant(LbvhArgs) bvh, Poin
     Float3 edge_pos[2] = {start_position[edge[0]], start_position[edge[1]]};
     AABB aabb = AABB(edge_pos[0], edge_pos[1]) + thickness;
     bvh.sa_node_aabb[bvh.num_inner_nodes + lid] = aabb;
+    bvh.sa_object_idx[bvh.num_inner_nodes + lid] = eid;
 }
 
 inline void kernel_apply_leaves_aabb(const uint lid, Constant(LbvhArgs) bvh) {

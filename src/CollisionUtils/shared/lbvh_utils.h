@@ -170,7 +170,7 @@ inline void traversal_tree_and_find_overlap_atomic(Constant(LbvhArgs) bvh,
     stack_ptr += 1;
 
     uint loop = 0;
-    do {
+    while (stack_ptr > 0) {
         if (loop++ > 10000) { break; }
 
         stack_ptr -= 1;
@@ -207,8 +207,7 @@ inline void traversal_tree_and_find_overlap_atomic(Constant(LbvhArgs) bvh,
                 }
             }
         }
-
-    } while (stack_ptr > 0);
+    };
 }
 
 }// namespace Query

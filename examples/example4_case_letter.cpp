@@ -1538,7 +1538,7 @@ void CpuSolver::collision_detection() {
 
     obstacle_collision_detection();
 
-    {
+    if (get_scene_params().print_collision_count) {
         get_command_list().send_and_wait();
         fast_format("In Substep {:2} Tet   Obstacle : {:8} -> {} ", get_scene_params().current_substep,
                     obstacle_collision_data_tet
@@ -1557,7 +1557,7 @@ void GpuSolver::collision_detection() {
 
     obstacle_collision_detection();
 
-    {
+    if (get_scene_params().print_collision_count) {
         get_command_list().send_and_wait();
         fast_format("In Substep {:2} Tet   Obstacle : {:8} -> {} ", get_scene_params().current_substep,
                     obstacle_collision_data_tet
@@ -3513,7 +3513,7 @@ int main() {
         get_scene_params().thickness_vv_obstacle = 0.006;
     }
 
-    const uint max_frame = 40;
+    const uint max_frame = 50;
 
     // Synchronous CPU Implementation
     {
